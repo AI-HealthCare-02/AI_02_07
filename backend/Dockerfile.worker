@@ -1,0 +1,30 @@
+﻿# Dockerfile.worker
+# ──────────────────────────────────────────────
+# AI Worker 이미지 (GPU 지원)
+# vLLM, PyTorch 등 무거운 AI 라이브러리 포함
+# ──────────────────────────────────────────────
+
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+# 시스템 의존성 설치
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.13 python3.13-venv python3-pip curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv 설치
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /code
+
+# 의존성 파일 복사 및 설치
+COPY pyproject.toml ./
+RUN uv sync --group ai --no-dev
+
+# Worker 소스 코드 복사
+COPY ai_worker/ /code/ai_worker/
+
+ENV PATH="/code/.venv/bin:$PATH"
+ENV PYTHONPATH="/code"
+
+# Worker 진입점 실행
+CMD ["python", "-m", "ai_worker.main"]

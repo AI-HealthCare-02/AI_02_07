@@ -1,0 +1,66 @@
+# .gitignore
+# ──────────────────────────────────────────────
+# HealthGuide 프로젝트 Git 무시 파일
+# ──────────────────────────────────────────────
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ── 가상환경 (uv) ──
+.venv/
+.python-version
+
+# ── 환경변수 (민감 정보!) ──
+envs/.local.env
+envs/.prod.env
+.env
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Docker ──
+docker-compose.override.yml
+
+# ── 테스트 ──
+htmlcov/
+.coverage
+.pytest_cache/
+
+# ── Mypy ──
+.mypy_cache/
+
+# ── Ruff ──
+.ruff_cache/
+
+# ── 빌드 ──
+dist/
+build/
+*.egg-info/
+
+# ── 데이터 / 모델 ──
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── SSL 인증서 ──
+nginx/certs/*.pem
+
+# ── 로그 ──
+*.log
+logs/
+
+# ── 마이그레이션 (로컬 테스트용은 무시, 실제 마이그레이션은 커밋) ──
+# migrations/ 는 커밋해야 합니다

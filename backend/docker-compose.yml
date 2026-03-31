@@ -1,0 +1,142 @@
+# docker-compose.yml
+# ──────────────────────────────────────────────
+# HealthGuide 전체 서비스 스택
+# docker compose up -d --build 로 실행
+# GPU 사용 시: docker compose --profile gpu up -d --build
+# ──────────────────────────────────────────────
+
+services:
+  # ── PostgreSQL 데이터베이스 ──
+  db:
+    image: postgres:16-alpine
+    container_name: healthguide-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-healthguide}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-healthguide_local_pw}
+      POSTGRES_DB: ${DB_NAME:-healthguide_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-healthguide}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (캐시 + 작업 큐) ──
+  redis:
+    image: redis:7-alpine
+    container_name: healthguide-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI API 서버 ──
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: healthguide-app
+    restart: unless-stopped
+    env_file:
+      - envs/.local.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # 개발 시 소스 코드 핫 리로드를 위해 마운트
+      - ./app:/code/app
+
+  # ── AI Worker (CPU 모드, GPU는 아래 프로필) ──
+  ai_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: healthguide-worker
+    restart: unless-stopped
+    env_file:
+      - envs/.local.env
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./ai_worker:/code/ai_worker
+
+  # ── AI Worker GPU 모드 (--profile gpu) ──
+  ai_worker_gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: healthguide-worker-gpu
+    restart: unless-stopped
+    profiles:
+      - gpu
+    env_file:
+      - envs/.local.env
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    volumes:
+      - ./ai_worker:/code/ai_worker
+
+  # ── vLLM 추론 서버 (GPU 전용) ──
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: healthguide-vllm
+    restart: unless-stopped
+    profiles:
+      - gpu
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    command: >
+      --model ${VLLM_MODEL_NAME:-meta-llama/Llama-3.1-8B-Instruct} --max-model-len 4096 --gpu-memory-utilization 0.9
+    ports:
+      - "8001:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+
+  # ── Nginx 리버스 프록시 ──
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: healthguide-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - app
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

@@ -1,1 +1,25 @@
-﻿
+# ── Python ──
+__pycache__/
+*.py[cod]
+.venv/
+.python-version
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*~
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── 테스트 캐시 ──
+.pytest_cache/
+htmlcov/
+.coverage
+
+# ── 빌드 ──
+dist/
+build/
+*.egg-info/
