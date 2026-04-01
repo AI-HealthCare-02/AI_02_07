@@ -90,8 +90,8 @@ class Settings(BaseSettings):
     # ── AWS S3 ──
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
-    AWS_S3_REGION: str = "ap-northeast-2"
-    AWS_S3_BUCKET_NAME: str = "healthguide-local"
+    AWS_REGION: str = "ap-northeast-2"
+    AWS_S3_BUCKET_NAME: str = "ah-02-07-healthguide"
 
     # ── OpenAI ──
     OPENAI_API_KEY: str = ""
