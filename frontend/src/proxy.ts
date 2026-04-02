@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 // 인증 없이 접근 가능한 경로
 const PUBLIC_PATHS = ["/", "/login", "/signup", "/auth/callback"];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // public 경로는 통과
