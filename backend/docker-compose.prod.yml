@@ -54,17 +54,17 @@ services:
       redis:
         condition: service_healthy
 
-  # ── AI Worker ──
-  ai_worker:
-    image: ${DOCKER_USER}/${DOCKER_REPOSITORY}:worker-${AI_WORKER_VERSION}
-    container_name: healthguide-worker
-    restart: unless-stopped
-    env_file: envs/.prod.env
-    networks:
-      - ws
-    depends_on:
-      redis:
-        condition: service_healthy
+  # ── AI Worker (현재 미사용 - GPU 인스턴스 필요 시 활성화) ──
+  # ai_worker:
+  #   image: ${DOCKER_USER}/${DOCKER_REPOSITORY}:worker-${AI_WORKER_VERSION}
+  #   container_name: healthguide-worker
+  #   restart: unless-stopped
+  #   env_file: envs/.prod.env
+  #   networks:
+  #     - ws
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
 
   # ── Nginx ──
   nginx:

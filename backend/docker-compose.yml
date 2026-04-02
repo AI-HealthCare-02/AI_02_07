@@ -50,6 +50,10 @@ services:
     restart: unless-stopped
     env_file:
       - envs/.local.env
+    environment:
+      # 컨테이너 안에서는 서비스명으로 접근 (localhost 오버라이드)
+      - DB_HOST=db
+      - REDIS_HOST=redis
     ports:
       - "8000:8000"
     depends_on:
@@ -58,8 +62,8 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      # 개발 시 소스 코드 핫 리로드를 위해 마운트
       - ./app:/code/app
+      - ./scripts:/code/scripts
 
   # ── AI Worker (CPU 모드, GPU는 아래 프로필) ──
   ai_worker:
@@ -70,6 +74,9 @@ services:
     restart: unless-stopped
     env_file:
       - envs/.local.env
+    environment:
+      - DB_HOST=db
+      - REDIS_HOST=redis
     depends_on:
       redis:
         condition: service_healthy
@@ -87,6 +94,9 @@ services:
       - gpu
     env_file:
       - envs/.local.env
+    environment:
+      - DB_HOST=db
+      - REDIS_HOST=redis
     depends_on:
       redis:
         condition: service_healthy
