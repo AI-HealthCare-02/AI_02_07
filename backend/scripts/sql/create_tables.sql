@@ -295,7 +295,11 @@ EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
 
 -- ============================================================
--- 13. 의료문서 vLLM 분석 작업
+-- 13. 의료문서 vLLM 분석 작업  ★ 수정: 파일 컬럼 제거
+-- ============================================================
+-- 기존 테이블이 있다면 DROP 후 재생성하거나,
+-- 처음 생성이라면 아래를 사용합니다.
+-- (운영 중이라면 ALTER TABLE로 컬럼 삭제하세요)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS doc_analysis_job (
     job_id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -310,9 +314,9 @@ CREATE TABLE IF NOT EXISTS doc_analysis_job (
                         CHECK (doc_type_grp = 'DOC_TYPE'),
     doc_type_code   VARCHAR(20),
 
-    file_name       VARCHAR(255),
-    file_path       VARCHAR(500),
-    file_size       INTEGER,
+    -- ★ file_name, file_path, file_size 제거
+    -- → uploaded_file + file_entity_map (entity_type_code = 'DOC_JOB') 으로 관리
+
     error_message   TEXT,
     processing_time FLOAT,
     is_deleted      BOOLEAN      NOT NULL DEFAULT FALSE,
@@ -389,7 +393,7 @@ EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
 
 -- ============================================================
--- 15. 의료문서 분석 결과
+-- 15. 의료문서 분석 결과  ★ 수정: 파일 컬럼 제거
 -- ============================================================
 CREATE TABLE IF NOT EXISTS doc_analysis_result (
     doc_result_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -403,9 +407,8 @@ CREATE TABLE IF NOT EXISTS doc_analysis_result (
                            CHECK (doc_type_grp = 'DOC_TYPE'),
     doc_type_code      VARCHAR(20) NOT NULL,
 
-    file_name          VARCHAR(255),
-    file_url           VARCHAR(500),
-    file_size          BIGINT,
+    -- ★ file_name, file_url, file_size 제거
+    -- → uploaded_file + file_entity_map (entity_type_code = 'DOC_RESULT') 으로 관리
 
     ocr_status_grp     VARCHAR(20) NOT NULL DEFAULT 'OCR_STATUS'
                            CHECK (ocr_status_grp = 'OCR_STATUS'),
@@ -423,6 +426,16 @@ CREATE TABLE IF NOT EXISTS doc_analysis_result (
     FOREIGN KEY (ocr_status_grp, ocr_status_code)
         REFERENCES common_code (group_code, code)
 );
+
+DO $$ BEGIN
+    ALTER TABLE doc_analysis_result
+        ADD CONSTRAINT fk_doc_analysis_result_guide
+            FOREIGN KEY (guide_id) REFERENCES health_guide (guide_id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_doc_analysis_result_user
+    ON doc_analysis_result (user_id, is_deleted);
 
 -- guide_id FK (health_guide 가 이 시점에 이미 존재)
 DO $$ BEGIN
@@ -589,8 +602,9 @@ EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
 
 -- ============================================================
--- 22. 알약 이미지 분석 요청
+-- 22. 알약 이미지 분석 요청  ★ 수정: image_url 제거
 -- ============================================================
+
 CREATE TABLE IF NOT EXISTS pill_analysis_request (
     analysis_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -598,7 +612,9 @@ CREATE TABLE IF NOT EXISTS pill_analysis_request (
                          CHECK (source_type_grp = 'PILL_SOURCE'),
     source_type_code VARCHAR(20) NOT NULL,
 
-    image_url    VARCHAR(500) NOT NULL,
+    -- ★ image_url 제거
+    -- → uploaded_file + file_entity_map (entity_type_code = 'PILL_REQUEST') 으로 관리
+    -- → 멀티 이미지(여러 각도 촬영 등) 지원 가능
 
     status_grp   VARCHAR(20) NOT NULL DEFAULT 'PILL_ANALYSIS'
                      CHECK (status_grp = 'PILL_ANALYSIS'),
@@ -615,9 +631,11 @@ CREATE TABLE IF NOT EXISTS pill_analysis_request (
 CREATE INDEX IF NOT EXISTS idx_pill_analysis_request_status
     ON pill_analysis_request (status_code);
 
+
 -- ============================================================
--- 23. 알약 분석 단계
+-- 23. 알약 분석 단계 (pill_analysis_request CASCADE 재생성으로 재정의 필요)
 -- ============================================================
+
 CREATE TABLE IF NOT EXISTS pill_analysis_step (
     step_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     analysis_id  UUID NOT NULL
@@ -645,6 +663,9 @@ CREATE TABLE IF NOT EXISTS pill_analysis_step (
 CREATE INDEX IF NOT EXISTS idx_pill_analysis_step_analysis
     ON pill_analysis_step (analysis_id);
 
+CREATE INDEX IF NOT EXISTS idx_pill_analysis_step_analysis
+    ON pill_analysis_step (analysis_id);
+
 -- ============================================================
 -- 24. 약품 기본 정보
 -- ============================================================
@@ -657,8 +678,9 @@ CREATE TABLE IF NOT EXISTS medicine (
 );
 
 -- ============================================================
--- 25. 알약 분석 결과
+-- 25. 알약 분석 결과 (pill_analysis_request CASCADE 재생성으로 재정의 필요)
 -- ============================================================
+
 CREATE TABLE IF NOT EXISTS pill_analysis_result (
     result_id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     analysis_id  UUID   NOT NULL UNIQUE
@@ -676,6 +698,7 @@ CREATE TABLE IF NOT EXISTS pill_analysis_result (
     FOREIGN KEY (result_status_grp, result_status_code)
         REFERENCES common_code (group_code, code)
 );
+
 
 -- ============================================================
 -- 26. 약품 태그
@@ -750,6 +773,81 @@ CREATE TABLE IF NOT EXISTS medicine_caution (
 
 CREATE INDEX IF NOT EXISTS idx_medicine_caution_medicine
     ON medicine_caution (medicine_id);
+
+-- ============================================================
+-- 31. 공통 파일 업로드 (S3 멀티파일)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS uploaded_file (
+    file_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id         BIGINT        NOT NULL
+                        REFERENCES users (user_id) ON DELETE CASCADE,
+
+    -- S3 저장 정보
+    original_name   VARCHAR(500)  NOT NULL,
+    stored_name     VARCHAR(500)  NOT NULL,
+    s3_bucket       VARCHAR(200)  NOT NULL,
+    s3_key          VARCHAR(1000) NOT NULL,
+    s3_url          VARCHAR(2000) NOT NULL,
+
+    -- 파일 메타
+    content_type    VARCHAR(200),
+    file_size       BIGINT        NOT NULL DEFAULT 0
+                        CHECK (file_size >= 0),
+    file_extension  VARCHAR(20),
+
+    -- 파일 용도 구분 (공통코드)
+    file_category_grp  VARCHAR(20) NOT NULL DEFAULT 'FILE_CATEGORY'
+                           CHECK (file_category_grp = 'FILE_CATEGORY'),
+    file_category_code VARCHAR(20) NOT NULL,
+
+    -- 상태
+    is_deleted      BOOLEAN       NOT NULL DEFAULT FALSE,
+    deleted_at      TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+
+    FOREIGN KEY (file_category_grp, file_category_code)
+        REFERENCES common_code (group_code, code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_uploaded_file_user
+    ON uploaded_file (user_id, is_deleted);
+CREATE INDEX IF NOT EXISTS idx_uploaded_file_category
+    ON uploaded_file (file_category_code, is_deleted);
+CREATE UNIQUE INDEX IF NOT EXISTS uix_uploaded_file_s3_key
+    ON uploaded_file (s3_bucket, s3_key);
+
+
+-- ============================================================
+-- 32. 파일-엔티티 매핑 (다대다 — 멀티파일 지원)
+-- ============================================================
+-- entity_type: 어떤 테이블과 연결되는지 (DOC_JOB, DOC_RESULT, PILL_REQUEST, GUIDE, CHAT 등)
+-- entity_id  : 해당 테이블의 PK 값
+-- ============================================================
+CREATE TABLE IF NOT EXISTS file_entity_map (
+    map_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    file_id      BIGINT       NOT NULL
+                     REFERENCES uploaded_file (file_id) ON DELETE CASCADE,
+
+    entity_type_grp  VARCHAR(20) NOT NULL DEFAULT 'FILE_ENTITY'
+                         CHECK (entity_type_grp = 'FILE_ENTITY'),
+    entity_type_code VARCHAR(20) NOT NULL,
+
+    entity_id    BIGINT       NOT NULL,
+
+    sort_order   INT          NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+    FOREIGN KEY (entity_type_grp, entity_type_code)
+        REFERENCES common_code (group_code, code),
+
+    -- 같은 엔티티에 같은 파일 중복 매핑 방지
+    UNIQUE (file_id, entity_type_code, entity_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_entity_map_entity
+    ON file_entity_map (entity_type_code, entity_id);
+CREATE INDEX IF NOT EXISTS idx_file_entity_map_file
+    ON file_entity_map (file_id);
 
 
 -- ============================================================

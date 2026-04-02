@@ -36,7 +36,9 @@ INSERT INTO common_group_code (group_code, group_name, description, is_used, cre
     ('PILL_STEP_STATUS', '알약 단계 상태',          '알약 분석 각 단계 상태',          TRUE, NOW()),
     ('PILL_RESULT',      '알약 결과 상태',          '알약 분석 최종 결과 상태',        TRUE, NOW()),
     ('TAG_TYPE',         '태그 유형',             '약품 태그 분류',                  TRUE, NOW()),
-    ('SEVERITY',         '주의 강도',             '약품 주의사항 심각도',             TRUE, NOW())
+    ('SEVERITY',         '주의 강도',             '약품 주의사항 심각도',             TRUE, NOW()),
+    ('FILE_CATEGORY',    '파일 카테고리',         '업로드 파일 용도 구분',            TRUE, NOW()),
+    ('FILE_ENTITY',      '파일 엔티티 유형',       '파일이 연결된 엔티티 종류',          TRUE, NOW())
 ON CONFLICT (group_code) DO UPDATE SET
     group_name  = EXCLUDED.group_name,
     description = EXCLUDED.description,
@@ -205,7 +207,21 @@ INSERT INTO common_code (group_code, code, code_name, sort_order, is_used, creat
     ('SEVERITY', 'LOW',      '낮음', 1, TRUE, NOW()),
     ('SEVERITY', 'MODERATE', '보통', 2, TRUE, NOW()),
     ('SEVERITY', 'HIGH',     '높음', 3, TRUE, NOW()),
-    ('SEVERITY', 'CRITICAL', '위험', 4, TRUE, NOW())
+    ('SEVERITY', 'CRITICAL', '위험', 4, TRUE, NOW()),
+
+    -- FILE_CATEGORY
+    ('FILE_CATEGORY', 'DOC_MEDICAL',      '의료문서',     1, TRUE, NOW()),
+    ('FILE_CATEGORY', 'DOC_PRESCRIPTION', '처방전',          2, TRUE, NOW()),
+    ('FILE_CATEGORY', 'IMG_PILL',         '알약 이미지',   3, TRUE, NOW()),
+    ('FILE_CATEGORY', 'IMG_GENERAL',      '일반 이미지',   4, TRUE, NOW()),
+    ('FILE_CATEGORY', 'DOC_OTHER',        '기타 문서',     5, TRUE, NOW()),
+
+    -- FILE_ENTITY
+    ('FILE_ENTITY', 'DOC_JOB',     '의료문서 분석 작업', 1, TRUE, NOW()),
+    ('FILE_ENTITY', 'DOC_RESULT',  '의료문서 분석 결과', 2, TRUE, NOW()),
+    ('FILE_ENTITY', 'PILL_REQUEST','알약 분석 요청',   3, TRUE, NOW()),
+    ('FILE_ENTITY', 'GUIDE',       '복약 가이드',       4, TRUE, NOW()),
+    ('FILE_ENTITY', 'CHAT',        '채팅',               5, TRUE, NOW())
 
 ON CONFLICT (group_code, code) DO UPDATE SET
     code_name  = EXCLUDED.code_name,
