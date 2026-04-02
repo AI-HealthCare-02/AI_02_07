@@ -1,20 +1,27 @@
-# ── Python ──
-__pycache__/
-*.py[cod]
-.venv/
-.python-version
+# ──────────────────────────────────────────────
+# AI_02_07 루트 .gitignore
+# 각 폴더별 세부 설정은 backend/.gitignore, frontend/.gitignore 참고
+# ──────────────────────────────────────────────
 
 # ── IDE ──
 .idea/
 .vscode/
 *.swp
+*.swo
 *~
 
 # ── OS ──
 .DS_Store
 Thumbs.db
 
-# ── 테스트 캐시 ──
+# ── Python 공통 ──
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.python-version
+
+# ── 테스트 ──
 .pytest_cache/
 htmlcov/
 .coverage
@@ -23,3 +30,7 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# ── 로그 ──
+*.log
+logs/
