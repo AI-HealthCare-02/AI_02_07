@@ -1,4 +1,4 @@
-﻿# ===========================================================
+# ===========================================================
 # app/services/db_init_service.py
 # 서버 시작 시 DDL 생성 및 공통코드 시딩을 Raw SQL로 실행
 #
@@ -14,24 +14,27 @@ from tortoise import Tortoise
 
 logger = logging.getLogger(__name__)
 
-# SQL 파일 경로 (프로젝트 루트 기준)
-# main.py 에서 호출하므로 CWD = 프로젝트 루트
-_BASE_DIR = Path(__file__).resolve().parent.parent.parent  # → AH_02_07/
-_DDL_FILE = _BASE_DIR / "scripts" / "sql" / "create_tables.sql"
-_SEED_FILE = _BASE_DIR / "scripts" / "sql" / "seed_common_codes.sql"
+# SQL 파일 경로 후보
+# - 로컬: backend/scripts/sql/  (Path(__file__)에서 3단계 위 = backend/)
+# - Docker: /code/scripts/sql/  (WORKDIR /code 기준)
+_BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+def _resolve_sql_path(filename: str) -> Path:
+    """
+    로컬/Docker 환경 모두에서 SQL 파일 경로를 찾습니다.
+    """
+    candidates = [
+        _BASE_DIR / "scripts" / "sql" / filename,     # 로컬 (backend/)
+        Path("/code") / "scripts" / "sql" / filename, # Docker (/code/)
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[0]
 
 
 async def _execute_sql_file(filepath: Path, label: str) -> None:
-    """
-    SQL 파일 하나를 읽어서 PostgreSQL 커넥션으로 실행합니다.
-
-    Parameters
-    ----------
-    filepath : Path
-        실행할 .sql 파일의 절대 경로
-    label : str
-        로그에 표시할 작업 이름 (예: 'DDL', 'SEED')
-    """
     if not filepath.exists():
         logger.warning("[DB Init] %s 파일이 없습니다: %s", label, filepath)
         return
@@ -41,10 +44,8 @@ async def _execute_sql_file(filepath: Path, label: str) -> None:
         logger.warning("[DB Init] %s 파일이 비어 있습니다: %s", label, filepath)
         return
 
-    # Tortoise asyncpg 백엔드는 execute_script 미구현
-    # asyncpg 로우 커넥션을 직접 사용해야 멀티 구문 + DEFAULT 정상 처리
     conn = Tortoise.get_connection("default")
-    raw_conn = conn._pool or conn._connection  # pool 또는 단일 커넥션
+    raw_conn = conn._pool or conn._connection
 
     try:
         await raw_conn.execute(sql)
@@ -55,32 +56,16 @@ async def _execute_sql_file(filepath: Path, label: str) -> None:
 
 
 async def run_ddl() -> None:
-    """
-    create_tables.sql 을 실행하여 모든 테이블을 생성합니다.
-    IF NOT EXISTS 덕분에 이미 존재하는 테이블은 건너뜁니다.
-    """
     logger.info("[DB Init] DDL 실행 시작...")
-    await _execute_sql_file(_DDL_FILE, "DDL")
+    await _execute_sql_file(_resolve_sql_path("create_tables.sql"), "DDL")
 
 
 async def run_seed_common_codes() -> None:
-    """
-    seed_common_codes.sql 을 실행하여 공통코드를 시딩합니다.
-    ON CONFLICT 덕분에 이미 존재하는 코드는 업데이트만 합니다.
-    """
     logger.info("[DB Init] 공통코드 시딩 시작...")
-    await _execute_sql_file(_SEED_FILE, "SEED")
+    await _execute_sql_file(_resolve_sql_path("seed_common_codes.sql"), "SEED")
 
 
 async def initialize_database() -> None:
-    """
-    DDL → 공통코드 순서로 실행합니다.
-    main.py 의 startup 이벤트에서 호출하세요.
-
-    Usage:
-        from app.services.db_init_service import initialize_database
-        await initialize_database()
-    """
     await run_ddl()
     await run_seed_common_codes()
     logger.info("[DB Init] 데이터베이스 초기화 완료")

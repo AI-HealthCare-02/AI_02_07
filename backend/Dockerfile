@@ -28,6 +28,7 @@ COPY --from=builder /build/.venv /code/.venv
 
 # 앱 소스코드 복사
 COPY app/ /code/app/
+COPY scripts/ /code/scripts/
 # migrations 폴더가 없어도 빌드 성공
 RUN mkdir -p /code/migrations
 
