@@ -11,6 +11,8 @@ import {
   animate,
   MotionValue,
 } from "framer-motion";
+import { useAuthStore } from "@/store/auth-store";
+import UserProfile from "@/components/layout/UserProfile";
 
 // ── SVG 아이콘 ────────────────────────────────────────────
 function IconChat({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
@@ -268,6 +270,7 @@ function OrbItem({ orb, pX, pY }: { orb: (typeof ORBS)[number]; pX: MotionValue<
 // ── 메인 컴포넌트 ─────────────────────────────────────────
 export default function HeroSection() {
   const pathname = usePathname();
+  const { isAuthenticated } = useAuthStore();
   const containerRef = useRef<HTMLDivElement>(null);
 
   const mouseX = useMotionValue(0);
@@ -392,12 +395,16 @@ export default function HeroSection() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8 }}
           >
-            <Link
-              href="/login"
-              className="rounded-full border border-teal-500/30 bg-teal-500/5 px-5 py-2 text-sm font-medium text-teal-300 backdrop-blur-sm transition-all hover:border-teal-400/60 hover:bg-teal-500/15"
-            >
-              로그인
-            </Link>
+            {isAuthenticated ? (
+              <UserProfile />
+            ) : (
+              <Link
+                href="/login"
+                className="rounded-full border border-teal-500/30 bg-teal-500/5 px-5 py-2 text-sm font-medium text-teal-300 backdrop-blur-sm transition-all hover:border-teal-400/60 hover:bg-teal-500/15"
+              >
+                로그인
+              </Link>
+            )}
           </motion.div>
         </header>
 
@@ -453,26 +460,42 @@ export default function HeroSection() {
             실시간으로 건강 상담을 제공합니다.
           </motion.p>
 
-          {/* CTA — 로그인 단일 버튼 */}
+          {/* CTA */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.85 }}
             className="mb-16"
           >
-            <Link href="/login">
-              <motion.div
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.97 }}
-                className="cursor-pointer rounded-full px-10 py-4 text-sm font-semibold text-white"
-                style={{
-                  background: "linear-gradient(135deg, #14b8a6, #06b6d4)",
-                  boxShadow: "0 0 30px rgba(20,184,166,0.35), inset 0 1px 0 rgba(255,255,255,0.15)",
-                }}
-              >
-                지금 시작하기
-              </motion.div>
-            </Link>
+            {isAuthenticated ? (
+              <Link href="/chat">
+                <motion.div
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="cursor-pointer rounded-full px-10 py-4 text-sm font-semibold text-white"
+                  style={{
+                    background: "linear-gradient(135deg, #14b8a6, #06b6d4)",
+                    boxShadow: "0 0 30px rgba(20,184,166,0.35), inset 0 1px 0 rgba(255,255,255,0.15)",
+                  }}
+                >
+                  AI 상담 시작하기
+                </motion.div>
+              </Link>
+            ) : (
+              <Link href="/login">
+                <motion.div
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="cursor-pointer rounded-full px-10 py-4 text-sm font-semibold text-white"
+                  style={{
+                    background: "linear-gradient(135deg, #14b8a6, #06b6d4)",
+                    boxShadow: "0 0 30px rgba(20,184,166,0.35), inset 0 1px 0 rgba(255,255,255,0.15)",
+                  }}
+                >
+                  지금 시작하기
+                </motion.div>
+              </Link>
+            )}
           </motion.div>
 
           {/* 통계 */}
