@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuthStore } from "@/store/auth-store";
+import UserProfile from "@/components/layout/UserProfile";
 
 const NAV_ITEMS = [
   { href: "/chat",  icon: "🤖", label: "AI 상담" },
@@ -12,6 +14,7 @@ const NAV_ITEMS = [
 
 export default function Header() {
   const pathname = usePathname();
+  const { isAuthenticated } = useAuthStore();
 
   return (
     <>
@@ -38,12 +41,17 @@ export default function Header() {
             ))}
           </nav>
 
-          <Link
-            href="/login"
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            로그인
-          </Link>
+          {/* 로그인 상태에 따라 전환 */}
+          {isAuthenticated ? (
+            <UserProfile />
+          ) : (
+            <Link
+              href="/login"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              로그인
+            </Link>
+          )}
         </div>
       </header>
 

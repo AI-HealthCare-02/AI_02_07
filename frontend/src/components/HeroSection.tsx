@@ -107,7 +107,137 @@ const NAV_ITEMS = [
   { href: "/docs",  label: "의료 문서",  Icon: IconDoc   },
 ];
 
-// ── 카운터 훅 ─────────────────────────────────────────────
+// ── EKG 모니터 (Canvas 기반) ─────────────────────────────
+// 왼쪽→오른쪽으로 빠르게 흘러가며 랜덤 진폭, 끝에서 즉시 리셋
+const EKG_TEMPLATE = [
+  0, 0, 0, 0,
+  -4, 0, 2, 0,
+  0, 0,
+  -55, 32, -16, 0,
+  0,
+  6, 12, 6, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+
+function generateWave(cycles: number): number[] {
+  const result: number[] = [];
+  for (let i = 0; i < cycles; i++) {
+    const amp  = 0.8 + Math.random() * 0.6;
+    const flip = Math.random() > 0.5 ? 1 : -1;
+    EKG_TEMPLATE.forEach((v) => result.push(v * amp * flip));
+  }
+  return result;
+}
+
+function EKGMonitor() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameRef  = useRef<number>(0);
+  const stateRef  = useRef({ x: 0, waveIdx: 0, wave: generateWave(20), prevY: 0, stopped: false });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const W  = canvas.width;
+    const H  = canvas.height;
+    const CY = H / 2;
+    const SPEED    = 6.3;
+    const CURSOR_W = 36;
+
+    const drawGrid = (x0 = 0, x1 = W) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, 0, x1 - x0, H);
+      ctx.clip();
+      ctx.clearRect(x0, 0, x1 - x0, H);
+      ctx.strokeStyle = "rgba(20,184,166,0.07)";
+      ctx.lineWidth = 0.4;
+      for (let gx = Math.floor(x0 / 16) * 16; gx <= x1; gx += 16) {
+        ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+      }
+      for (let gy = 0; gy <= H; gy += 16) {
+        ctx.beginPath(); ctx.moveTo(x0, gy); ctx.lineTo(x1, gy); ctx.stroke();
+      }
+      ctx.strokeStyle = "rgba(20,184,166,0.13)";
+      ctx.lineWidth = 0.6;
+      for (let gx = Math.floor(x0 / 80) * 80; gx <= x1; gx += 80) {
+        ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+      }
+      for (let gy = 0; gy <= H; gy += 80) {
+        ctx.beginPath(); ctx.moveTo(x0, gy); ctx.lineTo(x1, gy); ctx.stroke();
+      }
+      ctx.restore();
+    };
+
+    drawGrid();
+    stateRef.current.prevY = CY;
+
+    const tick = () => {
+      const s = stateRef.current;
+      if (s.stopped) {
+        frameRef.current = requestAnimationFrame(tick);
+        return;
+      }
+
+      const x = s.x;
+      drawGrid(x, Math.min(x + CURSOR_W, W));
+
+      const wv = s.wave[s.waveIdx % s.wave.length];
+      const ny = CY + wv * 2.0;
+      const px = Math.max(0, x - SPEED);
+      const py = s.prevY;
+
+      ctx.shadowColor = "rgba(20,184,166,0.7)";
+      ctx.shadowBlur  = 6;
+      ctx.strokeStyle = "rgba(20,184,166,0.20)";
+      ctx.lineWidth   = 3;
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, ny); ctx.stroke();
+
+      ctx.shadowBlur  = 3;
+      ctx.strokeStyle = "rgba(20,184,166,0.55)";
+      ctx.lineWidth   = 1.5;
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, ny); ctx.stroke();
+      ctx.shadowBlur  = 0;
+
+      ctx.beginPath();
+      ctx.arc(x, ny, 1.8, 0, Math.PI * 2);
+      ctx.fillStyle   = "rgba(20,184,166,0.75)";
+      ctx.shadowColor = "rgba(20,184,166,0.9)";
+      ctx.shadowBlur  = 8;
+      ctx.fill();
+      ctx.shadowBlur  = 0;
+
+      s.prevY    = ny;
+      s.x       += SPEED;
+      s.waveIdx += 1;
+
+      // 1사이클 완료 시 멈춤
+      if (s.x >= W) {
+        s.x       = W;
+        s.stopped = true;
+      }
+
+      frameRef.current = requestAnimationFrame(tick);
+    };
+
+    frameRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameRef.current);
+  }, []);
+
+  return (
+    <div className="pointer-events-none absolute top-1/2 left-0 right-0 -translate-y-1/2 px-0">
+      <canvas
+        ref={canvasRef}
+        width={1400}
+        height={100}
+        className="w-full h-auto opacity-15"
+      />
+    </div>
+  );
+}
+
 function useCounter(target: number, duration = 2) {
   const [value, setValue] = useState(0);
   useEffect(() => {
@@ -211,12 +341,8 @@ export default function HeroSection() {
         }}
       />
 
-      {/* 스캔라인 */}
-      <motion.div
-        className="pointer-events-none absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal-400/40 to-transparent"
-        animate={{ top: ["0%", "100%"] }}
-        transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-      />
+      {/* EKG 모니터 */}
+      <EKGMonitor />
 
       {/* ── 콘텐츠 ── */}
       <div className="relative z-20 flex min-h-screen flex-col pb-16 lg:pb-0">

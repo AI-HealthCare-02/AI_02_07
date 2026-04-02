@@ -30,6 +30,12 @@ export const useAuthStore = create<AuthState>()(
 
       clearAuth: () => {
         localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        // 미들웨어용 쿠키 삭제
+        if (typeof document !== "undefined") {
+          document.cookie = "access_token=; path=/; max-age=0";
+          document.cookie = "refresh_token=; path=/; max-age=0";
+        }
         set({ user: null, accessToken: null, isAuthenticated: false });
       },
     }),

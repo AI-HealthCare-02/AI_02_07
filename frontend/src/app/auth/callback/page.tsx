@@ -45,6 +45,12 @@ export default function AuthCallbackPage() {
     localStorage.setItem("access_token", accessToken);
     if (refreshToken) localStorage.setItem("refresh_token", refreshToken);
 
+    // 미들웨어에서 읽을 수 있도록 쿠키에도 저장
+    document.cookie = `access_token=${accessToken}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
+    if (refreshToken) {
+      document.cookie = `refresh_token=${refreshToken}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
+    }
+
     apiClient
       .get<ApiResponse<UserInfo>>("/api/v1/users/me")
       .then(({ data }) => {
