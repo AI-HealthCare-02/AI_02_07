@@ -175,11 +175,11 @@ class KakaoOAuthProvider(OAuthProvider):
 
         if not provider_id:
             raise ValueError("카카오에서 사용자 ID를 받지 못했습니다.")
+
+        # 이메일 미제공 시 카카오 ID 기반 임시 이메일 생성
         if not email:
-            raise ValueError(
-                "카카오에서 이메일을 받지 못했습니다. "
-                "카카오 개발자 콘솔에서 이메일 동의 항목을 필수로 설정해주세요."
-            )
+            email = f"kakao_{provider_id}@kakao.healthguide.local"
+            logger.warning(f"카카오 이메일 미제공, 임시 이메일 사용: {email}")
 
         logger.info(f"카카오 사용자 정보 조회 성공: provider_id={provider_id}")
 

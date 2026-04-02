@@ -28,9 +28,8 @@ COPY --from=builder /build/.venv /code/.venv
 
 # 앱 소스코드 복사
 COPY app/ /code/app/
-COPY migrations/ /code/migrations/ 
-# migrations 폴더가 없으면 빌드 실패 방지를 위해 아래 RUN으로 대체 가능
-# RUN mkdir -p /code/migrations
+# migrations 폴더가 없어도 빌드 성공
+RUN mkdir -p /code/migrations
 
 # PATH에 가상환경 bin 추가
 ENV PATH="/code/.venv/bin:$PATH"
