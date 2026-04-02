@@ -67,7 +67,7 @@ def create_app() -> FastAPI:
         app,
         db_url=settings.database_url,
         modules={"models": MODELS},
-        generate_schemas=settings.APP_ENV != "production",
+        generate_schemas=False,  # Raw SQL DDL이 스키마를 관리합니다
         add_exception_handlers=True,
     )
 
@@ -95,16 +95,17 @@ def create_app() -> FastAPI:
         # await _seed_default_ai_settings()
         # logger.info("✅ AI 기본 설정 확인 완료")
 
-        # 2) DDL + 공통코드 시딩 (Raw SQL)
+        # DDL + 공통코드 시딩 (Raw SQL)
+        db_initialized = False
         try:
             from app.services.db_init_service import initialize_database
-
             await initialize_database()
+            db_initialized = True
         except Exception as e:
             logger.error("[Startup] DB 초기화 실패: %s", e)
-            # DDL 실패해도 서버는 일단 띄움 (이미 테이블이 있을 수 있으므로)
 
-        await _seed_tester_account()
+        if db_initialized:
+            await _seed_tester_account()
 
     # ──────────────────────────────────────────
     # Shutdown 이벤트
