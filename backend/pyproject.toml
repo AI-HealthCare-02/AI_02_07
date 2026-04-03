@@ -16,6 +16,7 @@ dependencies = [
     "pydantic-settings>=2.7",
     "redis>=5.2",
     "python-dotenv>=1.0",
+    "tzdata>=2024.1",  # Windows 타임존 데이터 (Linux/Mac에는 시스템 제공)
 ]
 
 # ── 의존성 그룹: uv sync --group <name> 으로 선택 설치 ──
@@ -55,12 +56,16 @@ dev = [
     "httpx>=0.28",             # 테스트 클라이언트
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu" },
+]
 
-[tool.hatch.build.targets.wheel]
-packages = ["app", "ai_worker"]
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 
 # ── Ruff (린터 + 포매터) 설정 ──
 [tool.ruff]
