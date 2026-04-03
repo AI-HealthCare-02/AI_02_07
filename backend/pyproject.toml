@@ -56,16 +56,6 @@ dev = [
     "httpx>=0.28",             # 테스트 클라이언트
 ]
 
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cpu" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
 
 # ── Ruff (린터 + 포매터) 설정 ──
 [tool.ruff]
