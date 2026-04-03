@@ -36,18 +36,7 @@ async def _execute_sql_file(filepath: Path, label: str) -> None:
     conn = Tortoise.get_connection("default")
 
     try:
-        # pool 모드 (Docker, 멀티 워커)
-        if hasattr(conn, "_pool") and conn._pool is not None:
-            async with conn._pool.acquire() as raw_conn:
-                await raw_conn.execute(sql)
-        # 단일 커넥션 모드 (로컬 개발)
-        elif hasattr(conn, "_connection") and conn._connection is not None:
-            await conn._connection.execute(sql)
-        else:
-            # pool/connection 모두 없을 때 — acquire로 새 커넥션 획득
-            async with conn.acquire_connection() as raw_conn:
-                await raw_conn.execute(sql)
-
+        await conn.execute_script(sql)
         logger.info("[DB Init] %s 실행 완료: %s", label, filepath.name)
     except Exception as e:
         logger.error("[DB Init] %s 실행 실패: %s\n%s", label, filepath.name, e)
