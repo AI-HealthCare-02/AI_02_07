@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 # ── 의존성 그룹: uv sync --group <name> 으로 선택 설치 ──
-[project.optional-dependencies]
+[dependency-groups]
 app = [
     # FastAPI 서버 관련
     "fastapi>=0.115",

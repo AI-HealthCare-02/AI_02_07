@@ -16,7 +16,7 @@ WORKDIR /build
 COPY pyproject.toml ./
 
 # app 그룹 의존성 설치 (가상환경을 /build/.venv 에 생성)
-RUN uv sync --extra app --no-dev
+RUN uv sync --group app --no-dev
 
 # ── Stage 2: 런타임 이미지 ──
 FROM python:3.13-slim AS runtime
