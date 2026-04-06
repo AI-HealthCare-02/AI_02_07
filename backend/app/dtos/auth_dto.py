@@ -1,4 +1,4 @@
-﻿# app/dtos/auth_dto.py
+# app/dtos/auth_dto.py
 # ──────────────────────────────────────────────
 # 인증 관련 DTO — OAuth 전용
 #
@@ -10,7 +10,7 @@
 #      code → access_token 교환 → 사용자 정보 조회 → JWT 발급
 # ──────────────────────────────────────────────
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
 class OAuthLoginUrlResponseDTO(BaseModel):

@@ -1,4 +1,4 @@
-﻿# app/services/error_log_service.py
+# app/services/error_log_service.py
 # ──────────────────────────────────────────────
 # 시스템 오류 로그 서비스
 # API 에러 발생 시 DB에 로그를 기록합니다.

@@ -1,4 +1,4 @@
-﻿# ===========================================================
+# ===========================================================
 # app/services/common_code_service.py
 # 공통코드 조회 · 검증 · 캐시 서비스
 #
@@ -9,7 +9,6 @@
 
 import json
 import logging
-from typing import Optional
 
 from tortoise import Tortoise
 
@@ -82,7 +81,7 @@ async def get_codes_by_group(group_code: str) -> list[dict]:
     return rows
 
 
-async def get_code_name(group_code: str, code: str) -> Optional[str]:
+async def get_code_name(group_code: str, code: str) -> str | None:
     """
     특정 코드의 한글 이름을 반환합니다.
 
@@ -105,8 +104,7 @@ async def get_code_name(group_code: str, code: str) -> Optional[str]:
     # 2) DB 조회
     conn = Tortoise.get_connection("default")
     rows = await conn.execute_query_dict(
-        "SELECT code_name FROM common_code "
-        "WHERE group_code = $1 AND code = $2 AND is_used = TRUE",
+        "SELECT code_name FROM common_code WHERE group_code = $1 AND code = $2 AND is_used = TRUE",
         [group_code, code],
     )
 
@@ -136,9 +134,7 @@ async def validate_common_code(group_code: str, code: str) -> bool:
     """
     conn = Tortoise.get_connection("default")
     rows = await conn.execute_query_dict(
-        "SELECT 1 FROM common_code "
-        "WHERE group_code = $1 AND code = $2 AND is_used = TRUE "
-        "LIMIT 1",
+        "SELECT 1 FROM common_code WHERE group_code = $1 AND code = $2 AND is_used = TRUE LIMIT 1",
         [group_code, code],
     )
     return len(rows) > 0
@@ -155,10 +151,7 @@ async def get_all_groups() -> list[dict]:
     """
     conn = Tortoise.get_connection("default")
     return await conn.execute_query_dict(
-        "SELECT group_code, group_name, description "
-        "FROM common_group_code "
-        "WHERE is_used = TRUE "
-        "ORDER BY group_code"
+        "SELECT group_code, group_name, description FROM common_group_code WHERE is_used = TRUE ORDER BY group_code"
     )
 
 

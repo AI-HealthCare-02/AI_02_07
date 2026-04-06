@@ -1,4 +1,4 @@
-﻿# app/core/security.py
+# app/core/security.py
 # ──────────────────────────────────────────────
 # JWT 토큰 생성 / 검증 유틸리티
 #
@@ -9,10 +9,10 @@
 # 관리자(admin_users) 비밀번호가 필요하면
 # admin 서비스에서 별도 passlib 사용을 권장합니다.
 # ──────────────────────────────────────────────
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from jose import JWTError, jwt
+from jose import jwt
 
 from app.core.config import get_settings
 
@@ -42,12 +42,10 @@ def create_access_token(
     if expires_delta is None:
         expires_delta = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    expire = datetime.now(timezone.utc) + expires_delta
+    expire = datetime.now(UTC) + expires_delta
     to_encode.update({"exp": expire, "type": "access"})
 
-    return jwt.encode(
-        to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
-    )
+    return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
 def create_refresh_token(
@@ -67,12 +65,10 @@ def create_refresh_token(
     if expires_delta is None:
         expires_delta = timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
 
-    expire = datetime.now(timezone.utc) + expires_delta
+    expire = datetime.now(UTC) + expires_delta
     to_encode.update({"exp": expire, "type": "refresh"})
 
-    return jwt.encode(
-        to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
-    )
+    return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
 def decode_token(token: str) -> dict[str, Any]:
@@ -92,6 +88,4 @@ def decode_token(token: str) -> dict[str, Any]:
         }
     """
     settings = get_settings()
-    return jwt.decode(
-        token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
-    )
+    return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])

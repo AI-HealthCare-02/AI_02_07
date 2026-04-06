@@ -99,6 +99,7 @@ def create_app() -> FastAPI:
         db_initialized = False
         try:
             from app.services.db_init_service import initialize_database
+
             await initialize_database()
             db_initialized = True
         except Exception as e:
@@ -147,10 +148,7 @@ async def _seed_tester_account() -> None:
 
     existing = await User.get_or_none(email=settings.DEV_TESTER_EMAIL)
     if existing:
-        logger.info(
-            f"  ✅ 테스터 계정 이미 존재: user_id={existing.user_id}, "
-            f"email={existing.email}"
-        )
+        logger.info(f"  ✅ 테스터 계정 이미 존재: user_id={existing.user_id}, email={existing.email}")
         return
 
     tester = await User.create(
@@ -161,10 +159,7 @@ async def _seed_tester_account() -> None:
         provider_code="LOCAL",
         provider_id=None,
     )
-    logger.info(
-        f"  🧪 테스터 계정 생성 완료: user_id={tester.user_id}, "
-        f"email={tester.email}"
-    )
+    logger.info(f"  🧪 테스터 계정 생성 완료: user_id={tester.user_id}, email={tester.email}")
 
 
 # async def _seed_default_ai_settings() -> None:

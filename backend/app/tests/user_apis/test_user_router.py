@@ -1,4 +1,5 @@
 """user.py 라우터 테스트 — 프로필, 생활습관, 알레르기, 기저질환."""
+
 import pytest
 from starlette import status
 

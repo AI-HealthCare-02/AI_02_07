@@ -1,4 +1,4 @@
-﻿# app/apis/v1/auth.py
+# app/apis/v1/auth.py
 # ──────────────────────────────────────────────
 # 인증 API — OAuth 전용 (구글 + 카카오) + 개발용 바이패스
 #
@@ -143,9 +143,7 @@ async def oauth_callback_redirect(
 
     except Exception as e:
         logger.error(f"OAuth 콜백 처리 실패 ({provider}): {e}", exc_info=True)
-        params = urlencode(
-            {"error": "server_error", "message": "로그인 처리 중 오류가 발생했습니다."}
-        )
+        params = urlencode({"error": "server_error", "message": "로그인 처리 중 오류가 발생했습니다."})
         return RedirectResponse(url=f"{frontend_callback_url}?{params}")
 
 
@@ -246,11 +244,7 @@ async def refresh_token(body: RefreshTokenRequestDTO):
 async def dev_login_endpoint(
     email: str | None = Query(
         default=None,
-        description=(
-            "로그인할 이메일 주소. "
-            "비워두면 기본 테스터 계정을 사용합니다. "
-            "예시: tester@healthguide.dev"
-        ),
+        description=("로그인할 이메일 주소. 비워두면 기본 테스터 계정을 사용합니다. 예시: tester@healthguide.dev"),
         examples=["tester@healthguide.dev"],
     ),
 ):
@@ -294,6 +288,4 @@ async def dev_login_as_endpoint(user_id: int):
         POST /api/v1/auth/dev/login-as/1
     """
     tokens = await dev_login_as(user_id=user_id)
-    return ResponseDTO(
-        success=True, message=f"🧪 user_id={user_id} 로 로그인 성공", data=tokens
-    )
+    return ResponseDTO(success=True, message=f"🧪 user_id={user_id} 로 로그인 성공", data=tokens)

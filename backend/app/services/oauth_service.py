@@ -1,4 +1,4 @@
-﻿# app/services/oauth_service.py
+# app/services/oauth_service.py
 # ──────────────────────────────────────────────
 # OAuth 제공자별 토큰 교환 및 사용자 정보 조회 서비스
 #
@@ -343,10 +343,7 @@ def get_oauth_provider(provider_code: str) -> OAuthProvider:
     provider = _PROVIDERS.get(provider_code.upper())
     if provider is None:
         supported = ", ".join(_PROVIDERS.keys())
-        raise ValueError(
-            f"지원하지 않는 OAuth 제공자입니다: {provider_code}. "
-            f"지원 제공자: {supported}"
-        )
+        raise ValueError(f"지원하지 않는 OAuth 제공자입니다: {provider_code}. 지원 제공자: {supported}")
     return provider
 
 

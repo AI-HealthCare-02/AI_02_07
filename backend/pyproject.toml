@@ -64,7 +64,16 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
-ignore = ["E501"]  # line-length는 formatter가 처리
+ignore = [
+    "E501",   # line-length는 formatter가 처리
+    "B008",   # FastAPI Depends/File 패턴 허용
+    "B904",   # except 절 raise from 강제 비활성화
+    "SIM102", # 중첩 if 허용 (가독성)
+    "SIM105", # contextlib.suppress 강제 비활성화
+    "SIM108", # 삼항 연산자 강제 비활성화
+    "UP042",  # StrEnum 강제 비활성화
+    "UP046",  # Generic 타입 파라미터 강제 비활성화
+]
 
 [tool.ruff.format]
 quote-style = "double"

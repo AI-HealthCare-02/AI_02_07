@@ -1,4 +1,4 @@
-﻿# ===========================================================
+# ===========================================================
 # app/models/common_code.py (대안)
 #
 # Tortoise 가 복합 PK 를 지원하지 않으므로,
@@ -7,9 +7,9 @@
 # ● ORM 조회: Raw SQL 또는 group_code + code 필터로 조회
 # ===========================================================
 
-from tortoise import fields, Tortoise
+
+from tortoise import Tortoise, fields
 from tortoise.models import Model
-from typing import Optional
 
 
 class CommonGroupCode(Model):
@@ -58,7 +58,7 @@ class CommonCode(Model):
     # ── 편의 조회 메서드 (Raw SQL 사용) ──
 
     @classmethod
-    async def get_by_group_and_code(cls, group_code: str, code: str) -> Optional[dict]:
+    async def get_by_group_and_code(cls, group_code: str, code: str) -> dict | None:
         """
         복합 PK 로 단일 코드를 조회합니다.
 
@@ -103,9 +103,7 @@ class CommonCode(Model):
         """
         conn = Tortoise.get_connection("default")
         rows = await conn.execute_query_dict(
-            "SELECT 1 FROM common_code "
-            "WHERE group_code = $1 AND code = $2 AND is_used = TRUE "
-            "LIMIT 1",
+            "SELECT 1 FROM common_code WHERE group_code = $1 AND code = $2 AND is_used = TRUE LIMIT 1",
             [group_code, code],
         )
         return len(rows) > 0

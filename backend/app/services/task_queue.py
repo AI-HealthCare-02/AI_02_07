@@ -1,4 +1,4 @@
-﻿# app/services/task_queue.py
+# app/services/task_queue.py
 # ──────────────────────────────────────────────
 # Redis 기반 작업 큐 (API 서버 → AI Worker)
 # Worker가 추론 중 죽더라도 작업이 유실되지 않도록
@@ -14,7 +14,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from app.core.config import get_settings
@@ -86,8 +86,8 @@ async def enqueue_task(
         "status": TaskStatus.PENDING.value,
         "retry_count": 0,
         "max_retries": settings.WORKER_MAX_RETRIES,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
     }
 
     task_json = json.dumps(task_data, ensure_ascii=False)

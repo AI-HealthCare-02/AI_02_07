@@ -7,8 +7,8 @@ from fastapi import APIRouter
 
 # ── 공통 라우터 ──
 from app.apis.v1.auth import router as auth_router
-from app.apis.v1.user import router as user_router
 from app.apis.v1.common_code import router as common_code_router
+from app.apis.v1.user import router as user_router
 from app.core.config import get_settings
 
 # v1 API 라우터

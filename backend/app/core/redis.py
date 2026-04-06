@@ -1,4 +1,4 @@
-﻿# app/core/redis.py
+# app/core/redis.py
 # ──────────────────────────────────────────────
 # Redis 클라이언트 싱글턴 관리
 # 앱 시작/종료 시 연결/해제 처리
@@ -50,8 +50,5 @@ def get_redis() -> aioredis.Redis:
         await redis.set("key", "value")
     """
     if _redis_client is None:
-        raise RuntimeError(
-            "Redis가 초기화되지 않았습니다. "
-            "앱 startup에서 init_redis()를 먼저 호출하세요."
-        )
+        raise RuntimeError("Redis가 초기화되지 않았습니다. 앱 startup에서 init_redis()를 먼저 호출하세요.")
     return _redis_client

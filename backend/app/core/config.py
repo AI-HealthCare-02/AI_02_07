@@ -39,10 +39,7 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         """Tortoise ORM용 PostgreSQL 접속 URL"""
-        return (
-            f"asyncpg://{self.DB_USER}:{self.DB_PASSWORD}"
-            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
-        )
+        return f"asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
     # ── Redis ──
     REDIS_HOST: str = "localhost"
@@ -114,7 +111,7 @@ class Settings(BaseSettings):
     )
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """Settings 싱글턴 반환."""
     return Settings()

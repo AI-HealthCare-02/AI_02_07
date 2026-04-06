@@ -1,4 +1,5 @@
 """auth.py 라우터 테스트 — 현재 OAuth 기반 API 구조에 맞춤."""
+
 import pytest
 from starlette import status
 
@@ -21,6 +22,7 @@ class TestDevLogin:
     async def test_dev_login_default_tester(self, client):
         """기본 테스터 계정으로 개발용 로그인."""
         from app.models.user import User
+
         tester = await User.get_or_none(email="tester@healthguide.dev")
         if tester is None:
             tester = await User.create(
@@ -78,6 +80,7 @@ class TestOAuthCallbackPost:
     async def test_callback_dev_bypass(self, client):
         """dev_bypass 코드로 OAuth 콜백 테스트."""
         from app.models.user import User
+
         await User.get_or_create(
             email="tester@healthguide.dev",
             defaults={
@@ -120,6 +123,7 @@ class TestRefreshToken:
     async def test_refresh_with_access_token(self, client, test_user):
         """액세스 토큰을 리프레시 토큰으로 사용 시 401."""
         from app.core.security import create_access_token
+
         access = create_access_token({"sub": str(test_user.user_id), "role": "user"})
         response = await client.post(
             "/api/v1/auth/refresh",

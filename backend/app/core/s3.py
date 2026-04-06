@@ -1,4 +1,4 @@
-﻿# ===========================================================
+# ===========================================================
 # app/core/s3.py
 # AWS S3 파일 업로드 / 다운로드 / Presigned URL / 삭제
 #
@@ -19,7 +19,7 @@
 import logging
 import uuid
 from datetime import datetime
-from typing import Optional, BinaryIO
+from typing import BinaryIO
 
 import boto3
 from botocore.exceptions import ClientError
@@ -62,7 +62,7 @@ def get_s3_client():
 def generate_s3_key(
     folder: str,
     filename: str,
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
 ) -> str:
     """
     S3 에 저장할 고유 키를 생성합니다.
@@ -165,7 +165,7 @@ async def upload_file(
 def generate_presigned_url(
     s3_key: str,
     expiration: int = 3600,
-) -> Optional[str]:
+) -> str | None:
     """
     S3 객체에 대한 임시 접근 URL을 생성합니다.
 
@@ -211,7 +211,7 @@ def generate_presigned_upload_url(
     s3_key: str,
     content_type: str = "application/octet-stream",
     expiration: int = 3600,
-) -> Optional[dict]:
+) -> dict | None:
     """
     프론트엔드에서 S3로 직접 업로드할 수 있는 Presigned URL을 생성합니다.
 

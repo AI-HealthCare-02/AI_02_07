@@ -1,4 +1,4 @@
-﻿# app/services/user_service.py
+# app/services/user_service.py
 # ──────────────────────────────────────────────
 # 사용자 관련 비즈니스 로직
 # 프로필 수정, 생활습관 CRUD, 알레르기/기저질환 CRUD,
@@ -6,7 +6,7 @@
 # ──────────────────────────────────────────────
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 
@@ -59,9 +59,7 @@ async def get_user_profile(user: User) -> UserProfileResponseDTO:
     )
 
 
-async def update_user_profile(
-    user: User, body: UserProfileUpdateDTO
-) -> UserProfileResponseDTO:
+async def update_user_profile(user: User, body: UserProfileUpdateDTO) -> UserProfileResponseDTO:
     """
     사용자 프로필 수정 (PATCH).
     전달된 필드만 업데이트합니다.
@@ -81,29 +79,23 @@ async def update_user_profile(
         setattr(user, field, value)
 
     await user.save()
-    logger.info(
-        f"프로필 수정: user_id={user.user_id}, fields={list(update_data.keys())}"
-    )
+    logger.info(f"프로필 수정: user_id={user.user_id}, fields={list(update_data.keys())}")
 
     return await get_user_profile(user)
 
 
-async def update_user_agreements(
-    user: User, body: UserAgreementUpdateDTO
-) -> UserProfileResponseDTO:
+async def update_user_agreements(user: User, body: UserAgreementUpdateDTO) -> UserProfileResponseDTO:
     """
     동의 정보 업데이트.
     True → 현재 시각으로 기록, False → NULL로 초기화.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     update_data = body.model_dump(exclude_unset=True)
 
     if "agreed_personal_info" in update_data:
         user.agreed_personal_info = now if update_data["agreed_personal_info"] else None
     if "agreed_sensitive_info" in update_data:
-        user.agreed_sensitive_info = (
-            now if update_data["agreed_sensitive_info"] else None
-        )
+        user.agreed_sensitive_info = now if update_data["agreed_sensitive_info"] else None
     if "agreed_medical_data" in update_data:
         user.agreed_medical_data = now if update_data["agreed_medical_data"] else None
 
@@ -126,7 +118,7 @@ async def delete_user(user: User, body: UserDeleteRequestDTO) -> None:
             detail="탈퇴 확인 문구가 올바르지 않습니다. '탈퇴합니다'를 입력해주세요.",
         )
 
-    user.deleted_at = datetime.now(timezone.utc)
+    user.deleted_at = datetime.now(UTC)
     await user.save()
     logger.info(f"회원 탈퇴: user_id={user.user_id}")
 
@@ -153,9 +145,7 @@ async def get_user_lifestyle(user: User) -> UserLifestyleResponseDTO | None:
     return UserLifestyleResponseDTO.model_validate(lifestyle)
 
 
-async def update_user_lifestyle(
-    user: User, body: UserLifestyleUpdateDTO
-) -> UserLifestyleResponseDTO:
+async def update_user_lifestyle(user: User, body: UserLifestyleUpdateDTO) -> UserLifestyleResponseDTO:
     """
     생활 습관 수정 (PATCH).
     레코드가 없으면 생성, 있으면 업데이트합니다.
@@ -185,9 +175,7 @@ async def update_user_lifestyle(
         for field, value in update_data.items():
             setattr(lifestyle, field, value)
         await lifestyle.save()
-        logger.info(
-            f"생활 습관 수정: user_id={user.user_id}, fields={list(update_data.keys())}"
-        )
+        logger.info(f"생활 습관 수정: user_id={user.user_id}, fields={list(update_data.keys())}")
 
     return UserLifestyleResponseDTO.model_validate(lifestyle)
 
@@ -203,9 +191,7 @@ async def get_user_allergies(user: User) -> list[UserAllergyResponseDTO]:
     return [UserAllergyResponseDTO.model_validate(a) for a in allergies]
 
 
-async def create_user_allergy(
-    user: User, body: UserAllergyCreateDTO
-) -> UserAllergyResponseDTO:
+async def create_user_allergy(user: User, body: UserAllergyCreateDTO) -> UserAllergyResponseDTO:
     """알레르기 단일 추가"""
     # 중복 체크 (DB unique 제약도 있지만, 명확한 에러 메시지를 위해)
     existing = await UserAllergy.get_or_none(user=user, allergy_name=body.allergy_name)
@@ -270,9 +256,7 @@ async def get_user_diseases(user: User) -> list[UserDiseaseResponseDTO]:
     return [UserDiseaseResponseDTO.model_validate(d) for d in diseases]
 
 
-async def create_user_disease(
-    user: User, body: UserDiseaseCreateDTO
-) -> UserDiseaseResponseDTO:
+async def create_user_disease(user: User, body: UserDiseaseCreateDTO) -> UserDiseaseResponseDTO:
     """기저질환 단일 추가"""
     existing = await UserDisease.get_or_none(user=user, disease_name=body.disease_name)
     if existing:

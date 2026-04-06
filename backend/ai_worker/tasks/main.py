@@ -1,4 +1,4 @@
-﻿# ai_worker/main.py
+# ai_worker/main.py
 # ──────────────────────────────────────────────
 # AI Worker 진입점
 #
@@ -18,17 +18,17 @@ import asyncio
 import json
 import signal
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from ai_worker.core.config import get_worker_settings
-from ai_worker.core.logger import setup_logger
-from ai_worker.core.redis_client import close_worker_redis, get_worker_redis
+import ai_worker.tasks.chat_filter  # noqa: F401 — 황보수호
 
 # ── 중요: 작업 핸들러 모듈을 import하여 @register_task 데코레이터가 실행되도록 함 ──
 # 팀원이 새 tasks 모듈을 추가하면 여기에 import를 추가하세요!
 import ai_worker.tasks.medical_doc  # noqa: F401 — 이승원
 import ai_worker.tasks.pill_analysis  # noqa: F401 — 안은지
-import ai_worker.tasks.chat_filter  # noqa: F401 — 황보수호
+from ai_worker.core.config import get_worker_settings
+from ai_worker.core.logger import setup_logger
+from ai_worker.core.redis_client import close_worker_redis, get_worker_redis
 from ai_worker.tasks import TASK_HANDLERS
 
 logger = setup_logger("ai_worker")
@@ -94,13 +94,11 @@ async def _process_task(redis, task_data: dict) -> None:
     result_key = f"{settings.WORKER_RESULT_PREFIX}{task_id}"
     processing_key = f"{settings.WORKER_PROCESSING_PREFIX}{task_id}"
 
-    logger.info(
-        f"작업 처리 시작: {task_id} (type={task_type}, retry={retry_count}/{max_retries})"
-    )
+    logger.info(f"작업 처리 시작: {task_id} (type={task_type}, retry={retry_count}/{max_retries})")
 
     # 상태를 "processing"으로 변경
     task_data["status"] = "processing"
-    task_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    task_data["updated_at"] = datetime.now(UTC).isoformat()
     task_data["worker_id"] = WORKER_ID
     await redis.set(
         meta_key,
@@ -136,23 +134,19 @@ async def _process_task(redis, task_data: dict) -> None:
             "task_type": task_type,
             "status": "completed",
             "result": result,
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }
-        await redis.set(
-            result_key, json.dumps(result_data, ensure_ascii=False), ex=86400
-        )  # 24시간 보관
+        await redis.set(result_key, json.dumps(result_data, ensure_ascii=False), ex=86400)  # 24시간 보관
 
         # 메타 상태 업데이트
         task_data["status"] = "completed"
-        task_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        task_data["updated_at"] = datetime.now(UTC).isoformat()
         await redis.set(meta_key, json.dumps(task_data, ensure_ascii=False), ex=86400)
 
         logger.info(f"✅ 작업 완료: {task_id}")
 
-    except asyncio.TimeoutError:
-        logger.error(
-            f"⏰ 작업 타임아웃: {task_id} ({settings.WORKER_TASK_TIMEOUT}초 초과)"
-        )
+    except TimeoutError:
+        logger.error(f"⏰ 작업 타임아웃: {task_id} ({settings.WORKER_TASK_TIMEOUT}초 초과)")
         await _handle_failure(redis, task_data, "작업 처리 시간 초과")
 
     except Exception as e:
@@ -193,7 +187,7 @@ async def _handle_failure(redis, task_data: dict, error_message: str) -> None:
         # 재시도: retry_count 증가 후 큐에 다시 넣기
         task_data["retry_count"] = retry_count + 1
         task_data["status"] = "retrying"
-        task_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        task_data["updated_at"] = datetime.now(UTC).isoformat()
         task_data["last_error"] = error_message
 
         await redis.set(
@@ -203,21 +197,15 @@ async def _handle_failure(redis, task_data: dict, error_message: str) -> None:
         )
 
         # 큐에 다시 넣기 (약간의 딜레이 후)
-        await asyncio.sleep(
-            min(2**retry_count, 30)
-        )  # 지수 백오프: 1s, 2s, 4s, ... 최대 30s
-        await redis.lpush(
-            settings.WORKER_QUEUE_NAME, json.dumps(task_data, ensure_ascii=False)
-        )
+        await asyncio.sleep(min(2**retry_count, 30))  # 지수 백오프: 1s, 2s, 4s, ... 최대 30s
+        await redis.lpush(settings.WORKER_QUEUE_NAME, json.dumps(task_data, ensure_ascii=False))
 
-        logger.warning(
-            f"🔄 작업 재시도 예정: {task_id} ({retry_count + 1}/{max_retries})"
-        )
+        logger.warning(f"🔄 작업 재시도 예정: {task_id} ({retry_count + 1}/{max_retries})")
 
     else:
         # 최종 실패
         task_data["status"] = "failed"
-        task_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        task_data["updated_at"] = datetime.now(UTC).isoformat()
         task_data["last_error"] = error_message
 
         await redis.set(meta_key, json.dumps(task_data, ensure_ascii=False), ex=86400)
@@ -227,11 +215,9 @@ async def _handle_failure(redis, task_data: dict, error_message: str) -> None:
             "task_type": task_data.get("task_type"),
             "status": "failed",
             "error": error_message,
-            "failed_at": datetime.now(timezone.utc).isoformat(),
+            "failed_at": datetime.now(UTC).isoformat(),
         }
-        await redis.set(
-            result_key, json.dumps(result_data, ensure_ascii=False), ex=86400
-        )
+        await redis.set(result_key, json.dumps(result_data, ensure_ascii=False), ex=86400)
 
         logger.error(f"💀 작업 최종 실패: {task_id} (재시도 {max_retries}회 초과)")
 
@@ -302,7 +288,7 @@ async def _recovery_loop(redis) -> None:
                 timeout=settings.WORKER_RECOVERY_INTERVAL,
             )
             break  # shutdown 이벤트가 set되면 종료
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue  # 타임아웃 → 다시 복구 체크
 
 

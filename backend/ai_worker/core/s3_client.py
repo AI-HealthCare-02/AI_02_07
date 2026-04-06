@@ -1,11 +1,10 @@
-﻿# ai_worker/core/s3_client.py
+# ai_worker/core/s3_client.py
 # ──────────────────────────────────────────────
 # Worker 전용 S3 클라이언트
 # 분석 대상 파일 다운로드용
 # ──────────────────────────────────────────────
 
 import io
-from typing import BinaryIO
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -59,9 +58,7 @@ def download_file_from_s3(s3_key: str) -> bytes:
     return buffer.read()
 
 
-def upload_result_to_s3(
-    data: bytes, s3_key: str, content_type: str = "application/json"
-) -> str:
+def upload_result_to_s3(data: bytes, s3_key: str, content_type: str = "application/json") -> str:
     """
     Worker 처리 결과를 S3에 업로드합니다.
     예: 분석 결과 JSON, 변환된 이미지 등
