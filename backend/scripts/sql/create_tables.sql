@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS users (
     gender_grp    VARCHAR(20)  NOT NULL DEFAULT 'GENDER'
                       CHECK (gender_grp = 'GENDER'),
     gender_code   VARCHAR(20),
-
+    birth_date DATE,
     provider_grp  VARCHAR(20)  NOT NULL DEFAULT 'PROVIDER'
                       CHECK (provider_grp = 'PROVIDER'),
     provider_code VARCHAR(20)  NOT NULL DEFAULT 'LOCAL',

@@ -61,3 +61,5 @@ class OAuthUserInfoDTO(BaseModel):
     email: str  # 이메일
     nickname: str | None = None
     name: str | None = None
+    gender: str | None = None
+    birth_date: str | None = None

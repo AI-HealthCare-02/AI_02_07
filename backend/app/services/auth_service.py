@@ -299,6 +299,8 @@ async def _find_or_create_user(user_info: OAuthUserInfoDTO) -> tuple[User, bool]
         name=user_info.name or user_info.nickname or "사용자",
         provider_code=user_info.provider_code,
         provider_id=user_info.provider_id,
+        gender_code=user_info.gender,
+        birth_date=user_info.birth_date,
     )
     return user, True
 

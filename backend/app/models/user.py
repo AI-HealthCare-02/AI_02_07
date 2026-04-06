@@ -27,6 +27,7 @@ class User(Model):
         max_length=20, default="GENDER", description="고정: GENDER"
     )
     gender_code = fields.CharField(max_length=20, null=True, description="성별 코드")
+    birth_date = fields.DateField(null=True, description="생년월일")
 
     # 가입 경로
     provider_grp = fields.CharField(
