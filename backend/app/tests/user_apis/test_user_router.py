@@ -35,10 +35,11 @@ class TestUserProfile:
         assert response.json()["data"]["agreed_personal_info"] is not None
 
     async def test_delete_me_wrong_confirm(self, client, auth_headers):
-        response = await client.delete(
+        response = await client.request(
+            "DELETE",
             "/api/v1/users/me",
             headers=auth_headers,
-            content='{"confirm_text": "잘못된문구"}',
+            json={"confirm_text": "잘못된문구"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 

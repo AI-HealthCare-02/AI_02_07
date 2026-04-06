@@ -10,6 +10,9 @@ interface UserInfo {
   email: string;
   nickname: string;
   name: string;
+  agreed_personal_info: string | null;
+  agreed_sensitive_info: string | null;
+  agreed_medical_data: string | null;
 }
 
 interface ApiResponse<T> {
@@ -41,7 +44,9 @@ export default function AuthCallbackPage() {
       return;
     }
 
-    // 토큰 저장 후 유저 정보 조회
+    const isNewUser = params.get("is_new_user") === "true";
+    void isNewUser; // 동의 화면에서 통합 처리
+
     localStorage.setItem("access_token", accessToken);
     if (refreshToken) localStorage.setItem("refresh_token", refreshToken);
 
@@ -53,8 +58,31 @@ export default function AuthCallbackPage() {
 
     apiClient
       .get<ApiResponse<UserInfo>>("/api/v1/users/me")
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         setAuth(data.data, accessToken);
+
+        const profile = data.data;
+
+        // 1순위: 동의 미완료 시 동의 화면
+        const hasAgreements =
+          profile.agreed_personal_info &&
+          profile.agreed_sensitive_info &&
+          profile.agreed_medical_data;
+
+        if (!hasAgreements) {
+          router.replace("/agreements");
+          return;
+        }
+
+        // 2순위: lifestyle 미입력 시 헬스정보 화면
+        try {
+          const { data: ls } = await apiClient.get("/api/v1/users/me/lifestyle");
+          if (!ls.data) {
+            router.replace("/health-profile");
+            return;
+          }
+        } catch { /* 무시 */ }
+
         router.replace("/");
       })
       .catch(() => {

@@ -27,6 +27,7 @@ MODELS: list[str] = [
     "app.models.user_lifestyle",  # 사용자 생활 습관 (황보수호)
     "app.models.user_allergy",  # 사용자 알레르기 (황보수호)
     "app.models.user_disease",  # 사용자 기저질환 (황보수호)
+    "app.models.chat",  # 채팅방 · 메시지 · 북마크 (황보수호)
     # ── 관리자 ──
     "app.models.admin",  # 관리자 계정 (황보수호)
 ]

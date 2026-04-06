@@ -32,6 +32,11 @@ export default function UserProfile() {
     router.push("/profile");
   };
 
+  const handleHealthProfile = () => {
+    setOpen(false);
+    router.push("/health-profile");
+  };
+
   if (!user) return null;
 
   // 닉네임 첫 글자로 아바타 생성
@@ -80,6 +85,15 @@ export default function UserProfile() {
           {/* 메뉴 */}
           <div className="py-1">
             <button
+              onClick={handleHealthProfile}
+              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-white/60 transition-colors hover:bg-teal-500/10 hover:text-teal-300"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+              헬스정보 수정
+            </button>
+            <button
               onClick={handleProfile}
               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-white/60 transition-colors hover:bg-teal-500/10 hover:text-teal-300"
             >
@@ -87,7 +101,7 @@ export default function UserProfile() {
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                 <circle cx="12" cy="7" r="4" />
               </svg>
-              정보 수정
+              개인정보
             </button>
             <button
               onClick={handleLogout}
