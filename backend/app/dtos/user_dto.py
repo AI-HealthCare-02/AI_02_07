@@ -26,6 +26,7 @@ class UserProfileResponseDTO(BaseModel):
     nickname: str
     name: str
     gender_code: str | None = None
+    birth_date: date | None = None
     provider_code: str = "LOCAL"
     is_suspended: bool = False
     is_active: bool = True  # computed property
@@ -52,6 +53,7 @@ class UserProfileUpdateDTO(BaseModel):
         max_length=20,
         description="성별 코드 (MALE, FEMALE 등). 공통코드 GENDER 그룹.",
     )
+    birth_date: date | None = Field(default=None, description="생년월일 (YYYY-MM-DD)")
 
 
 class UserAgreementUpdateDTO(BaseModel):

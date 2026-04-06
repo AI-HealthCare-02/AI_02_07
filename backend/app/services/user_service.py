@@ -47,6 +47,7 @@ async def get_user_profile(user: User) -> UserProfileResponseDTO:
         nickname=user.nickname,
         name=user.name,
         gender_code=user.gender_code,
+        birth_date=user.birth_date,
         provider_code=user.provider_code,
         is_suspended=user.is_suspended,
         is_active=user.is_active,
