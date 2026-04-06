@@ -279,6 +279,8 @@ export default function HealthProfilePage() {
               {[
                 { value: "M", label: "남성" },
                 { value: "F", label: "여성" },
+                { value: "MALE", label: "남성" },
+                { value: "FEMALE", label: "여성" },
                 { value: "OTHER", label: "기타" },
               ].map((opt) => (
                 <button
