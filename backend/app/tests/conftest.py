@@ -29,12 +29,15 @@ async def init_db():
     mock_redis.delete = AsyncMock()
     mock_redis.ping = AsyncMock()
     mock_redis.aclose = AsyncMock()
-    mock_redis.scan_iter = AsyncMock(return_value=AsyncMock(__aiter__=lambda s: s, __anext__=AsyncMock(side_effect=StopAsyncIteration)))
+    mock_redis.scan_iter = AsyncMock(
+        return_value=AsyncMock(__aiter__=lambda s: s, __anext__=AsyncMock(side_effect=StopAsyncIteration))
+    )
 
-    with patch("app.core.redis.init_redis", new_callable=AsyncMock, return_value=mock_redis), \
-         patch("app.core.redis.get_redis", return_value=mock_redis), \
-         patch("app.core.redis._redis_client", mock_redis):
-
+    with (
+        patch("app.core.redis.init_redis", new_callable=AsyncMock, return_value=mock_redis),
+        patch("app.core.redis.get_redis", return_value=mock_redis),
+        patch("app.core.redis._redis_client", mock_redis),
+    ):
         await Tortoise.init(
             db_url="sqlite://:memory:",
             modules={"models": MODELS},
@@ -45,7 +48,7 @@ async def init_db():
 
 
 @pytest_asyncio.fixture
-async def client() -> AsyncGenerator[AsyncClient, None]:
+async def client() -> AsyncGenerator[AsyncClient]:
     """Redis를 mock한 상태로 FastAPI 테스트 클라이언트 생성."""
     mock_redis = AsyncMock()
     mock_redis.get = AsyncMock(return_value=None)
@@ -54,11 +57,13 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
     mock_redis.ping = AsyncMock()
     mock_redis.aclose = AsyncMock()
 
-    with patch("app.core.redis.init_redis", new_callable=AsyncMock, return_value=mock_redis), \
-         patch("app.core.redis.get_redis", return_value=mock_redis), \
-         patch("app.core.redis._redis_client", mock_redis):
-
+    with (
+        patch("app.core.redis.init_redis", new_callable=AsyncMock, return_value=mock_redis),
+        patch("app.core.redis.get_redis", return_value=mock_redis),
+        patch("app.core.redis._redis_client", mock_redis),
+    ):
         from app.main import app
+
         async with AsyncClient(transport=ASGITransport(app=app), base_url=TEST_BASE_URL) as ac:
             yield ac
 
@@ -67,6 +72,7 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 async def test_user():
     """테스트용 사용자 생성."""
     from app.models.user import User
+
     user = await User.create(
         email="test_router@healthguide.dev",
         password=None,

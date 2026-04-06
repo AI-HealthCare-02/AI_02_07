@@ -6,7 +6,8 @@
 #   2. tasks/ 폴더에 핸들러 모듈 작성
 # ──────────────────────────────────────────────
 
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 # 작업 핸들러 타입 정의
 # 각 핸들러는 payload(dict)를 받아서 결과(dict)를 반환하는 비동기 함수

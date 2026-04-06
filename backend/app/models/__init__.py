@@ -4,16 +4,15 @@
 # 다른 모듈에서 from app.models import User 형태로 사용 가능
 # ──────────────────────────────────────────────
 # ── 공통 코드 ──
-from app.models.common_code import CommonGroupCode, CommonCode
+# ── 관리자 ──
+from app.models.admin import AdminUser
+from app.models.common_code import CommonCode, CommonGroupCode
 
 # ── 사용자 관련 ──
 from app.models.user import User
-from app.models.user_lifestyle import UserLifestyle
 from app.models.user_allergy import UserAllergy
 from app.models.user_disease import UserDisease
-
-# ── 관리자 ──
-from app.models.admin import AdminUser
+from app.models.user_lifestyle import UserLifestyle
 
 # 팀원들이 추가하는 모델도 여기에 등록
 # from app.models.chat import ChatSession, ChatMessage

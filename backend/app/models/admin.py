@@ -1,4 +1,4 @@
-﻿# app/models/admin.py
+# app/models/admin.py
 # ──────────────────────────────────────────────
 # 관리자 계정 모델 — DDL의 admin_users 테이블에 대응
 # 일반 사용자(users)와 분리된 별도 테이블

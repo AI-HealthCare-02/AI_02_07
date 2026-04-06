@@ -50,6 +50,10 @@ services:
     restart: unless-stopped
     env_file:
       - envs/.local.env
+    environment:
+      # 컨테이너 안에서는 서비스명으로 접근 (localhost 오버라이드)
+      - DB_HOST=db
+      - REDIS_HOST=redis
     ports:
       - "8000:8000"
     depends_on:
@@ -58,68 +62,74 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      # 개발 시 소스 코드 핫 리로드를 위해 마운트
       - ./app:/code/app
+      - ./scripts:/code/scripts
 
   # ── AI Worker (CPU 모드, GPU는 아래 프로필) ──
-  ai_worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    container_name: healthguide-worker
-    restart: unless-stopped
-    env_file:
-      - envs/.local.env
-    depends_on:
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./ai_worker:/code/ai_worker
+  # ai_worker:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.worker
+  #   container_name: healthguide-worker
+  #   restart: unless-stopped
+  #   env_file:
+  #     - envs/.local.env
+  #   environment:
+  #     - DB_HOST=db
+  #     - REDIS_HOST=redis
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./ai_worker:/code/ai_worker
 
-  # ── AI Worker GPU 모드 (--profile gpu) ──
-  ai_worker_gpu:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    container_name: healthguide-worker-gpu
-    restart: unless-stopped
-    profiles:
-      - gpu
-    env_file:
-      - envs/.local.env
-    depends_on:
-      redis:
-        condition: service_healthy
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [ gpu ]
-    volumes:
-      - ./ai_worker:/code/ai_worker
+  # # ── AI Worker GPU 모드 (--profile gpu) ──
+  # ai_worker_gpu:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.worker
+  #   container_name: healthguide-worker-gpu
+  #   restart: unless-stopped
+  #   profiles:
+  #     - gpu
+  #   env_file:
+  #     - envs/.local.env
+  #   environment:
+  #     - DB_HOST=db
+  #     - REDIS_HOST=redis
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [ gpu ]
+  #   volumes:
+  #     - ./ai_worker:/code/ai_worker
 
-  # ── vLLM 추론 서버 (GPU 전용) ──
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: healthguide-vllm
-    restart: unless-stopped
-    profiles:
-      - gpu
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
-    command: >
-      --model ${VLLM_MODEL_NAME:-meta-llama/Llama-3.1-8B-Instruct} --max-model-len 4096 --gpu-memory-utilization 0.9
-    ports:
-      - "8001:8000"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [ gpu ]
+  # # ── vLLM 추론 서버 (GPU 전용) ──
+  # vllm:
+  #   image: vllm/vllm-openai:latest
+  #   container_name: healthguide-vllm
+  #   restart: unless-stopped
+  #   profiles:
+  #     - gpu
+  #   environment:
+  #     - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+  #   command: >
+  #     --model ${VLLM_MODEL_NAME:-meta-llama/Llama-3.1-8B-Instruct} --max-model-len 4096 --gpu-memory-utilization 0.9
+  #   ports:
+  #     - "8001:8000"
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [ gpu ]
 
   # ── Nginx 리버스 프록시 ──
   nginx:

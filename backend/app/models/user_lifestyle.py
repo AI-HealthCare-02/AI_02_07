@@ -1,4 +1,4 @@
-﻿# app/models/user_lifestyle.py
+# app/models/user_lifestyle.py
 # ──────────────────────────────────────────────
 # 사용자 생활 습관 모델 — DDL의 user_lifestyle 테이블에 대응
 # users와 1:1 관계 (user_id가 PK이자 FK)

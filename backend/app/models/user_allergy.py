@@ -1,4 +1,4 @@
-﻿# app/models/user_allergy.py
+# app/models/user_allergy.py
 # ──────────────────────────────────────────────
 # 사용자 알레르기 모델 — DDL의 user_allergies 테이블에 대응
 # users와 1:N 관계

@@ -1,4 +1,4 @@
-﻿# app/services/auth_service.py
+# app/services/auth_service.py
 # ──────────────────────────────────────────────
 # 인증 비즈니스 로직 — OAuth 전용 + 개발용 바이패스
 #
@@ -22,7 +22,7 @@ from app.dtos.auth_dto import (
     TokenResponseDTO,
 )
 from app.models.user import User
-from app.services.oauth_service import get_oauth_provider, get_supported_providers
+from app.services.oauth_service import get_oauth_provider
 
 logger = logging.getLogger(__name__)
 
@@ -141,10 +141,7 @@ async def get_oauth_login_url(provider_code: str) -> OAuthLoginUrlResponseDTO:
                 f"개발용 로그인을 사용하세요: POST /api/v1/auth/dev/login"
             )
             return OAuthLoginUrlResponseDTO(
-                authorization_url=(
-                    f"⚠️ {provider_upper} OAuth 미설정. "
-                    f"POST /api/v1/auth/dev/login 을 사용하세요."
-                ),
+                authorization_url=(f"⚠️ {provider_upper} OAuth 미설정. POST /api/v1/auth/dev/login 을 사용하세요."),
                 provider=provider_upper,
             )
 
@@ -168,15 +165,9 @@ def _is_oauth_configured(provider_upper: str) -> bool:
     """OAuth 클라이언트 ID가 설정되어 있는지 확인."""
     settings = get_settings()
     if provider_upper == "KAKAO":
-        return bool(
-            settings.OAUTH_KAKAO_CLIENT_ID
-            and settings.OAUTH_KAKAO_CLIENT_ID != "your-kakao-rest-api-key"
-        )
+        return bool(settings.OAUTH_KAKAO_CLIENT_ID and settings.OAUTH_KAKAO_CLIENT_ID != "your-kakao-rest-api-key")
     elif provider_upper == "GOOGLE":
-        return bool(
-            settings.OAUTH_GOOGLE_CLIENT_ID
-            and "your-google" not in settings.OAUTH_GOOGLE_CLIENT_ID
-        )
+        return bool(settings.OAUTH_GOOGLE_CLIENT_ID and "your-google" not in settings.OAUTH_GOOGLE_CLIENT_ID)
     return False
 
 
@@ -261,10 +252,7 @@ async def process_oauth_callback(
         is_new_user=is_new_user,
     )
 
-    logger.info(
-        f"OAuth 로그인 성공: user_id={user.user_id}, "
-        f"provider={provider_upper}, is_new={is_new_user}"
-    )
+    logger.info(f"OAuth 로그인 성공: user_id={user.user_id}, provider={provider_upper}, is_new={is_new_user}")
     return tokens
 
 
@@ -299,6 +287,8 @@ async def _find_or_create_user(user_info: OAuthUserInfoDTO) -> tuple[User, bool]
         name=user_info.name or user_info.nickname or "사용자",
         provider_code=user_info.provider_code,
         provider_id=user_info.provider_id,
+        gender_code=user_info.gender,
+        birth_date=user_info.birth_date,
     )
     return user, True
 

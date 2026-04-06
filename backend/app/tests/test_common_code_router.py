@@ -1,4 +1,5 @@
 """common_code.py 라우터 테스트 — 공통코드 조회."""
+
 import pytest
 from starlette import status
 

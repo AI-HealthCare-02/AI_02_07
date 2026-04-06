@@ -1,4 +1,4 @@
-﻿# app/core/dependencies.py
+# app/core/dependencies.py
 # ──────────────────────────────────────────────
 # FastAPI 의존성 주입 (Depends)
 #

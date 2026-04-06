@@ -10,9 +10,7 @@ from app.core.security import create_access_token, create_refresh_token
 class TestJWTTokenRefreshAPI:
     async def test_token_refresh_success(self, client, test_user):
         """유효한 리프레시 토큰으로 갱신 성공."""
-        refresh_token = create_refresh_token(
-            {"sub": str(test_user.user_id), "role": "user"}
-        )
+        refresh_token = create_refresh_token({"sub": str(test_user.user_id), "role": "user"})
 
         response = await client.post(
             "/api/v1/auth/refresh",
@@ -34,9 +32,7 @@ class TestJWTTokenRefreshAPI:
 
     async def test_token_refresh_with_access_token(self, client, test_user):
         """액세스 토큰을 리프레시 토큰 자리에 넣으면 401."""
-        access_token = create_access_token(
-            {"sub": str(test_user.user_id), "role": "user"}
-        )
+        access_token = create_access_token({"sub": str(test_user.user_id), "role": "user"})
 
         response = await client.post(
             "/api/v1/auth/refresh",

@@ -1,4 +1,4 @@
-﻿# ai_worker/core/redis_client.py
+# ai_worker/core/redis_client.py
 # ──────────────────────────────────────────────
 # Worker 전용 Redis 클라이언트
 # 동기(sync) + 비동기(async) 모두 지원

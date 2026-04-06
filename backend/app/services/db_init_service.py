@@ -1,10 +1,5 @@
 # ===========================================================
 # app/services/db_init_service.py
-# 서버 시작 시 DDL 생성 및 공통코드 시딩을 Raw SQL로 실행
-#
-# ● Tortoise ORM의 generate_schemas 대신 Raw SQL을 직접 실행하여
-#   복합 FK, CHECK 제약, 트리거 등 PostgreSQL 고유 기능을 보장합니다.
-# ● IF NOT EXISTS / ON CONFLICT 덕분에 몇 번이든 재실행해도 안전합니다.
 # ===========================================================
 
 import logging
@@ -14,19 +9,13 @@ from tortoise import Tortoise
 
 logger = logging.getLogger(__name__)
 
-# SQL 파일 경로 후보
-# - 로컬: backend/scripts/sql/  (Path(__file__)에서 3단계 위 = backend/)
-# - Docker: /code/scripts/sql/  (WORKDIR /code 기준)
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 def _resolve_sql_path(filename: str) -> Path:
-    """
-    로컬/Docker 환경 모두에서 SQL 파일 경로를 찾습니다.
-    """
     candidates = [
-        _BASE_DIR / "scripts" / "sql" / filename,     # 로컬 (backend/)
-        Path("/code") / "scripts" / "sql" / filename, # Docker (/code/)
+        _BASE_DIR / "scripts" / "sql" / filename,
+        Path("/code") / "scripts" / "sql" / filename,
     ]
     for path in candidates:
         if path.exists():
@@ -45,10 +34,20 @@ async def _execute_sql_file(filepath: Path, label: str) -> None:
         return
 
     conn = Tortoise.get_connection("default")
-    raw_conn = conn._pool or conn._connection
 
     try:
-        await raw_conn.execute(sql)
+        # pool 모드 (Docker, 멀티 워커)
+        if hasattr(conn, "_pool") and conn._pool is not None:
+            async with conn._pool.acquire() as raw_conn:
+                await raw_conn.execute(sql)
+        # 단일 커넥션 모드 (로컬 개발)
+        elif hasattr(conn, "_connection") and conn._connection is not None:
+            await conn._connection.execute(sql)
+        else:
+            # pool/connection 모두 없을 때 — acquire로 새 커넥션 획득
+            async with conn.acquire_connection() as raw_conn:
+                await raw_conn.execute(sql)
+
         logger.info("[DB Init] %s 실행 완료: %s", label, filepath.name)
     except Exception as e:
         logger.error("[DB Init] %s 실행 실패: %s\n%s", label, filepath.name, e)

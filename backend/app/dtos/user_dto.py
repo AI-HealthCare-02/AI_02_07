@@ -1,4 +1,4 @@
-﻿# app/dtos/user_dto.py
+# app/dtos/user_dto.py
 # ──────────────────────────────────────────────
 # 사용자 관련 DTO — DDL 구조에 정확히 대응
 # 사용자 프로필, 생활습관, 알레르기, 기저질환 CRUD
@@ -7,8 +7,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, EmailStr, Field
-
+from pydantic import BaseModel, Field
 
 # ============================================================
 # 사용자 기본 정보
@@ -26,6 +25,7 @@ class UserProfileResponseDTO(BaseModel):
     nickname: str
     name: str
     gender_code: str | None = None
+    birth_date: date | None = None
     provider_code: str = "LOCAL"
     is_suspended: bool = False
     is_active: bool = True  # computed property
@@ -52,6 +52,7 @@ class UserProfileUpdateDTO(BaseModel):
         max_length=20,
         description="성별 코드 (MALE, FEMALE 등). 공통코드 GENDER 그룹.",
     )
+    birth_date: date | None = Field(default=None, description="생년월일 (YYYY-MM-DD)")
 
 
 class UserAgreementUpdateDTO(BaseModel):
@@ -111,9 +112,7 @@ class UserLifestyleUpdateDTO(BaseModel):
     """
 
     height: Decimal | None = Field(default=None, gt=0, le=300, description="키 (cm)")
-    weight: Decimal | None = Field(
-        default=None, gt=0, le=500, description="몸무게 (kg)"
-    )
+    weight: Decimal | None = Field(default=None, gt=0, le=500, description="몸무게 (kg)")
     pregnancy_code: str | None = Field(default=None, max_length=20)
     smoking_code: str | None = Field(default=None, max_length=20)
     drinking_code: str | None = Field(default=None, max_length=20)

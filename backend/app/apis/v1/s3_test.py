@@ -1,13 +1,14 @@
-﻿# app/apis/v1/s3_test.py
+# app/apis/v1/s3_test.py
 # 개발 환경에서만 사용하는 S3 연동 테스트 엔드포인트
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
+
 from app.core.config import get_settings
 from app.core.s3 import (
+    delete_file,
+    generate_presigned_url,
     generate_s3_key,
     upload_file,
-    generate_presigned_url,
-    delete_file,
 )
 
 router = APIRouter(prefix="/s3-test", tags=["S3 Test"])
@@ -21,9 +22,7 @@ async def test_upload(file: UploadFile = File(...)):
         raise HTTPException(403, "운영 환경에서는 사용 불가")
 
     s3_key = generate_s3_key("test-uploads", file.filename, user_id=0)
-    await upload_file(
-        file.file, s3_key, file.content_type or "application/octet-stream"
-    )
+    await upload_file(file.file, s3_key, file.content_type or "application/octet-stream")
 
     download_url = generate_presigned_url(s3_key)
 

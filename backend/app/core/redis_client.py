@@ -1,4 +1,4 @@
-﻿"""
+"""
 Worker용 Redis 클라이언트
 동기 방식 (Worker는 asyncio 없이도 동작 가능하도록)
 """

@@ -1,10 +1,10 @@
-﻿# app/dtos/common_dto.py
+# app/dtos/common_dto.py
 # ──────────────────────────────────────────────
 # 공통 DTO (응답 래퍼, 페이지네이션 등)
 # 모든 API 응답에 일관된 형식을 제공합니다.
 # ──────────────────────────────────────────────
 
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field
 

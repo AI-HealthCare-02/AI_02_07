@@ -1,4 +1,4 @@
-﻿# app/dtos/common_code_dto.py
+# app/dtos/common_code_dto.py
 # ──────────────────────────────────────────────
 # 공통 코드 관련 DTO
 # 공통 코드 조회 API 응답에 사용

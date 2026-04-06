@@ -1,4 +1,4 @@
-﻿# app/services/oauth_service.py
+# app/services/oauth_service.py
 # ──────────────────────────────────────────────
 # OAuth 제공자별 토큰 교환 및 사용자 정보 조회 서비스
 #
@@ -112,7 +112,7 @@ class KakaoOAuthProvider(OAuthProvider):
             # 카카오에서 제공하는 동의 항목
             # profile_nickname: 닉네임
             # account_email: 이메일 (필수 동의 설정 필요)
-            "scope": "profile_nickname,account_email",
+            "scope": "profile_nickname,account_email,gender,birthday,birthyear",
         }
         if state:
             params["state"] = state
@@ -169,6 +169,11 @@ class KakaoOAuthProvider(OAuthProvider):
         kakao_account = data.get("kakao_account", {})
         profile = kakao_account.get("profile", {})
 
+        gender = kakao_account.get("gender", "")
+        gender_code = {"male": "MALE", "female": "FEMALE"}.get(gender)
+        birthday = kakao_account.get("birthday", "")  # "MMDD" 형식
+        birthyear = kakao_account.get("birthyear", "")  # "YYYY" 형식
+
         provider_id = str(data.get("id", ""))
         email = kakao_account.get("email", "")
         nickname = profile.get("nickname", "")
@@ -181,6 +186,12 @@ class KakaoOAuthProvider(OAuthProvider):
             email = f"kakao_{provider_id}@kakao.healthguide.local"
             logger.warning(f"카카오 이메일 미제공, 임시 이메일 사용: {email}")
 
+        # "YYYY-MM-DD" 형태로 조합 (birthyear="1995", birthday="1231" → "1995-12-31")
+        if birthyear and birthday and len(birthday) == 4:
+            formatted_birth = f"{birthyear}-{birthday[:2]}-{birthday[2:]}"
+        else:
+            formatted_birth = None
+
         logger.info(f"카카오 사용자 정보 조회 성공: provider_id={provider_id}")
 
         return OAuthUserInfoDTO(
@@ -189,6 +200,8 @@ class KakaoOAuthProvider(OAuthProvider):
             email=email,
             nickname=nickname or None,
             name=nickname or None,  # 카카오는 실명이 없으므로 닉네임으로 대체
+            gender=gender_code,
+            birth_date=formatted_birth or None,
         )
 
 
@@ -330,10 +343,7 @@ def get_oauth_provider(provider_code: str) -> OAuthProvider:
     provider = _PROVIDERS.get(provider_code.upper())
     if provider is None:
         supported = ", ".join(_PROVIDERS.keys())
-        raise ValueError(
-            f"지원하지 않는 OAuth 제공자입니다: {provider_code}. "
-            f"지원 제공자: {supported}"
-        )
+        raise ValueError(f"지원하지 않는 OAuth 제공자입니다: {provider_code}. 지원 제공자: {supported}")
     return provider
 
 

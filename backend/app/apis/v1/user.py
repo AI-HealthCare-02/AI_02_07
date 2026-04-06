@@ -1,4 +1,4 @@
-﻿# app/apis/v1/user.py
+# app/apis/v1/user.py
 # ──────────────────────────────────────────────
 # 사용자 API — 프로필, 생활습관, 알레르기, 기저질환
 # DDL의 users / user_lifestyle / user_allergies / user_diseases
@@ -204,9 +204,7 @@ async def bulk_create_allergies(
 ):
     """여러 알레르기를 한꺼번에 추가합니다. 이미 존재하는 항목은 무시됩니다."""
     allergies = await user_service.bulk_create_user_allergies(user, body)
-    return ResponseDTO(
-        success=True, message=f"{len(allergies)}건 추가 완료", data=allergies
-    )
+    return ResponseDTO(success=True, message=f"{len(allergies)}건 추가 완료", data=allergies)
 
 
 @router.delete(
@@ -277,9 +275,7 @@ async def bulk_create_diseases(
 ):
     """여러 기저질환을 한꺼번에 추가합니다. 이미 존재하는 항목은 무시됩니다."""
     diseases = await user_service.bulk_create_user_diseases(user, body)
-    return ResponseDTO(
-        success=True, message=f"{len(diseases)}건 추가 완료", data=diseases
-    )
+    return ResponseDTO(success=True, message=f"{len(diseases)}건 추가 완료", data=diseases)
 
 
 @router.delete(

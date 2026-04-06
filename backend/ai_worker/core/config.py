@@ -41,10 +41,7 @@ class WorkerSettings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        return (
-            f"asyncpg://{self.DB_USER}:{self.DB_PASSWORD}"
-            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
-        )
+        return f"asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
     # ── AWS S3 (모델/이미지 다운로드) ──
     AWS_ACCESS_KEY_ID: str = ""
@@ -83,7 +80,7 @@ class WorkerSettings(BaseSettings):
     )
 
 
-@lru_cache()
+@lru_cache
 def get_worker_settings() -> WorkerSettings:
     """Worker 설정 싱글턴 반환."""
     return WorkerSettings()

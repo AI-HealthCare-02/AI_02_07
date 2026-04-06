@@ -9,7 +9,6 @@
 #   DDL에 정의된 CHECK, 트리거, 복합 FK는 DB 레벨에서 동작합니다.
 # ──────────────────────────────────────────────
 
-from tortoise import Tortoise
 
 from app.core.config import get_settings
 

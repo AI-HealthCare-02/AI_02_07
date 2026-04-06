@@ -16,10 +16,11 @@ dependencies = [
     "pydantic-settings>=2.7",
     "redis>=5.2",
     "python-dotenv>=1.0",
+    "tzdata>=2024.1",  # Windows 타임존 데이터 (Linux/Mac에는 시스템 제공)
 ]
 
 # ── 의존성 그룹: uv sync --group <name> 으로 선택 설치 ──
-[project.optional-dependencies]
+[dependency-groups]
 app = [
     # FastAPI 서버 관련
     "fastapi>=0.115",
@@ -55,12 +56,6 @@ dev = [
     "httpx>=0.28",             # 테스트 클라이언트
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["app", "ai_worker"]
 
 # ── Ruff (린터 + 포매터) 설정 ──
 [tool.ruff]
@@ -69,7 +64,16 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
-ignore = ["E501"]  # line-length는 formatter가 처리
+ignore = [
+    "E501",   # line-length는 formatter가 처리
+    "B008",   # FastAPI Depends/File 패턴 허용
+    "B904",   # except 절 raise from 강제 비활성화
+    "SIM102", # 중첩 if 허용 (가독성)
+    "SIM105", # contextlib.suppress 강제 비활성화
+    "SIM108", # 삼항 연산자 강제 비활성화
+    "UP042",  # StrEnum 강제 비활성화
+    "UP046",  # Generic 타입 파라미터 강제 비활성화
+]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -1,4 +1,4 @@
-﻿# app/models/system_error_log.py
+# app/models/system_error_log.py
 # ──────────────────────────────────────────────
 # 시스템 오류 로그 모델 — DDL의 system_error_logs 테이블에 대응
 # ──────────────────────────────────────────────
@@ -14,9 +14,7 @@ class SystemErrorLog(Model):
     """
 
     log_id = fields.BigIntField(pk=True, description="로그 고유 ID")
-    user_id = fields.BigIntField(
-        null=True, description="관련 유저 ID (로그인 중인 경우)"
-    )
+    user_id = fields.BigIntField(null=True, description="관련 유저 ID (로그인 중인 경우)")
     error_type = fields.CharField(
         max_length=100,
         null=True,

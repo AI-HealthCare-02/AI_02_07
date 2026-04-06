@@ -1,4 +1,4 @@
-﻿# app/models/user_disease.py
+# app/models/user_disease.py
 # ──────────────────────────────────────────────
 # 사용자 기저질환 모델 — DDL의 user_diseases 테이블에 대응
 # users와 1:N 관계

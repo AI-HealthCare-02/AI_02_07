@@ -1,4 +1,4 @@
-﻿# ===========================================================
+# ===========================================================
 # app/models/user.py
 # 사용자 모델 — DDL의 users 테이블과 매핑
 #
@@ -16,43 +16,28 @@ class User(Model):
 
     user_id = fields.BigIntField(pk=True, generated=True, description="회원 고유 ID")
     email = fields.CharField(max_length=100, unique=True, description="이메일")
-    password = fields.CharField(
-        max_length=255, null=True, description="암호 (OAuth는 NULL)"
-    )
+    password = fields.CharField(max_length=255, null=True, description="암호 (OAuth는 NULL)")
     nickname = fields.CharField(max_length=50, description="닉네임")
     name = fields.CharField(max_length=50, description="이름")
 
     # 성별 (복합 FK 는 DB 레벨)
-    gender_grp = fields.CharField(
-        max_length=20, default="GENDER", description="고정: GENDER"
-    )
+    gender_grp = fields.CharField(max_length=20, default="GENDER", description="고정: GENDER")
     gender_code = fields.CharField(max_length=20, null=True, description="성별 코드")
+    birth_date = fields.DateField(null=True, description="생년월일")
 
     # 가입 경로
-    provider_grp = fields.CharField(
-        max_length=20, default="PROVIDER", description="고정: PROVIDER"
-    )
-    provider_code = fields.CharField(
-        max_length=20, default="LOCAL", description="가입 경로 코드"
-    )
-    provider_id = fields.CharField(
-        max_length=255, null=True, description="OAuth 고유 ID"
-    )
+    provider_grp = fields.CharField(max_length=20, default="PROVIDER", description="고정: PROVIDER")
+    provider_code = fields.CharField(max_length=20, default="LOCAL", description="가입 경로 코드")
+    provider_id = fields.CharField(max_length=255, null=True, description="OAuth 고유 ID")
 
     # 상태
     is_suspended = fields.BooleanField(default=False, description="계정 정지 여부")
     deleted_at = fields.DatetimeField(null=True, description="탈퇴 일시")
 
     # 동의
-    agreed_personal_info = fields.DatetimeField(
-        null=True, description="개인정보 동의 일시"
-    )
-    agreed_sensitive_info = fields.DatetimeField(
-        null=True, description="민감정보 동의 일시"
-    )
-    agreed_medical_data = fields.DatetimeField(
-        null=True, description="의료문서 동의 일시"
-    )
+    agreed_personal_info = fields.DatetimeField(null=True, description="개인정보 동의 일시")
+    agreed_sensitive_info = fields.DatetimeField(null=True, description="민감정보 동의 일시")
+    agreed_medical_data = fields.DatetimeField(null=True, description="의료문서 동의 일시")
 
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
