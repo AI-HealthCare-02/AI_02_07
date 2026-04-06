@@ -2,11 +2,15 @@
 # 3단계 질문 필터링 워커 태스크 (비동기 처리용)
 # API 서버의 SSE 스트리밍과 별개로, 워커 큐를 통한 처리가 필요할 때 사용
 
+import json
+
 import logging
 
 from openai import AsyncOpenAI
 
 from ai_worker.core.config import get_worker_settings
+
+from ai_worker.core.redis_client import get_worker_redis
 
 logger = logging.getLogger(__name__)
 
