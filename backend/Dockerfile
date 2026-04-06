@@ -13,10 +13,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /build
 
 # 의존성 파일만 먼저 복사 (캐시 활용)
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 
 # app 그룹 의존성 설치 (가상환경을 /build/.venv 에 생성)
-RUN uv sync --group app --no-dev
+RUN uv sync --group app --no-dev --frozen
 
 # ── Stage 2: 런타임 이미지 ──
 FROM python:3.13-slim AS runtime
