@@ -49,14 +49,6 @@ function IconGuide({ size = 20, color = "currentColor" }: { size?: number; color
     </svg>
   );
 }
-function IconLogo({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-    </svg>
-  );
-}
-
 // ── 고정 파티클 데이터 ────────────────────────────────────
 const PARTICLES_SEED = [
   { id: 0,  x: 8,  y: 12, size: 2,   opacity: 0.25, duration: 9,  delay: 0   },
@@ -363,7 +355,9 @@ export default function HeroSection() {
               animate={{ boxShadow: ["0 0 0px rgba(20,184,166,0.3)", "0 0 20px rgba(20,184,166,0.6)", "0 0 0px rgba(20,184,166,0.3)"] }}
               transition={{ duration: 3, repeat: Infinity }}
             >
-              <IconLogo size={18} />
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
             </motion.div>
             <span className="text-lg font-bold tracking-widest text-white/90">
               HEALTH<span className="text-teal-400">GUIDE</span>
@@ -371,12 +365,7 @@ export default function HeroSection() {
           </motion.div>
 
           {/* 데스크탑 nav */}
-          <motion.nav
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.2 }}
-            className="hidden items-center gap-8 lg:flex"
-          >
+          <nav className="hidden items-center gap-8 lg:flex">
             {NAV_ITEMS.map((item) => (
               <Link
                 key={item.href}
@@ -388,24 +377,18 @@ export default function HeroSection() {
                 {item.label}
               </Link>
             ))}
-          </motion.nav>
+          </nav>
 
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8 }}
-          >
-            {isAuthenticated ? (
-              <UserProfile />
-            ) : (
-              <Link
-                href="/login"
-                className="rounded-full border border-teal-500/30 bg-teal-500/5 px-5 py-2 text-sm font-medium text-teal-300 backdrop-blur-sm transition-all hover:border-teal-400/60 hover:bg-teal-500/15"
-              >
-                로그인
-              </Link>
-            )}
-          </motion.div>
+          {isAuthenticated ? (
+            <UserProfile />
+          ) : (
+            <Link
+              href="/login"
+              className="rounded-full border border-teal-500/30 bg-teal-500/5 px-5 py-2 text-sm font-medium text-teal-300 backdrop-blur-sm transition-all hover:border-teal-400/60 hover:bg-teal-500/15"
+            >
+              로그인
+            </Link>
+          )}
         </header>
 
         {/* Hero 본문 */}
