@@ -21,8 +21,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /code
 
 # 의존성 파일 복사 및 설치
-COPY pyproject.toml ./
-RUN uv sync --group ai --no-dev
+COPY pyproject.toml uv.lock ./
+RUN uv sync --group ai --no-dev --frozen
 
 # Worker 소스 코드 복사
 COPY ai_worker/ /code/ai_worker/

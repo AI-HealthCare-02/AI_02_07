@@ -277,8 +277,8 @@ export default function HealthProfilePage() {
           <Field label="성별">
             <div className="flex gap-3">
               {[
-                { value: "M", label: "남성" },
-                { value: "F", label: "여성" },
+                { value: "MALE", label: "남성" },
+                { value: "FEMALE", label: "여성" },
                 { value: "OTHER", label: "기타" },
               ].map((opt) => (
                 <button
