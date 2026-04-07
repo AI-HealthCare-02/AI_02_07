@@ -151,6 +151,9 @@ async def stream_chat(
     assistant_msg = await repo.create_message(session_id, "ASSISTANT", "", filter_result="PASS")
     redis = get_redis()
 
+    # 메시지 ID를 먼저 전송 (프론트에서 북마크 등에 활용)
+    yield _sse("message_id", {"messageId": assistant_msg.message_id})
+
     try:
         stream = await client.chat.completions.create(
             model="gpt-4o-mini",  # OpenAI GPT-4o mini
