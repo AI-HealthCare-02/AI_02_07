@@ -114,6 +114,7 @@ export default function HealthProfilePage() {
   const { isAuthenticated } = useAuthStore();
 
   // 공통코드
+  const { data: genderCodes,    isLoading: loadingGender }    = useCodesByGroup("GENDER");
   const { data: pregnancyCodes, isLoading: loadingPregnancy } = useCodesByGroup("PREGNANCY");
   const { data: smokingCodes,   isLoading: loadingSmoking }   = useCodesByGroup("SMOKING");
   const { data: drinkingCodes,  isLoading: loadingDrinking }  = useCodesByGroup("DRINKING");
@@ -138,7 +139,7 @@ export default function HealthProfilePage() {
   const [diseases, setDiseases] = useState<Disease[]>([]);
 
   const codesReady =
-    !loadingPregnancy && !loadingSmoking && !loadingDrinking && !loadingExercise && !loadingSleep;
+    !loadingGender && !loadingPregnancy && !loadingSmoking && !loadingDrinking && !loadingExercise && !loadingSleep;
 
   const sortedFirst = (codes?: CommonCode[]) =>
     codes?.slice().sort((a, b) => a.sort_order - b.sort_order)[0]?.code ?? "";
@@ -275,27 +276,25 @@ export default function HealthProfilePage() {
         <Section title="기본 정보">
           {/* 성별 */}
           <Field label="성별">
-            <div className="flex gap-3">
-              {[
-                { value: "M", label: "남성" },
-                { value: "F", label: "여성" },
-                { value: "MALE", label: "남성" },
-                { value: "FEMALE", label: "여성" },
-                { value: "OTHER", label: "기타" },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setGender(opt.value)}
-                  className={`flex-1 rounded-lg border py-2 text-sm font-medium transition ${
-                    gender === opt.value
-                      ? "border-teal-500 bg-teal-500/15 text-teal-300"
-                      : "border-white/10 bg-white/5 text-white/50 hover:border-white/20"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+            {loadingGender ? (
+              <div className="h-10 animate-pulse rounded-lg bg-white/5" />
+            ) : (
+              <div className="flex gap-3">
+                {(genderCodes ?? []).map((opt) => (
+                  <button
+                    key={opt.code}
+                    onClick={() => setGender(opt.code)}
+                    className={`flex-1 rounded-lg border py-2 text-sm font-medium transition ${
+                      gender === opt.code
+                        ? "border-teal-500 bg-teal-500/15 text-teal-300"
+                        : "border-white/10 bg-white/5 text-white/50 hover:border-white/20"
+                    }`}
+                  >
+                    {opt.code_name}
+                  </button>
+                ))}
+              </div>
+            )}
           </Field>
 
           {/* 생년월일 */}

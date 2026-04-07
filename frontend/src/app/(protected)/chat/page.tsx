@@ -121,7 +121,8 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -129,6 +130,12 @@ export default function ChatPage() {
   useEffect(() => {
     if (!isAuthenticated) router.replace("/login");
   }, [isAuthenticated, router]);
+
+  // ── body 스크롤 잠금 ──
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
 
   // ── 세션 목록 로드 ──
   const loadRooms = useCallback(async () => {
@@ -198,7 +205,8 @@ export default function ChatPage() {
 
   // ── 스크롤 하단 ──
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
   }, [messages, aiTyping]);
 
   // ── 메시지 전송 (SSE) ──
@@ -443,7 +451,7 @@ export default function ChatPage() {
           </div>
 
           {/* 메시지 영역 */}
-          <div className="flex-1 overflow-y-auto px-4 py-6 pb-2">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-6 pb-2">
             {!activeRoomId ? (
               /* 빈 상태 */
               <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
@@ -468,7 +476,7 @@ export default function ChatPage() {
                   <MessageBubble key={msg.messageId} msg={msg} />
                 ))}
                 {aiTyping && <TypingBubble />}
-                <div ref={bottomRef} />
+                <div ref={messagesEndRef} />
               </div>
             )}
           </div>
