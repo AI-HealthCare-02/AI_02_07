@@ -9,13 +9,12 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
-from app.dependencies.security import get_current_user
+from ai_worker.tasks.medical_doc import analyze_medical_document
+from app.core.dependencies import get_current_user
 from app.dtos.common_dto import ResponseDTO
 from app.models.user import User
-from ai_worker.tasks.medical_doc import analyze_medical_document
-from fastapi import Depends
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
