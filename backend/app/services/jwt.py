@@ -2,7 +2,7 @@ from typing import Literal, overload
 
 from fastapi import HTTPException
 
-from app.models.users import User
+from app.models.user import User
 from app.utils.jwt.exceptions import ExpiredTokenError, TokenError
 from app.utils.jwt.tokens import AccessToken, RefreshToken
 
@@ -31,7 +31,9 @@ class JwtService:
         token_type: Literal["refresh"],
     ) -> RefreshToken: ...
 
-    def verify_jwt(self, token: str, token_type: Literal["access", "refresh"]) -> AccessToken | RefreshToken:
+    def verify_jwt(
+        self, token: str, token_type: Literal["access", "refresh"]
+    ) -> AccessToken | RefreshToken:
         token_class: type[AccessToken | RefreshToken]
         if token_type == "access":
             token_class = self.access_token_class
@@ -42,9 +44,13 @@ class JwtService:
             verified = token_class(token=token)
             return verified
         except ExpiredTokenError as err:
-            raise HTTPException(status_code=401, detail=f"{token_type} token has expired.") from err
+            raise HTTPException(
+                status_code=401, detail=f"{token_type} token has expired."
+            ) from err
         except TokenError as err:
-            raise HTTPException(status_code=400, detail="Provided invalid token.") from err
+            raise HTTPException(
+                status_code=400, detail="Provided invalid token."
+            ) from err
 
     def refresh_jwt(self, refresh_token: str) -> AccessToken:
         verified_rt = self.verify_jwt(token=refresh_token, token_type="refresh")

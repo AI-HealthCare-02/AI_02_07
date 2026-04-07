@@ -4,8 +4,13 @@ from typing import TYPE_CHECKING, Any, Self
 from uuid import uuid4
 
 from app.core import config
-from app.models.users import User
-from app.utils.jwt.exceptions import ExpiredTokenError, TokenBackendError, TokenBackendExpiredError, TokenError
+from app.models.user import User
+from app.utils.jwt.exceptions import (
+    ExpiredTokenError,
+    TokenBackendError,
+    TokenBackendExpiredError,
+    TokenError,
+)
 from app.utils.jwt.state import token_backend
 
 if TYPE_CHECKING:
@@ -60,7 +65,9 @@ class Token:
         """
         return self._token_backend.encode(self.payload)
 
-    def set_exp(self, from_time: datetime | None = None, lifetime: timedelta | None = None) -> None:
+    def set_exp(
+        self, from_time: datetime | None = None, lifetime: timedelta | None = None
+    ) -> None:
         if from_time is None:
             from_time = self.current_time
 

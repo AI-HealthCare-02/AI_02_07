@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
 import apiClient from "@/lib/axios";
+import ReactMarkdown from "react-markdown";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ interface ChatMessage {
   senderTypeCode: "USER" | "ASSISTANT";
   content: string;
   filterResult: "PASS" | "DOMAIN" | "EMERGENCY" | null;
+  isBookmarked?: boolean;
   createdAt: string;
 }
 
@@ -57,6 +59,54 @@ function TypingBubble() {
 
 // ── 메시지 버블 ───────────────────────────────────────────────────────────────
 
+const markdownComponents = {
+  p: ({ children }: { children?: React.ReactNode }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+  strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-semibold text-white">{children}</strong>,
+  ul: ({ children }: { children?: React.ReactNode }) => <ul className="mb-2 ml-4 list-disc space-y-1">{children}</ul>,
+  ol: ({ children }: { children?: React.ReactNode }) => <ol className="mb-2 ml-4 list-decimal space-y-1">{children}</ol>,
+  li: ({ children }: { children?: React.ReactNode }) => <li className="leading-relaxed">{children}</li>,
+  code: ({ children }: { children?: React.ReactNode }) => <code className="rounded bg-black/30 px-1 py-0.5 text-xs font-mono text-teal-200">{children}</code>,
+  h1: ({ children }: { children?: React.ReactNode }) => <h1 className="mb-2 text-base font-bold">{children}</h1>,
+  h2: ({ children }: { children?: React.ReactNode }) => <h2 className="mb-1.5 text-sm font-bold">{children}</h2>,
+  h3: ({ children }: { children?: React.ReactNode }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
+};
+
+function BookmarkButton({ messageId, initialBookmarked = false }: { messageId: number; initialBookmarked?: boolean }) {
+  const [bookmarked, setBookmarked] = useState(initialBookmarked);
+  const [loading, setLoading] = useState(false);
+
+  const toggle = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      if (bookmarked) {
+        await apiClient.delete(`/api/v1/chat/messages/${messageId}/bookmark`);
+      } else {
+        await apiClient.post(`/api/v1/chat/messages/${messageId}/bookmark`);
+      }
+      setBookmarked((prev) => !prev);
+    } catch {
+      // 무시
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={loading}
+      className="mt-1.5 flex items-center gap-1 text-[11px] transition disabled:opacity-40"
+      style={{ color: bookmarked ? "#14b8a6" : "rgba(255,255,255,0.25)" }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill={bookmarked ? "#14b8a6" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+      </svg>
+      {bookmarked ? "북마크됨" : "북마크"}
+    </button>
+  );
+}
+
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   const isUser = msg.senderTypeCode === "USER";
   const isEmergency = msg.filterResult === "EMERGENCY";
@@ -88,17 +138,20 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   }
 
   return (
-    <div className="flex items-end gap-2">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-teal-500/30 bg-teal-500/10">
+    <div className="flex items-start gap-2">
+      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-teal-500/30 bg-teal-500/10">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
         </svg>
       </div>
-      <div
-        className="max-w-[75%] rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-white"
-        style={{ background: "linear-gradient(135deg, rgb(20,184,166), rgb(6,182,212))" }}
-      >
-        {msg.content}
+      <div className="flex max-w-[75%] flex-col">
+        <div
+          className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-white"
+          style={{ background: "linear-gradient(135deg, rgb(20,184,166), rgb(6,182,212))" }}
+        >
+          <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
+        </div>
+        <BookmarkButton messageId={msg.messageId} initialBookmarked={msg.isBookmarked ?? false} />
       </div>
     </div>
   );
@@ -121,14 +174,22 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const activeRoomIdRef = useRef<number | null>(null);
 
-  // ── 인증 확인 ──
+  // ── 인증 확인 (layout에서 공통 처리) ──
   useEffect(() => {
     if (!isAuthenticated) router.replace("/login");
   }, [isAuthenticated, router]);
+
+  // ── body 스크롤 잠금 ──
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
 
   // ── 세션 목록 로드 ──
   const loadRooms = useCallback(async () => {
@@ -170,6 +231,7 @@ export default function ChatPage() {
     (roomId: number) => {
       if (activeRoomId === roomId) return;
       eventSourceRef.current?.close();
+      activeRoomIdRef.current = roomId;
       setActiveRoomId(roomId);
       setAiTyping(false);
       setSidebarOpen(false);
@@ -198,7 +260,8 @@ export default function ChatPage() {
 
   // ── 스크롤 하단 ──
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
   }, [messages, aiTyping]);
 
   // ── 메시지 전송 (SSE) ──
@@ -220,6 +283,7 @@ export default function ChatPage() {
         };
         setRooms((prev) => [newRoom, ...prev]);
         setActiveRoomId(roomId);
+        activeRoomIdRef.current = roomId;
       } catch {
         return;
       }
@@ -258,8 +322,11 @@ export default function ChatPage() {
       const decoder = new TextDecoder();
       let aiContent = "";
       let aiMsgAdded = false;
+      const streamRoomId = roomId; // 스트림 시작 시점의 방 ID 캡처
 
       const processLine = (line: string) => {
+        // 방이 바뀌었으면 무시
+        if (activeRoomIdRef.current !== streamRoomId) return;
         if (!line.startsWith("data:")) return;
         const raw = line.slice(5).trim();
         if (raw === "[DONE]") return;
@@ -443,7 +510,7 @@ export default function ChatPage() {
           </div>
 
           {/* 메시지 영역 */}
-          <div className="flex-1 overflow-y-auto px-4 py-6 pb-2">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-6 pb-2">
             {!activeRoomId ? (
               /* 빈 상태 */
               <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
@@ -468,7 +535,7 @@ export default function ChatPage() {
                   <MessageBubble key={msg.messageId} msg={msg} />
                 ))}
                 {aiTyping && <TypingBubble />}
-                <div ref={bottomRef} />
+                <div ref={messagesEndRef} />
               </div>
             )}
           </div>
