@@ -110,6 +110,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # ── Clova OCR ──
+    OCR_SECRET_KEY: str = ""
+    OCR_INVOKE_URL: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
