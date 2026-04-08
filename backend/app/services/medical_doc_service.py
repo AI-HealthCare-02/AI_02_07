@@ -11,6 +11,9 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
+# ── 상수 ──────────────────────────────────────
+CONFIDENCE_THRESHOLD = 0.7
+
 # ── 문서 종류 변환 맵 ──────────────────────────
 DOC_TYPE_CODE_MAP = {
     "처방전": "DOC_PRESCRIPTION",
@@ -42,6 +45,58 @@ async def create_analysis_job(
     return job
 
 
+# ── confidence 임계값 로깅 ─────────────────────
+def log_confidence_warnings(analysis_result: dict, job_id: int) -> None:
+    """confidence 0.7 미만 항목 경고 로깅"""
+
+    overall_confidence = analysis_result.get("overall_confidence", 0.0)
+    doc_type = analysis_result.get("document_type", "알 수 없음")
+
+    # 전체 신뢰도 체크
+    if overall_confidence < CONFIDENCE_THRESHOLD:
+        logger.warning(
+            f"[confidence 경고] 전체 신뢰도 낮음: "
+            f"overall_confidence={overall_confidence} "
+            f"(job_id={job_id}, doc_type={doc_type})"
+        )
+
+    # 약품별 신뢰도 체크
+    medications = analysis_result.get("medications", [])
+    for i, med in enumerate(medications):
+        med_confidence = med.get("confidence", 1.0)
+        drug_name = med.get("drug_name", "알 수 없음")
+
+        if med_confidence < CONFIDENCE_THRESHOLD:
+            logger.warning(
+                f"[confidence 경고] 약품 신뢰도 낮음: "
+                f"[{i+1}번] drug_name={drug_name}, "
+                f"confidence={med_confidence} (job_id={job_id})"
+            )
+
+        if med.get("instructions") is None:
+            logger.warning(
+                f"[confidence 경고] 복용법 미확인: "
+                f"[{i+1}번] drug_name={drug_name}, "
+                f"instructions=null (job_id={job_id})"
+            )
+
+    # 검진결과 항목별 신뢰도 체크
+    exam_items = analysis_result.get("exam_items", [])
+    for i, item in enumerate(exam_items):
+        item_confidence = item.get("confidence", 1.0)
+        item_name = item.get("item_name", "알 수 없음")
+
+        if item_confidence < CONFIDENCE_THRESHOLD:
+            logger.warning(
+                f"[confidence 경고] 검진항목 신뢰도 낮음: "
+                f"[{i+1}번] item_name={item_name}, "
+                f"confidence={item_confidence} (job_id={job_id})"
+            )
+
+    if overall_confidence >= CONFIDENCE_THRESHOLD and not medications and not exam_items:
+        logger.info(f"[confidence 정상] 모든 항목 신뢰도 정상 (job_id={job_id})")
+
+
 # ── 분석 결과 저장 ─────────────────────────────
 async def save_analysis_result(
     job: DocAnalysisJob,
@@ -56,6 +111,9 @@ async def save_analysis_result(
     raw_summary = analysis_result.get("raw_summary", "")
     doc_type = analysis_result.get("document_type", "자동인식")
     doc_type_code = DOC_TYPE_CODE_MAP.get(doc_type, "DOC_OTHER")
+
+    # confidence 임계값 로깅
+    log_confidence_warnings(analysis_result, job.job_id)
 
     # 결과 저장
     result = await DocAnalysisResult.create(
