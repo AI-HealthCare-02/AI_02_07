@@ -75,18 +75,18 @@ export default function UserProfile() {
 
       {/* 드롭다운 */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0d1117]/95 shadow-xl backdrop-blur-xl">
+        <div className="absolute right-0 top-full mt-2 w-44 overflow-hidden rounded-xl border border-border bg-card/95 shadow-xl backdrop-blur-xl">
           {/* 유저 정보 */}
-          <div className="border-b border-white/8 px-4 py-3">
-            <p className="text-xs font-semibold text-white/80 truncate">{user.nickname || user.name}</p>
-            <p className="mt-0.5 text-[11px] text-white/35 truncate">{user.email}</p>
+          <div className="border-b border-border px-4 py-3">
+            <p className="text-xs font-semibold text-foreground truncate">{user.nickname || user.name}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{user.email}</p>
           </div>
 
           {/* 메뉴 */}
           <div className="py-1">
             <button
               onClick={handleHealthProfile}
-              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-white/60 transition-colors hover:bg-teal-500/10 hover:text-teal-300"
+              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-teal-500/10 hover:text-teal-500"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
@@ -95,7 +95,7 @@ export default function UserProfile() {
             </button>
             <button
               onClick={handleProfile}
-              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-white/60 transition-colors hover:bg-teal-500/10 hover:text-teal-300"
+              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-teal-500/10 hover:text-teal-500"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
@@ -105,7 +105,7 @@ export default function UserProfile() {
             </button>
             <button
               onClick={handleLogout}
-              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-white/60 transition-colors hover:bg-red-500/10 hover:text-red-400"
+              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 transition-colors hover:bg-red-500/10"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />

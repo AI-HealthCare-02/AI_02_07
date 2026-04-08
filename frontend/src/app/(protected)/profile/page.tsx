@@ -54,7 +54,7 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <span className="h-8 w-8 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-400" />
       </div>
     );
@@ -62,14 +62,14 @@ export default function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-lg px-4 py-10">
-      <h1 className="mb-8 text-2xl font-bold text-white">개인정보</h1>
+      <h1 className="mb-8 text-2xl font-bold text-foreground">개인정보</h1>
 
       {error && (
-        <div className="mb-6 rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>
+        <div className="mb-6 rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</div>
       )}
 
       {/* 정보 카드 */}
-      <div className="rounded-xl border border-white/8 bg-white/3 divide-y divide-white/8">
+      <div className="rounded-xl border border-border bg-card divide-y divide-border">
         <InfoRow label="이름" value={profile?.name ?? "-"} />
         <InfoRow label="이메일" value={profile?.email ?? "-"} />
         <InfoRow
@@ -82,7 +82,7 @@ export default function ProfilePage() {
       <div className="mt-10">
         <button
           onClick={() => setShowConfirm(true)}
-          className="w-full rounded-lg border border-red-500/30 py-3 text-sm font-medium text-red-400 transition hover:border-red-500/60 hover:bg-red-500/10"
+          className="w-full rounded-lg border border-red-500/30 py-3 text-sm font-medium text-red-500 transition hover:border-red-500/60 hover:bg-red-500/10"
         >
           계정 삭제 요청
         </button>
@@ -91,16 +91,16 @@ export default function ProfilePage() {
       {/* 삭제 확인 모달 */}
       {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#0d1117] p-6 shadow-2xl">
-            <h2 className="mb-4 text-base font-semibold text-white">계정 삭제</h2>
-            <p className="mb-6 whitespace-pre-line text-sm leading-relaxed text-white/60">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl">
+            <h2 className="mb-4 text-base font-semibold text-foreground">계정 삭제</h2>
+            <p className="mb-6 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
               {`정말로 계정을 삭제하시겠습니까?\n삭제 시 모든 건강기록, 가이드, 대화 내역이\n영구 삭제되며 복구할 수 없습니다.`}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowConfirm(false)}
                 disabled={deleting}
-                className="flex-1 rounded-lg border border-white/10 py-2.5 text-sm text-white/50 transition hover:text-white/70 disabled:opacity-40"
+                className="flex-1 rounded-lg border border-border py-2.5 text-sm text-muted-foreground transition hover:text-foreground disabled:opacity-40"
               >
                 취소
               </button>
@@ -127,8 +127,8 @@ export default function ProfilePage() {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between px-5 py-4">
-      <span className="text-xs font-medium text-white/40">{label}</span>
-      <span className="text-sm text-white/80">{value}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-sm text-foreground">{value}</span>
     </div>
   );
 }

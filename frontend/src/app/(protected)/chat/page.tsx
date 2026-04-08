@@ -576,7 +576,7 @@ export default function ChatPage() {
           </div>
 
           {/* 입력창 */}
-          <div className="border-t border-border bg-card px-4 py-3 pb-safe">
+          <div className="border-t border-border bg-card px-4 py-3 pb-20 lg:pb-3">
             <div className="mx-auto flex max-w-2xl items-end gap-3">
               <textarea
                 ref={inputRef}
