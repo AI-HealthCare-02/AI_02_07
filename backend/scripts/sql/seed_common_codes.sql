@@ -230,6 +230,25 @@ ON CONFLICT (group_code, code) DO UPDATE SET
 
 
 -- ─────────────────────────────────────────────
+-- C. ai_settings 기본값 (chat)
+-- ─────────────────────────────────────────────
+INSERT INTO ai_settings (config_name, api_model, system_prompt, temperature, max_tokens, is_active)
+VALUES (
+    'chat',
+    'gpt-4o-mini',
+    '당신은 HealthGuide AI 건강 상담 도우미입니다. 사용자의 건강·의료·복약·증상·질병·영양·운동·정신건강 관련 질문에 친절하고 정확하게 답변하세요. 전문 의료 행위를 대체하지 않으며, 심각한 증상은 의사 상담을 권유하세요.',
+    0.70,
+    1000,
+    TRUE
+)
+ON CONFLICT (config_name) DO UPDATE SET
+    api_model     = EXCLUDED.api_model,
+    system_prompt = EXCLUDED.system_prompt,
+    temperature   = EXCLUDED.temperature,
+    max_tokens    = EXCLUDED.max_tokens,
+    is_active     = EXCLUDED.is_active;
+
+-- ─────────────────────────────────────────────
 -- 확인 쿼리
 -- ─────────────────────────────────────────────
 DO $$ BEGIN

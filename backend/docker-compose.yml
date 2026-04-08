@@ -55,7 +55,7 @@ services:
       - DB_HOST=db
       - REDIS_HOST=redis
       # OpenAI API Key 명시 전달 (env_file에서 로드되지만 컨테이너 실행 시 오버라이드 가능하도록 명시)
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
     ports:
       - "8000:8000"
     depends_on:
@@ -66,6 +66,7 @@ services:
     volumes:
       - ./app:/code/app
       - ./scripts:/code/scripts
+      - ./ai_worker:/code/ai_worker
 
   # ── AI Worker (CPU 모드, GPU는 아래 프로필) ──
   # ai_worker:

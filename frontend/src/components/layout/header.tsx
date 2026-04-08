@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
 import UserProfile from "@/components/layout/UserProfile";
+import ThemeToggle from "@/components/ui/theme-toggle";
 
 function IconChat({ size = 18, color = "currentColor" }: { size?: number; color?: string }) {
   return (
@@ -53,7 +54,7 @@ export default function Header() {
   return (
     <>
       {/* 상단 헤더 */}
-      <header className="sticky top-0 z-50 w-full border-b border-white/8 bg-[#090a0f]/90 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 w-full border-b border-border bg-background/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 sm:px-10">
           {/* 로고 */}
           <Link href="/" className="flex items-center gap-3">
@@ -62,7 +63,7 @@ export default function Header() {
                 <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
               </svg>
             </div>
-            <span className="text-lg font-bold tracking-widest text-white/90">
+            <span className="text-lg font-bold tracking-widest text-foreground">
               HEALTH<span className="text-teal-400">GUIDE</span>
             </span>
           </Link>
@@ -74,7 +75,7 @@ export default function Header() {
                 key={item.href}
                 href={item.href}
                 className={`text-sm font-medium tracking-wide transition-colors ${
-                  pathname === item.href ? "text-teal-400" : "text-white/40 hover:text-white/80"
+                  pathname === item.href ? "text-teal-400" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {item.label}
@@ -83,21 +84,24 @@ export default function Header() {
           </nav>
 
           {/* 우측 영역 */}
-          {isAuthenticated ? (
-            <UserProfile />
-          ) : (
-            <Link
-              href="/login"
-              className="rounded-full border border-teal-500/30 bg-teal-500/5 px-5 py-2 text-sm font-medium text-teal-300 backdrop-blur-sm transition-all hover:border-teal-400/60 hover:bg-teal-500/15"
-            >
-              로그인
-            </Link>
-          )}
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            {isAuthenticated ? (
+              <UserProfile />
+            ) : (
+              <Link
+                href="/login"
+                className="rounded-full border border-teal-500/30 bg-teal-500/5 px-5 py-2 text-sm font-medium text-teal-300 backdrop-blur-sm transition-all hover:border-teal-400/60 hover:bg-teal-500/15"
+              >
+                로그인
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 
       {/* 모바일 / 태블릿 하단 고정 nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/8 bg-[#090a0f]/90 backdrop-blur-xl lg:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/90 backdrop-blur-xl lg:hidden">
         <div className="flex h-16 items-center justify-around">
           {NAV_ITEMS.map((item) => {
             const isActive = pathname === item.href;
@@ -108,11 +112,11 @@ export default function Header() {
                 className="flex flex-1 flex-col items-center justify-center gap-1 py-2"
               >
                 <span style={{ filter: isActive ? "drop-shadow(0 0 6px rgba(20,184,166,0.7))" : "none" }}>
-                  <item.Icon size={20} color={isActive ? "#14b8a6" : "rgba(255,255,255,0.35)"} />
+                  <item.Icon size={20} color={isActive ? "#14b8a6" : "hsl(var(--muted-foreground))"} />
                 </span>
                 <span
                   className="text-[10px] font-medium"
-                  style={{ color: isActive ? "#14b8a6" : "rgba(255,255,255,0.30)" }}
+                  style={{ color: isActive ? "#14b8a6" : "hsl(var(--muted-foreground))" }}
                 >
                   {item.label}
                 </span>
