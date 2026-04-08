@@ -29,6 +29,8 @@ MODELS: list[str] = [
     "app.models.chat",  # 채팅방 · 메시지 · 북마크 (황보수호)
     # ── 관리자 ──
     "app.models.admin",  # 관리자 계정 (황보수호)
+    # ── 의료 문서 분석 (이승원) ──
+    "app.models.medical_doc",
 ]
 
 # Aerich 마이그레이션 도구와 Tortoise ORM이 공유하는 설정

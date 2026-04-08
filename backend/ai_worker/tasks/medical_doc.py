@@ -80,15 +80,39 @@ async def extract_text_with_clova(image_bytes: bytes) -> str | None:
     return " ".join(texts)
 
 
-# ── 자동 회전 감지 + 텍스트 추출 ─────────────
-async def extract_text_with_auto_rotate(image_bytes: bytes) -> str | None:
+# ── 자동 회전 감지 + 텍스트 추출 (재시도 포함) ─────────────
+async def extract_text_with_auto_rotate(
+    image_bytes: bytes,
+    max_retries: int = 3,
+    retry_delay: float = 1.0,
+) -> str | None:
+    import asyncio
+
     for angle in [0, 90, 180, 270]:
         processed = preprocess_image(image_bytes, rotate=angle)
-        text = await extract_text_with_clova(processed)
-        if text and len(text.strip()) > 10:
-            logger.info(f"{angle}도에서 텍스트 추출 성공 ({len(text)}자)")
-            return text
-        logger.info(f"{angle}도 실패, 다음 각도 시도...")
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                text = await extract_text_with_clova(processed)
+                if text and len(text.strip()) > 10:
+                    logger.info(f"{angle}도에서 텍스트 추출 성공 ({len(text)}자)")
+                    return text
+                else:
+                    logger.info(f"{angle}도 실패, 다음 각도 시도...")
+                    break  # 텍스트가 없으면 재시도 없이 다음 각도로
+
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning(
+                        f"{angle}도 OCR 오류 (시도 {attempt}/{max_retries}): {e} "
+                        f"→ {retry_delay}초 후 재시도"
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(
+                        f"{angle}도 OCR 최종 실패 (시도 {max_retries}/{max_retries}): {e}"
+                    )
+
     return None
 
 
