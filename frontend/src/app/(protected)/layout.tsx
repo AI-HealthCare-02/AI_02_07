@@ -15,7 +15,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
 
   if (!_hasHydrated) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#090a0f]">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <span className="h-8 w-8 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-400" />
       </div>
     );
@@ -24,7 +24,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
   return (
     <>
       <Header />
-      <main className="min-h-screen bg-[#090a0f] pb-16 lg:pb-0">{children}</main>
+      <main className="min-h-screen bg-background pb-16 pt-16 lg:pb-0">{children}</main>
     </>
   );
 }

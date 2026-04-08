@@ -32,23 +32,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko" suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  var stored = localStorage.getItem('theme-storage');
-                  var theme = stored ? JSON.parse(stored).state.theme : 'dark';
-                  document.documentElement.classList.add(theme);
-                } catch(e) {
-                  document.documentElement.classList.add('dark');
-                }
-              })()
-            `,
-          }}
-        />
-      </head>
       <body className={`${geist.variable} font-sans antialiased`}>
         <ThemeProvider>
           <QueryProvider>
