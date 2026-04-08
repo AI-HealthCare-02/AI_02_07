@@ -18,7 +18,7 @@ interface ChatMessage {
   messageId: number;
   senderTypeCode: "USER" | "ASSISTANT";
   content: string;
-  filterResult: "PASS" | "DOMAIN" | "EMERGENCY" | null;
+  filterResult: "PASS" | "DOMAIN" | "EMERGENCY" | "OTHER" | null;
   isBookmarked?: boolean;
   createdAt: string;
 }
@@ -44,7 +44,7 @@ function TypingBubble() {
           <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
         </svg>
       </div>
-      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm border border-white/8 bg-white/5 px-4 py-3">
+      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm border border-border bg-muted px-4 py-3">
         {[0, 1, 2].map((i) => (
           <span
             key={i}
@@ -97,7 +97,7 @@ function BookmarkButton({ messageId, initialBookmarked = false }: { messageId: n
       onClick={toggle}
       disabled={loading}
       className="mt-1.5 flex items-center gap-1 text-[11px] transition disabled:opacity-40"
-      style={{ color: bookmarked ? "#14b8a6" : "rgba(255,255,255,0.25)" }}
+      style={{ color: bookmarked ? "#14b8a6" : "hsl(var(--muted-foreground))" }}
     >
       <svg width="12" height="12" viewBox="0 0 24 24" fill={bookmarked ? "#14b8a6" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
@@ -110,11 +110,12 @@ function BookmarkButton({ messageId, initialBookmarked = false }: { messageId: n
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   const isUser = msg.senderTypeCode === "USER";
   const isEmergency = msg.filterResult === "EMERGENCY";
+  const isOther = msg.filterResult === "OTHER";
 
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-white/10 px-4 py-3 text-sm text-white/85">
+        <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-muted px-4 py-3 text-sm text-foreground">
           {msg.content}
         </div>
       </div>
@@ -131,6 +132,21 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           </svg>
         </div>
         <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {msg.content}
+        </div>
+      </div>
+    );
+  }
+
+  if (isOther) {
+    return (
+      <div className="flex items-end gap-2">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--muted-foreground))" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+        </div>
+        <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
           {msg.content}
         </div>
       </div>
@@ -359,8 +375,20 @@ export default function ChatPage() {
             }
           }
 
-          // 필터 차단
-          if (parsed.type === "DOMAIN" || parsed.type === "EMERGENCY") {
+          // 메시지 ID 수신 (북마크용)
+          if (parsed.messageId !== undefined) {
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.senderTypeCode === "ASSISTANT") {
+                next[next.length - 1] = { ...last, messageId: parsed.messageId };
+              }
+              return next;
+            });
+          }
+
+          // 필터 차단 (EMERGENCY / OTHER)
+          if (parsed.type === "EMERGENCY" || parsed.type === "OTHER") {
             setAiTyping(false);
             setMessages((prev) => [
               ...prev,
@@ -368,7 +396,7 @@ export default function ChatPage() {
                 messageId: Date.now() + 1,
                 senderTypeCode: "ASSISTANT",
                 content: parsed.message,
-                filterResult: parsed.type,
+                filterResult: parsed.type as "EMERGENCY" | "OTHER",
                 createdAt: new Date().toISOString(),
               },
             ]);
@@ -427,7 +455,7 @@ export default function ChatPage() {
         }
       `}</style>
 
-      <div className="flex h-[calc(100vh-64px)] bg-[#090a0f]">
+      <div className="flex h-[calc(100vh-64px)] bg-background">
 
         {/* ── 모바일 사이드바 오버레이 ── */}
         {sidebarOpen && (
@@ -439,7 +467,7 @@ export default function ChatPage() {
 
         {/* ── 사이드바 ── */}
         <aside
-          className={`fixed left-0 top-16 z-30 flex h-[calc(100vh-64px)] w-72 flex-col border-r border-white/8 bg-[#0d1117] transition-transform duration-300 lg:static lg:translate-x-0 lg:z-auto ${
+          className={`fixed left-0 top-16 z-30 flex h-[calc(100vh-64px)] w-72 flex-col border-r border-border bg-card transition-transform duration-300 lg:static lg:translate-x-0 lg:z-auto ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
@@ -463,7 +491,7 @@ export default function ChatPage() {
                 <Spinner />
               </div>
             ) : rooms.length === 0 ? (
-              <p className="px-3 py-6 text-center text-xs text-white/30">
+              <p className="px-3 py-6 text-center text-xs text-muted-foreground">
                 대화 내역이 없습니다
               </p>
             ) : (
@@ -474,11 +502,11 @@ export default function ChatPage() {
                   className={`mb-1 w-full rounded-lg px-3 py-2.5 text-left transition ${
                     activeRoomId === room.roomId
                       ? "bg-teal-500/15 text-teal-300"
-                      : "text-white/50 hover:bg-white/5 hover:text-white/80"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
                   <p className="truncate text-sm font-medium">{room.title}</p>
-                  <p className="mt-0.5 text-[10px] text-white/25">
+                  <p className="mt-0.5 text-[10px] text-muted-foreground/50">
                     {new Date(room.updatedAt).toLocaleDateString("ko-KR", {
                       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
                     })}
@@ -493,16 +521,16 @@ export default function ChatPage() {
         <div className="flex flex-1 flex-col overflow-hidden">
 
           {/* 모바일 상단 바 */}
-          <div className="flex items-center gap-3 border-b border-white/8 px-4 py-3 lg:hidden">
+          <div className="flex items-center gap-3 border-b border-border px-4 py-3 lg:hidden">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="rounded-lg p-1.5 text-white/40 hover:bg-white/5 hover:text-white/70"
+              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
               </svg>
             </button>
-            <span className="text-sm font-medium text-white/60">
+            <span className="text-sm font-medium text-muted-foreground">
               {activeRoomId
                 ? rooms.find((r) => r.roomId === activeRoomId)?.title ?? "AI 상담"
                 : "AI 상담"}
@@ -521,8 +549,8 @@ export default function ChatPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-base font-semibold text-white/70">AI 건강 상담을 시작하세요</p>
-                  <p className="mt-1 text-sm text-white/30">왼쪽에서 새 대화를 시작하거나 기존 대화를 선택하세요</p>
+                  <p className="text-base font-semibold text-foreground">AI 건강 상담을 시작하세요</p>
+                  <p className="mt-1 text-sm text-muted-foreground">왼쪽에서 새 대화를 시작하거나 기존 대화를 선택하세요</p>
                 </div>
               </div>
             ) : loadingMessages ? (
@@ -548,7 +576,7 @@ export default function ChatPage() {
           </div>
 
           {/* 입력창 */}
-          <div className="border-t border-white/8 bg-[#0d1117] px-4 py-3 pb-safe">
+          <div className="border-t border-border bg-card px-4 py-3 pb-safe">
             <div className="mx-auto flex max-w-2xl items-end gap-3">
               <textarea
                 ref={inputRef}
@@ -558,7 +586,7 @@ export default function ChatPage() {
                 placeholder="메시지를 입력하세요"
                 rows={1}
                 disabled={sending || aiTyping}
-                className="flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/85 placeholder:text-white/25 focus:border-teal-500/40 focus:outline-none disabled:opacity-50"
+                className="flex-1 resize-none rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/40 focus:outline-none disabled:opacity-50"
                 style={{ maxHeight: 120, overflowY: "auto" }}
                 onInput={(e) => {
                   const el = e.currentTarget;
