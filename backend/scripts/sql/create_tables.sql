@@ -166,19 +166,12 @@ CREATE TABLE IF NOT EXISTS chat_messages (
                          CHECK (sender_type_grp = 'SENDER_TYPE'),
     sender_type_code VARCHAR(20) NOT NULL,
 
-    content       TEXT        NOT NULL,
-    filter_result VARCHAR(20),          -- 3단계 필터 결과: PASS | DOMAIN | EMERGENCY (사용자 메시지는 NULL)
+    content     TEXT        NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     FOREIGN KEY (sender_type_grp, sender_type_code)
         REFERENCES common_code (group_code, code)
 );
-
--- 이미 생성된 테이블에 filter_result 컬럼이 없는 경우 자동 추가
-DO $$ BEGIN
-    ALTER TABLE chat_messages ADD COLUMN filter_result VARCHAR(20);
-EXCEPTION WHEN duplicate_column THEN NULL;
-END $$;
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_room
     ON chat_messages (room_id, created_at);

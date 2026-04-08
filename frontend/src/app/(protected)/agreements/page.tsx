@@ -78,22 +78,11 @@ export default function AgreementsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [checking, setChecking] = useState(true);
-
-  // 토큰 없으면 로그인, 이미 동의했으면 메인으로
+  // 토큰 없으면 로그인으로
   useEffect(() => {
     if (!localStorage.getItem("access_token")) {
       router.replace("/login");
-      return;
     }
-    apiClient.get("/api/v1/users/me").then(({ data }) => {
-      const p = data.data;
-      if (p.agreed_personal_info && p.agreed_sensitive_info && p.agreed_medical_data) {
-        router.replace("/");
-      } else {
-        setChecking(false);
-      }
-    }).catch(() => setChecking(false));
   }, [router]);
 
   const allChecked = Object.values(checked).every(Boolean);
@@ -130,14 +119,6 @@ export default function AgreementsPage() {
       setSaving(false);
     }
   };
-
-  if (checking) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <span className="h-8 w-8 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-400" />
-      </div>
-    );
-  }
 
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
