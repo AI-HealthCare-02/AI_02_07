@@ -36,6 +36,8 @@ app = [
     "boto3>=1.36",             # AWS S3
     "openai>=1.60",            # OpenAI GPT API
     "email-validator>=2.0",
+    "Pillow>=11.1",
+    "python-multipart>=0.0.18",# 파일 업로드
 ]
 ai = [
     # AI Worker 관련
