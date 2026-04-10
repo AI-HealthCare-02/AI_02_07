@@ -136,7 +136,7 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
   "diagnosis": "진단명 (없으면 null)",
   "medications": [
     {{
-      "drug_name": "약품명",
+      "medication_name": "약품명",
       "dosage": "1회 용량",
       "frequency": "1일 몇 회",
       "duration_days": 복용일수,
@@ -171,7 +171,7 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
   "treatment": "처치 내용 (없으면 null)",
   "medications": [
     {{
-      "drug_name": "약품명",
+      "medication_name": "약품명",
       "dosage": "1회 용량",
       "frequency": "1일 몇 회",
       "duration_days": 복용일수,
@@ -241,7 +241,7 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
   "diagnosis": null,
   "medications": [
     {{
-      "drug_name": "약품명",
+      "medication_name": "약품명",
       "dosage": "1회 용량",
       "frequency": "1일 몇 회",
       "duration_days": 복용일수,
