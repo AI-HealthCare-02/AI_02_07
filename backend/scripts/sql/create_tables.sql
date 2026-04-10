@@ -425,6 +425,7 @@ CREATE TABLE IF NOT EXISTS doc_analysis_result (
     ocr_confidence     INT          CHECK (ocr_confidence BETWEEN 0 AND 100),
     overall_confidence FLOAT        CHECK (overall_confidence BETWEEN 0.0 AND 1.0),
     raw_summary        TEXT,
+    analysis_json      JSONB,        -- ← 추가
     is_deleted         BOOLEAN      NOT NULL DEFAULT FALSE,
     created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
