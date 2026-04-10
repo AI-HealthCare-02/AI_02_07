@@ -45,9 +45,18 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "auth-storage",
-      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
+      partialize: (state) => ({
+        user: state.user,
+        accessToken: state.accessToken,
+        isAuthenticated: state.isAuthenticated,
+      }),
       onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
+        // state가 undefined인 경우(스토리지 파싱 오류 등)에도 반드시 hydrated 처리
+        if (state) {
+          state.setHasHydrated(true);
+        } else {
+          useAuthStore.setState({ _hasHydrated: true });
+        }
       },
     }
   )
