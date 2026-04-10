@@ -9,6 +9,16 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const { isAuthenticated, _hasHydrated } = useAuthStore();
 
+  // hydration 실패 시 안전장치: 500ms 후에도 hydrated가 false면 강제 true 처리
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!useAuthStore.getState()._hasHydrated) {
+        useAuthStore.setState({ _hasHydrated: true });
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, []);
+
   useEffect(() => {
     if (_hasHydrated && !isAuthenticated) router.replace("/login");
   }, [_hasHydrated, isAuthenticated, router]);
