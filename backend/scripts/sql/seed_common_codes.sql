@@ -96,8 +96,8 @@ INSERT INTO common_code (group_code, code, code_name, sort_order, is_used, creat
     ('SENDER_TYPE', 'SYSTEM',    '시스템',        3, TRUE, NOW()),
 
     -- ADMIN_ROLE
-    ('ADMIN_ROLE', 'SUPER',   '슈퍼 관리자', 1, TRUE, NOW()),
-    ('ADMIN_ROLE', 'MANAGER', '일반 관리자', 2, TRUE, NOW()),
+    ('ADMIN_ROLE', 'SUPER_ADMIN', '슈퍼 관리자', 1, TRUE, NOW()),
+    ('ADMIN_ROLE', 'MANAGER',    '일반 관리자', 2, TRUE, NOW()),
 
     -- JOB_STATUS
     ('JOB_STATUS', 'JOB_PENDING',    '대기',   1, TRUE, NOW()),
@@ -247,6 +247,19 @@ ON CONFLICT (config_name) DO UPDATE SET
     temperature   = EXCLUDED.temperature,
     max_tokens    = EXCLUDED.max_tokens,
     is_active     = EXCLUDED.is_active;
+
+-- ─────────────────────────────────────────────
+-- D. 초기 관리자 계정 (admin / admin1234)
+-- ─────────────────────────────────────────────
+INSERT INTO admin_users (admin_email, password, admin_name, role_grp, role_code)
+VALUES (
+    'admin',
+    '$2b$12$yrqqGbVH9NpWnDzyuarEaOHm916/ru8dNjCVQb.QcWLcIYE8eDSRe',
+    '관리자',
+    'ADMIN_ROLE',
+    'SUPER_ADMIN'
+)
+ON CONFLICT (admin_email) DO NOTHING;
 
 -- ─────────────────────────────────────────────
 -- 확인 쿼리
