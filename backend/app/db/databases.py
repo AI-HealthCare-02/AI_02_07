@@ -31,6 +31,8 @@ MODELS: list[str] = [
     "app.models.admin",  # 관리자 계정 (황보수호)
     # ── 의료 문서 분석 (이승원) ──
     "app.models.medical_doc",
+    # ── 건강 가이드 (한지수) ──
+    "app.models.guide",
 ]
 
 # Aerich 마이그레이션 도구와 Tortoise ORM이 공유하는 설정

@@ -31,6 +31,12 @@ api_v1_router.include_router(
     medical_doc_router, prefix="/medical-doc", tags=["의료 문서 분석"]
 )
 
+
+# ── 건강 가이드 ──
+from app.apis.v1.guide import router as guide_router
+api_v1_router.include_router(guide_router, tags=["건강 가이드"])
+
+
 # ── 개발 환경 전용 라우터 (S3 테스트) ──
 settings = get_settings()
 if settings.APP_ENV != "production":
