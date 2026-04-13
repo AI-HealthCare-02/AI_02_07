@@ -180,6 +180,12 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
+-- users 테이블에 last_active_at 컬럼 추가
+DO $$ BEGIN
+    ALTER TABLE users ADD COLUMN last_active_at TIMESTAMPTZ;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_chat_messages_room
     ON chat_messages (room_id, created_at);
 

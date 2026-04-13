@@ -13,6 +13,12 @@ from app.apis.v1.user import router as user_router
 from app.core.config import get_settings
 from app.apis.v1.medical_doc import router as medical_doc_router
 
+# ── 관리자 라우터 ──
+from app.apis.v1.admin.auth import router as admin_auth_router
+from app.apis.v1.admin.dashboard import router as admin_dashboard_router
+from app.apis.v1.admin.users import router as admin_users_router
+from app.apis.v1.admin.system import router as admin_system_router
+
 # v1 API 라우터
 api_v1_router = APIRouter(prefix="/api/v1")
 
@@ -30,6 +36,13 @@ api_v1_router.include_router(chat_router, prefix="/chat", tags=["AI 챗봇"])
 api_v1_router.include_router(
     medical_doc_router, prefix="/medical-doc", tags=["의료 문서 분석"]
 )
+
+# ── 관리자 ──
+_admin_prefix = "/admin"
+api_v1_router.include_router(admin_auth_router, prefix=f"{_admin_prefix}/auth", tags=["관리자 인증"])
+api_v1_router.include_router(admin_dashboard_router, prefix=f"{_admin_prefix}/dashboard", tags=["관리자 대시보드"])
+api_v1_router.include_router(admin_users_router, prefix=f"{_admin_prefix}/users", tags=["관리자 사용자"])
+api_v1_router.include_router(admin_system_router, prefix=f"{_admin_prefix}/system", tags=["관리자 시스템"])
 
 # ── 개발 환경 전용 라우터 (S3 테스트) ──
 settings = get_settings()

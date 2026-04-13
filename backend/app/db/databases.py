@@ -19,7 +19,7 @@ from app.core.config import get_settings
 MODELS: list[str] = [
     # ── 공통 ──
     "app.models.common_code",  # 공통 그룹코드 + 상세코드
-    # "app.models.ai_settings",       # AI 챗봇/LLM 설정
+    "app.models.ai_settings",  # AI 챗봇/LLM 설정
     "app.models.system_error_log",  # 시스템 오류 로그
     # ── 사용자 ──
     "app.models.user",  # 사용자 (황보수호)
