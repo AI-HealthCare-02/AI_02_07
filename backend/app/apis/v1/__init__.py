@@ -37,12 +37,18 @@ api_v1_router.include_router(
     medical_doc_router, prefix="/medical-doc", tags=["의료 문서 분석"]
 )
 
+
+# ── 건강 가이드 ──
+from app.apis.v1.guide import router as guide_router
+api_v1_router.include_router(guide_router, tags=["건강 가이드"])
+
 # ── 관리자 ──
 _admin_prefix = "/admin"
 api_v1_router.include_router(admin_auth_router, prefix=f"{_admin_prefix}/auth", tags=["관리자 인증"])
 api_v1_router.include_router(admin_dashboard_router, prefix=f"{_admin_prefix}/dashboard", tags=["관리자 대시보드"])
 api_v1_router.include_router(admin_users_router, prefix=f"{_admin_prefix}/users", tags=["관리자 사용자"])
 api_v1_router.include_router(admin_system_router, prefix=f"{_admin_prefix}/system", tags=["관리자 시스템"])
+
 
 # ── 개발 환경 전용 라우터 (S3 테스트) ──
 settings = get_settings()
