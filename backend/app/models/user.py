@@ -33,6 +33,7 @@ class User(Model):
     # 상태
     is_suspended = fields.BooleanField(default=False, description="계정 정지 여부")
     deleted_at = fields.DatetimeField(null=True, description="탈퇴 일시")
+    last_active_at = fields.DatetimeField(null=True, description="마지막 활동 일시")
 
     # 동의
     agreed_personal_info = fields.DatetimeField(null=True, description="개인정보 동의 일시")
