@@ -180,6 +180,20 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
+-- prompt_tokens / completion_tokens 컬럼 추가
+DO $$ BEGIN
+    ALTER TABLE chat_messages ADD COLUMN prompt_tokens INT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE chat_messages ADD COLUMN completion_tokens INT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE chat_messages ADD COLUMN latency_ms INT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
 -- users 테이블에 last_active_at 컬럼 추가
 DO $$ BEGIN
     ALTER TABLE users ADD COLUMN last_active_at TIMESTAMPTZ;
