@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
 from fastapi import HTTPException, status
-from langfuse.openai import AsyncOpenAI  # langfuse 래퍼 — OpenAI 호출 자동 추적
+from openai import AsyncOpenAI
 from tortoise import Tortoise
 
 from app.core.config import get_settings
