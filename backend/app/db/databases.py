@@ -19,7 +19,7 @@ from app.core.config import get_settings
 MODELS: list[str] = [
     # ── 공통 ──
     "app.models.common_code",  # 공통 그룹코드 + 상세코드
-    # "app.models.ai_settings",       # AI 챗봇/LLM 설정
+    "app.models.ai_settings",  # AI 챗봇/LLM 설정
     "app.models.system_error_log",  # 시스템 오류 로그
     # ── 사용자 ──
     "app.models.user",  # 사용자 (황보수호)
@@ -31,6 +31,8 @@ MODELS: list[str] = [
     "app.models.admin",  # 관리자 계정 (황보수호)
     # ── 의료 문서 분석 (이승원) ──
     "app.models.medical_doc",
+    # ── 건강 가이드 (한지수) ──
+    "app.models.guide",
 ]
 
 # Aerich 마이그레이션 도구와 Tortoise ORM이 공유하는 설정

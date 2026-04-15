@@ -35,12 +35,16 @@ class ChatRepository:
         sender_type_code: str,
         content: str,
         filter_result: str | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
     ) -> ChatMessage:
         return await ChatMessage.create(
             room_id=room_id,
             sender_type_code=sender_type_code,
             content=content,
             filter_result=filter_result,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )
 
     async def get_message(self, message_id: int) -> ChatMessage | None:
@@ -51,7 +55,7 @@ class ChatRepository:
     ) -> tuple[int, list[ChatMessage]]:
         qs = ChatMessage.filter(room_id=room_id)
         total = await qs.count()
-        items = await qs.offset((page - 1) * size).limit(size)
+        items = await qs.order_by("message_id").offset((page - 1) * size).limit(size)
         return total, items
 
     async def get_bookmarked_message_ids(self, room_id: int) -> set[int]:
