@@ -153,7 +153,7 @@ export default function DocsPage() {
       let meds: MedItem[] = [];
       if (Array.isArray(raw.medications)) {
         meds = raw.medications.map((m: Record<string, unknown>) => ({
-          name: String(m.name ?? ""),
+          name: String(m.medication_name ?? ""),
           dosage: m.dosage ? String(m.dosage) : null,
           frequency: m.frequency ? String(m.frequency) : null,
           instructions: m.instructions ? String(m.instructions) : null,

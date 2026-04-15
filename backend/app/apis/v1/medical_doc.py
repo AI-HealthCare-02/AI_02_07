@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
-MAX_IMAGE_SIZE = 10 * 1024 * 1024   # 10MB
-MAX_PDF_SIZE = 20 * 1024 * 1024     # 20MB
+MAX_IMAGE_SIZE = 10 * 1024 * 1024
+MAX_PDF_SIZE = 20 * 1024 * 1024
 
 
 # ============================================================
@@ -54,10 +54,8 @@ async def analyze_document(
     - **document_type**: 처방전 / 진료기록 / 약봉투 / 검진결과 / 자동인식 (기본값)
     """
 
-    # 파일 목록 구성
     files = [f for f in [file1, file2, file3, file4, file5] if f is not None]
 
-    # 문서 종류 유효성 검사
     valid_doc_types = {"처방전", "진료기록", "약봉투", "검진결과", "자동인식"}
     if document_type not in valid_doc_types:
         raise HTTPException(
@@ -66,16 +64,13 @@ async def analyze_document(
         )
 
     image_bytes_list = []
-
     for file in files:
         if file.content_type not in ALLOWED_CONTENT_TYPES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"{file.filename}: 지원하지 않는 파일 형식입니다. (JPG, PNG, PDF만 가능)",
             )
-
         file_bytes = await file.read()
-
         max_size = MAX_PDF_SIZE if file.content_type == "application/pdf" else MAX_IMAGE_SIZE
         if len(file_bytes) > max_size:
             max_mb = max_size // (1024 * 1024)
@@ -83,17 +78,14 @@ async def analyze_document(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=f"{file.filename}: 파일 크기 초과 (최대 {max_mb}MB)",
             )
-
         image_bytes_list.append(file_bytes)
         logger.info(f"파일 수신: {file.filename} ({len(file_bytes)} bytes)")
 
-    # Job 생성
     job = await medical_doc_service.create_analysis_job(
         user=current_user,
         document_type=document_type,
     )
 
-    # 분석 실행
     start_time = time.time()
     try:
         result = await analyze_medical_document(
@@ -101,11 +93,8 @@ async def analyze_document(
             document_type=document_type,
         )
         processing_time = time.time() - start_time
-
-        # OCR 텍스트는 raw_summary로 대체
         ocr_raw_text = result.get("raw_summary", "")
 
-        # 결과 DB 저장
         saved_result = await medical_doc_service.save_analysis_result(
             job=job,
             user=current_user,
@@ -174,11 +163,20 @@ async def get_analysis_result(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="분석 결과를 찾을 수 없습니다.",
         )
+
+    # analysis_json 에서 상세 데이터 추출
+    analysis = result.analysis_json or {}
+
     return ResponseDTO(
         success=True,
         data={
             "doc_result_id": result.doc_result_id,
             "document_type": medical_doc_service.DOC_TYPE_NAME_MAP.get(result.doc_type_code, result.doc_type_code),
+            "hospital_name": analysis.get("hospital_name"),
+            "prescription_date": analysis.get("prescription_date"),
+            "diagnosis": analysis.get("diagnosis"),
+            "medications": analysis.get("medications", []),
+            "cautions": analysis.get("cautions"),
             "overall_confidence": result.overall_confidence,
             "raw_summary": result.raw_summary,
             "ocr_raw_text": result.ocr_raw_text,

@@ -52,7 +52,6 @@ def log_confidence_warnings(analysis_result: dict, job_id: int) -> None:
     overall_confidence = analysis_result.get("overall_confidence", 0.0)
     doc_type = analysis_result.get("document_type", "알 수 없음")
 
-    # 전체 신뢰도 체크
     if overall_confidence < CONFIDENCE_THRESHOLD:
         logger.warning(
             f"[confidence 경고] 전체 신뢰도 낮음: "
@@ -60,27 +59,25 @@ def log_confidence_warnings(analysis_result: dict, job_id: int) -> None:
             f"(job_id={job_id}, doc_type={doc_type})"
         )
 
-    # 약품별 신뢰도 체크
     medications = analysis_result.get("medications", [])
     for i, med in enumerate(medications):
         med_confidence = med.get("confidence", 1.0)
-        drug_name = med.get("drug_name", "알 수 없음")
+        medication_name = med.get("medication_name", "알 수 없음")  # ← drug_name → medication_name
 
         if med_confidence < CONFIDENCE_THRESHOLD:
             logger.warning(
                 f"[confidence 경고] 약품 신뢰도 낮음: "
-                f"[{i+1}번] drug_name={drug_name}, "
+                f"[{i+1}번] medication_name={medication_name}, "
                 f"confidence={med_confidence} (job_id={job_id})"
             )
 
         if med.get("instructions") is None:
             logger.warning(
                 f"[confidence 경고] 복용법 미확인: "
-                f"[{i+1}번] drug_name={drug_name}, "
+                f"[{i+1}번] medication_name={medication_name}, "
                 f"instructions=null (job_id={job_id})"
             )
 
-    # 검진결과 항목별 신뢰도 체크
     exam_items = analysis_result.get("exam_items", [])
     for i, item in enumerate(exam_items):
         item_confidence = item.get("confidence", 1.0)
@@ -112,10 +109,8 @@ async def save_analysis_result(
     doc_type = analysis_result.get("document_type", "자동인식")
     doc_type_code = DOC_TYPE_CODE_MAP.get(doc_type, "DOC_OTHER")
 
-    # confidence 임계값 로깅
     log_confidence_warnings(analysis_result, job.job_id)
 
-    # 결과 저장
     result = await DocAnalysisResult.create(
         job=job,
         user=user,
@@ -127,9 +122,9 @@ async def save_analysis_result(
         ocr_confidence=int(overall_confidence * 100),
         overall_confidence=overall_confidence,
         raw_summary=raw_summary,
+        analysis_json=analysis_result,
     )
 
-    # Job 상태 업데이트
     job.status_code = "JOB_COMPLETED"
     job.processing_time = processing_time
     await job.save()
@@ -174,10 +169,12 @@ async def get_analysis_results(
         "page": page,
         "page_size": page_size,
         "total_pages": (total + page_size - 1) // page_size,
-        "results": [
+        "items": [
             {
                 "doc_result_id": r.doc_result_id,
                 "document_type": DOC_TYPE_NAME_MAP.get(r.doc_type_code, r.doc_type_code),
+                "hospital_name": (r.analysis_json or {}).get("hospital_name"),
+                "prescription_date": (r.analysis_json or {}).get("prescription_date"),
                 "overall_confidence": r.overall_confidence,
                 "raw_summary": r.raw_summary,
                 "created_at": r.created_at.isoformat(),
