@@ -35,6 +35,7 @@ app = [
     "httpx>=0.28",             # 외부 API 호출 (OAuth 등)
     "boto3>=1.36",             # AWS S3
     "openai>=1.60",            # OpenAI GPT API
+    "langfuse>=2.0",           # LLM Observability
     "email-validator>=2.0",
     "Pillow>=11.1",
     "python-multipart>=0.0.18",# 파일 업로드

@@ -4,12 +4,15 @@
 # 앱 생명주기(startup/shutdown)에서 DB, Redis 초기화/해제
 # ──────────────────────────────────────────────
 import logging
+import traceback
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from tortoise.contrib.fastapi import register_tortoise
 
 from app.apis.v1 import api_v1_router
+from app.apis.admin_router import admin_router
 from app.core.config import get_settings
 from app.core.redis import close_redis, init_redis
 from app.db.databases import MODELS
@@ -73,6 +76,52 @@ def create_app() -> FastAPI:
 
     # ── API 라우터 등록 ──
     app.include_router(api_v1_router)
+    app.include_router(admin_router)
+
+    # ── 전역 예외 핸들러 (500) ──
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        # HTTPException은 FastAPI가 자체 처리하므로 제외
+        from fastapi import HTTPException
+        if isinstance(exc, HTTPException):
+            raise exc
+
+        stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error("[Unhandled] %s %s\n%s", request.method, request.url.path, stack)
+
+        # user_id 추출 시도 (JWT 파싱 실패해도 무시)
+        user_id: int | None = None
+        try:
+            from jose import jwt as _jwt
+            auth = request.headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                payload = _jwt.decode(
+                    auth[7:],
+                    get_settings().JWT_SECRET_KEY,
+                    algorithms=[get_settings().JWT_ALGORITHM],
+                )
+                role = payload.get("role", "user")
+                if role == "user":
+                    user_id = int(payload.get("sub", 0)) or None
+        except Exception:
+            pass
+
+        try:
+            from app.services.error_log_service import log_error
+            await log_error(
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                user_id=user_id,
+                request_url=str(request.url),
+                exception=exc,
+            )
+        except Exception as log_err:
+            logger.error("오류 로그 저장 실패: %s", log_err)
+
+        return JSONResponse(
+            status_code=500,
+            content={"status": 500, "message": "서버 내부 오류가 발생했습니다.", "error": "INTERNAL_SERVER_ERROR"},
+        )
 
     # ──────────────────────────────────────────
     # Startup 이벤트
