@@ -43,4 +43,4 @@ ENV PYTHONPATH="/code"
 EXPOSE 8000
 
 # uvicorn으로 서버 실행 (단일 워커 - DB 초기화 중복 방지)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--reload"]

@@ -463,6 +463,7 @@ async def test_llm(api_model: str, temperature: float, max_tokens: int) -> LLMTe
     import openai
 
     from app.core.config import get_settings
+    from app.core.openai_utils import build_create_kwargs
 
     settings = get_settings()
     client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
@@ -470,10 +471,12 @@ async def test_llm(api_model: str, temperature: float, max_tokens: int) -> LLMTe
     start = time.time()
     try:
         response = await client.chat.completions.create(
-            model=api_model,
+            **build_create_kwargs(
+                model=api_model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            ),
             messages=[{"role": "user", "content": "Say 'test ok' in one word."}],
-            temperature=temperature,
-            max_tokens=max_tokens,
         )
         elapsed = int((time.time() - start) * 1000)
         return LLMTestResultDTO(
