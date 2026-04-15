@@ -97,6 +97,7 @@ export default function NewGuidePage() {
   const [timerRef, setTimerRef] = useState<ReturnType<typeof setInterval> | null>(null);
 
   // STEP1 상태
+  const [title, setTitle] = useState("");
   const [step1, setStep1] = useState<Step1Data>({
     visit_date: new Date().toISOString().split("T")[0],
     hospital_name: "",
@@ -131,6 +132,11 @@ export default function NewGuidePage() {
 
   // ── STEP1 → STEP2 ──
   const goStep2 = () => {
+    if (!title.trim()) {
+      showToast("가이드 제목을 입력해주세요.");
+      document.getElementById("guide-title")?.focus();
+      return;
+    }
     if (!step1.visit_date) { showToast("진료일을 입력해주세요."); return; }
     setScreen("step2");
     window.scrollTo(0, 0);
@@ -156,6 +162,7 @@ export default function NewGuidePage() {
 
     try {
       const payload = {
+        title: title.trim(),
         visit_date: step1.visit_date,
         hospital_name: step1.hospital_name || null,
         department: step1.department || null,
@@ -251,6 +258,24 @@ export default function NewGuidePage() {
         <p className="mb-6 text-sm text-muted-foreground">기본 진료 정보를 입력해주세요</p>
 
         <div className="space-y-5">
+          {/* 가이드 제목 */}
+          <div className="rounded-2xl border border-border bg-card p-5">
+            <p className="mb-4 text-sm font-semibold text-foreground">가이드 제목</p>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                제목 <span className="text-red-400">*</span>
+              </label>
+              <input
+                id="guide-title"
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="고혈압·고지혈증 관리 가이드"
+                className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
+              />
+            </div>
+          </div>
+
           {/* 기본 정보 */}
           <div className="rounded-2xl border border-border bg-card p-5">
             <p className="mb-4 text-sm font-semibold text-foreground">기본 정보</p>
