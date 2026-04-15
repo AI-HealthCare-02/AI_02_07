@@ -6,6 +6,7 @@ from app.dependencies.security import get_current_user
 from app.dtos.guide_dto import (
     AiGenerateRequest,
     AiGenerateResponse,
+    AiGenerateStatusResponse,
     AiResultDetailItem,
     ConditionsPutRequest,
     ConditionsResponse,
@@ -17,6 +18,7 @@ from app.dtos.guide_dto import (
     GuidePatchResponse,
     MedCheckCreateRequest,
     MedCheckCreateResponse,
+    MedCheckMonthlyResponse,
     MedCheckResponse,
     MessageResponse,
     ReminderCreateRequest,
@@ -111,6 +113,19 @@ async def replace_conditions(
 # ──────────────────────────────────────────
 # AI 가이드 생성
 # ──────────────────────────────────────────
+@router.get(
+    "/{guide_id}/ai-generate/status",
+    response_model=AiGenerateStatusResponse,
+    summary="AI 가이드 생성 진행 상태 조회",
+)
+async def get_ai_generate_status(
+    guide_id: int,
+    current_user: User = Depends(get_current_user),
+    svc: GuideService = Depends(get_service),
+) -> AiGenerateStatusResponse:
+    return await svc.get_ai_generate_status(guide_id, current_user.user_id)
+
+
 @router.post(
     "/{guide_id}/ai-generate",
     response_model=AiGenerateResponse,
@@ -165,6 +180,21 @@ async def create_med_check(
     svc: GuideService = Depends(get_service),
 ) -> MedCheckCreateResponse:
     return await svc.create_med_check(guide_id, current_user.user_id, req)
+
+
+@router.get(
+    "/{guide_id}/med-check/monthly",
+    response_model=MedCheckMonthlyResponse,
+    summary="월별 복약 달력 조회",
+)
+async def get_med_check_monthly(
+    guide_id: int,
+    year: int = Query(..., ge=2020, le=2100, description="조회 연도"),
+    month: int = Query(..., ge=1, le=12, description="조회 월"),
+    current_user: User = Depends(get_current_user),
+    svc: GuideService = Depends(get_service),
+) -> MedCheckMonthlyResponse:
+    return await svc.get_med_check_monthly(guide_id, current_user.user_id, year, month)
 
 
 @router.delete("/{guide_id}/med-check/{check_id}", response_model=MessageResponse, summary="복약 완료 취소 (당일만)")

@@ -1,10 +1,12 @@
-from datetime import date, datetime, timezone
+import calendar
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 
 from app.dtos.guide_dto import (
     AiGenerateRequest,
     AiGenerateResponse,
+    AiGenerateStatusResponse,
     AiResultDetailItem,
     ConditionItem,
     ConditionsPutRequest,
@@ -18,7 +20,9 @@ from app.dtos.guide_dto import (
     GuidePatchResponse,
     MedCheckCreateRequest,
     MedCheckCreateResponse,
+    MedCheckDayItem,
     MedCheckItem,
+    MedCheckMonthlyResponse,
     MedCheckResponse,
     MedicationDetailItem,
     MessageResponse,
@@ -45,12 +49,32 @@ class GuideService:
         total, guides = await self._repo.get_guides_by_user(user_id, period, status, page, size)
 
         today = date.today()
+        week_ago = today - timedelta(days=6)   # 오늘 포함 최근 7일
+
         items: list[GuideListItem] = []
         for g in guides:
-            med_count = await self._repo.get_medications(g.guide_id)
+            meds = await self._repo.get_medications(g.guide_id)
+            med_count_val = len(meds)
+
             d_day: int | None = None
             if g.med_end_date and g.guide_status == "GS_ACTIVE":
                 d_day = (g.med_end_date - today).days
+
+            # 오늘 복약 진행 현황
+            today_checks = await self._repo.get_med_checks_by_date(g.guide_id, today)
+            today_done = sum(1 for c in today_checks if c.is_taken)
+
+            # 최근 7일 복약 이행률
+            weekly_rate: float | None = None
+            if med_count_val > 0:
+                week_checks = await self._repo.get_med_checks_by_period(
+                    g.guide_id, week_ago, today
+                )
+                days_elapsed = (today - max(week_ago, g.med_start_date)).days + 1
+                if days_elapsed > 0:
+                    possible = days_elapsed * med_count_val
+                    taken = sum(1 for c in week_checks if c.is_taken)
+                    weekly_rate = round(taken / possible, 2)
 
             items.append(
                 GuideListItem(
@@ -60,9 +84,13 @@ class GuideService:
                     med_start_date=g.med_start_date,
                     med_end_date=g.med_end_date,
                     d_day=d_day,
-                    medication_count=len(med_count),
+                    medication_count=med_count_val,
                     guide_status=g.guide_status,
                     input_method=g.input_method,
+                    hospital_name=g.hospital_name,
+                    weekly_compliance_rate=weekly_rate,
+                    today_progress_done=today_done,
+                    today_progress_total=med_count_val,
                 )
             )
         return GuideListResponse(total_count=total, page=page, size=size, guides=items)
@@ -372,6 +400,75 @@ class GuideService:
 
         await self._repo.delete_reminder(reminder)
         return MessageResponse(message="알림이 삭제되었습니다.")
+
+    # ──────────────────────────────────────────
+    # 복약 달력 — 월별 전체 날짜 상태 조회
+    # ──────────────────────────────────────────
+    async def get_med_check_monthly(
+        self, guide_id: int, user_id: int, year: int, month: int
+    ) -> MedCheckMonthlyResponse:
+        guide = await self._get_guide_or_404(guide_id, user_id)
+        meds = await self._repo.get_medications(guide_id)
+        total_meds = len(meds)
+
+        _, last_day = calendar.monthrange(year, month)
+        month_start = date(year, month, 1)
+        month_end = date(year, month, last_day)
+        today = date.today()
+
+        # 해당 월 전체 복약 기록 조회 (미래 날짜 제외)
+        fetch_end = min(month_end, today)
+        checks_raw = await self._repo.get_med_checks_by_period(guide_id, month_start, fetch_end)
+
+        # 날짜별 그룹화
+        checks_by_date: dict[date, list] = {}
+        for c in checks_raw:
+            checks_by_date.setdefault(c.check_date, []).append(c)
+
+        days: list[MedCheckDayItem] = []
+        for day in range(1, last_day + 1):
+            d = date(year, month, day)
+            if d > today or d < guide.med_start_date:
+                status = "future"
+            elif d not in checks_by_date:
+                status = "missed"
+            else:
+                taken = sum(1 for c in checks_by_date[d] if c.is_taken)
+                if total_meds == 0 or taken == 0:
+                    status = "missed"
+                elif taken >= total_meds:
+                    status = "done"
+                else:
+                    status = "partial"
+            days.append(MedCheckDayItem(date=d, status=status))
+
+        return MedCheckMonthlyResponse(year=year, month=month, days=days)
+
+    # ──────────────────────────────────────────
+    # AI 가이드 생성 진행 상태 조회
+    # ──────────────────────────────────────────
+    async def get_ai_generate_status(
+        self, guide_id: int, user_id: int
+    ) -> AiGenerateStatusResponse:
+        await self._get_guide_or_404(guide_id, user_id)
+        results = await self._repo.get_latest_ai_results(guide_id)
+
+        if not results:
+            return AiGenerateStatusResponse(status="pending", completed_types=[])
+
+        completed_types = [r.result_type for r in results if r.status == "COMPLETED"]
+        has_failed = any(r.status == "FAILED" for r in results)
+
+        # RT_MEDICATION, RT_LIFESTYLE, RT_CAUTION 3종 완료 시 done
+        required = {"RT_MEDICATION", "RT_LIFESTYLE", "RT_CAUTION"}
+        if has_failed:
+            overall = "failed"
+        elif required.issubset(set(completed_types)):
+            overall = "done"
+        else:
+            overall = "processing"
+
+        return AiGenerateStatusResponse(status=overall, completed_types=completed_types)
 
     # ──────────────────────────────────────────
     # 내부 헬퍼

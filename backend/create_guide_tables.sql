@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS guides (
     visit_date      DATE,
     med_start_date  DATE NOT NULL,
     med_end_date    DATE,
-    patient_age     INTEGER NOT NULL,
-    patient_gender  VARCHAR(20) NOT NULL,   -- GD_MALE | GD_FEMALE
+    patient_age     INTEGER,                -- Optional: 프론트 폼 미포함 시 NULL 허용
+    patient_gender  VARCHAR(20),            -- GD_MALE | GD_FEMALE (Optional)
     guide_status    VARCHAR(20) NOT NULL DEFAULT 'GS_ACTIVE',  -- GS_ACTIVE | GS_COMPLETED
     input_method    VARCHAR(20) NOT NULL DEFAULT 'IM_MANUAL',  -- IM_MANUAL | IM_DOCUMENT
     is_deleted      BOOLEAN NOT NULL DEFAULT FALSE,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS guide_medications (
     medication_name VARCHAR(200) NOT NULL,
     dosage          VARCHAR(100),           -- 1회 용량
     frequency       VARCHAR(50),            -- 복용 횟수
-    timing          VARCHAR(50),            -- 식전/식후
+    timing          VARCHAR(200),           -- 식전/식후 (복수 선택 시 쉼표 구분, 예: "아침 식전,저녁 식후")
     duration_days   INTEGER,                -- 투약 기간(일)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -98,3 +98,17 @@ CREATE TABLE IF NOT EXISTS guide_reminders (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+
+-- ============================================================
+-- 마이그레이션 (기존 DB에 이미 테이블이 있는 경우 실행)
+-- 신규 설치 시에는 위 CREATE TABLE로 충분하므로 실행 불필요
+-- ============================================================
+
+-- 1. guides: patient_age / patient_gender NOT NULL → NULL 허용
+ALTER TABLE guides ALTER COLUMN patient_age    DROP NOT NULL;
+ALTER TABLE guides ALTER COLUMN patient_gender DROP NOT NULL;
+
+-- 2. guide_medications: timing 컬럼 VARCHAR(50) → VARCHAR(200)
+--    (복용 시점 복수 선택 저장을 위한 확장, 예: "아침 식전,저녁 식후")
+ALTER TABLE guide_medications ALTER COLUMN timing TYPE VARCHAR(200);

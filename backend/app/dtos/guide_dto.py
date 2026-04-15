@@ -20,10 +20,14 @@ class GuideListItem(BaseModel):
     visit_date: date | None
     med_start_date: date
     med_end_date: date | None
-    d_day: int | None           # 오늘 기준 남은 복약일 (완료 시 None)
+    d_day: int | None               # 오늘 기준 남은 복약일 (완료 시 None)
     medication_count: int
-    guide_status: str           # GS_ACTIVE | GS_COMPLETED
-    input_method: str           # IM_MANUAL | IM_DOCUMENT
+    guide_status: str               # GS_ACTIVE | GS_COMPLETED
+    input_method: str               # IM_MANUAL | IM_DOCUMENT
+    hospital_name: str | None = None
+    weekly_compliance_rate: float | None = None   # 최근 7일 복약 이행률 (0.0 ~ 1.0)
+    today_progress_done: int = 0
+    today_progress_total: int = 0
 
 
 class GuideListResponse(BaseModel):
@@ -52,8 +56,8 @@ class ConditionCreateItem(BaseModel):
 class GuideCreateRequest(BaseModel):
     diagnosis_name: str = Field(..., min_length=1, max_length=200)
     med_start_date: date
-    patient_age: int = Field(..., gt=0, lt=150)
-    patient_gender: str = Field(..., pattern="^(GD_MALE|GD_FEMALE)$")
+    patient_age: int | None = Field(None, gt=0, lt=150)     # Optional: 프론트 폼 미포함
+    patient_gender: str | None = Field(None, pattern="^(GD_MALE|GD_FEMALE)$")  # Optional
     hospital_name: str | None = None
     visit_date: date | None = None
     med_end_date: date | None = None
@@ -228,3 +232,25 @@ class ReminderSimpleResponse(BaseModel):
     reminder_id: int
     reminder_time: time
     is_active: bool
+
+
+# ──────────────────────────────────────────
+# 복약 달력 — 월별 조회
+# ──────────────────────────────────────────
+class MedCheckDayItem(BaseModel):
+    date: date
+    status: str   # done | partial | missed | future
+
+
+class MedCheckMonthlyResponse(BaseModel):
+    year: int
+    month: int
+    days: list[MedCheckDayItem]
+
+
+# ──────────────────────────────────────────
+# AI 생성 진행 상태
+# ──────────────────────────────────────────
+class AiGenerateStatusResponse(BaseModel):
+    status: str               # pending | processing | done | failed
+    completed_types: list[str]
