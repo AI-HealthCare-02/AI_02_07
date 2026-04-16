@@ -118,6 +118,25 @@ async def extract_text_with_auto_rotate(
 
 # ── 문서 종류별 프롬프트 ───────────────────
 def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
+    # 공통 medications 블록 (처방전/약봉투용)
+    medications_block = """
+  "medications": [
+    {
+      "medication_name": "약품명",
+      "category": "약 분류 (예: 해열·진통·소염제, 항생제, 위점막보호제 등. 없으면 null)",
+      "form": "제형 (정/캡슐/시럽/점안액/연고/주사/패치 중 해당하는 것. 알 수 없으면 null)",
+      "dosage": "1회 용량 (예: 1정, 500mg. 없으면 null)",
+      "frequency": "1일 몇 회 (예: 1일 2회. 없으면 null)",
+      "duration_days": 복용일수 (숫자. 없으면 null),
+      "timing": "식전/식후/취침전 등 (점안액·연고·외용제는 반드시 null. 먹는 약만 기재. 없으면 null)",
+      "cautions": ["이 약의 개별 주의사항1", "주의사항2"],
+      "confidence": 0.0
+    }
+  ],
+  "medication_schedule": {
+    "note": "전체 복약안내 요약 (예: 카발린·넥실렌은 식전, 셀비트는 식후 복용. 해당 없으면 null)"
+  }"""
+
     prompts = {
         "처방전": f"""아래는 처방전에서 OCR로 추출한 텍스트야.
 이 텍스트를 분석해서 JSON 형식으로 구조화해줘.
@@ -126,25 +145,18 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
 - 텍스트에 있는 내용만 추출해. 절대 추측하거나 지어내지 마.
 - 텍스트에 명시되지 않은 정보는 반드시 null로 설정해.
 - 확실하지 않은 필드는 null로 설정하고 confidence를 낮게 설정해.
+- timing 필드: 점안액·연고·외용제·주사는 반드시 null. 먹는 약만 식전/식후 등을 기재해.
+- cautions 필드: 이 약의 주의사항을 배열로 기재해. 없으면 빈 배열 [].
+- medication_schedule.note: 여러 약의 복약안내를 한 문장으로 통합 정리해.
 반드시 JSON만 출력하고 다른 말은 하지 마.
 
 {{
   "document_type": "처방전",
   "hospital_name": "병원명",
   "doctor_name": "의사명 (없으면 null)",
-  "prescription_date": "처방일 (YYYY-MM-DD)",
-  "diagnosis": "진단명 (없으면 null)",
-  "medications": [
-    {{
-      "medication_name": "약품명",
-      "dosage": "1회 용량",
-      "frequency": "1일 몇 회",
-      "duration_days": 복용일수,
-      "instructions": "식전/식후 등 복용법 (없으면 null)",
-      "confidence": 0.0
-    }}
-  ],
-  "cautions": "주의사항 (없으면 null)",
+  "visit_date": "처방일 (YYYY-MM-DD)",
+  "diagnosis_name": "진단명 (없으면 null)",{medications_block},
+  "cautions": "전체 주의사항 (없으면 null)",
   "overall_confidence": 0.0,
   "raw_summary": "문서 전체 요약"
 }}
@@ -159,6 +171,9 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
 - 텍스트에 있는 내용만 추출해. 절대 추측하거나 지어내지 마.
 - 텍스트에 명시되지 않은 정보는 반드시 null로 설정해.
 - 확실하지 않은 필드는 null로 설정하고 confidence를 낮게 설정해.
+- timing 필드: 점안액·연고·외용제·주사는 반드시 null. 먹는 약만 식전/식후 등을 기재해.
+- cautions 필드: 이 약의 주의사항을 배열로 기재해. 없으면 빈 배열 [].
+- medication_schedule.note: 여러 약의 복약안내를 한 문장으로 통합 정리해.
 반드시 JSON만 출력하고 다른 말은 하지 마.
 
 {{
@@ -166,55 +181,11 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
   "hospital_name": "병원명",
   "doctor_name": "의사명 (없으면 null)",
   "visit_date": "진료일 (YYYY-MM-DD)",
-  "diagnosis": "진단명 (없으면 null)",
+  "diagnosis_name": "진단명 (없으면 null)",
   "symptoms": "주요 증상 (없으면 null)",
-  "treatment": "처치 내용 (없으면 null)",
-  "medications": [
-    {{
-      "medication_name": "약품명",
-      "dosage": "1회 용량",
-      "frequency": "1일 몇 회",
-      "duration_days": 복용일수,
-      "instructions": "식전/식후 등 복용법 (없으면 null)",
-      "confidence": 0.0
-    }}
-  ],
-  "cautions": "주의사항 (없으면 null)",
+  "treatment": "처치 내용 (없으면 null)",{medications_block},
+  "cautions": "전체 주의사항 (없으면 null)",
   "next_visit": "다음 방문일 (없으면 null)",
-  "overall_confidence": 0.0,
-  "raw_summary": "문서 전체 요약"
-}}
-
---- 추출된 텍스트 ---
-{extracted_text}""",
-
-        "검진결과": f"""아래는 건강검진결과서에서 OCR로 추출한 텍스트야.
-이 텍스트를 분석해서 JSON 형식으로 구조화해줘.
-
-규칙:
-- 텍스트에 있는 내용만 추출해. 절대 추측하거나 지어내지 마.
-- 텍스트에 명시되지 않은 정보는 반드시 null로 설정해.
-- 표 형태 데이터도 항목별로 구조화해줘.
-- 확실하지 않은 필드는 null로 설정하고 confidence를 낮게 설정해.
-반드시 JSON만 출력하고 다른 말은 하지 마.
-
-{{
-  "document_type": "검진결과",
-  "hospital_name": "검진기관명",
-  "exam_date": "검진일 (YYYY-MM-DD)",
-  "patient_name": "수검자명 (없으면 null)",
-  "exam_items": [
-    {{
-      "item_name": "검사항목명",
-      "value": "측정값",
-      "unit": "단위 (없으면 null)",
-      "normal_range": "정상범위 (없으면 null)",
-      "status": "정상/주의/이상 (없으면 null)",
-      "confidence": 0.0
-    }}
-  ],
-  "overall_result": "종합 소견 (없으면 null)",
-  "cautions": "주의사항 (없으면 null)",
   "overall_confidence": 0.0,
   "raw_summary": "문서 전체 요약"
 }}
@@ -230,26 +201,18 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
 - 약제비 계산서, 영수증, 손글씨 메모는 무시해.
 - 텍스트에 있는 내용만 추출해. 절대 추측하거나 지어내지 마.
 - 텍스트에 명시되지 않은 정보는 반드시 null로 설정해.
-- instructions 필드는 텍스트에 식전/식후가 명확히 적혀있을 때만 채워. 없으면 null.
+- timing 필드: 점안액·연고·외용제·주사는 반드시 null. 먹는 약만 식전/식후 등을 기재해.
+- cautions 필드: 이 약봉투에 적힌 해당 약의 개별 주의사항을 배열로 기재해. 없으면 빈 배열 [].
+- medication_schedule.note: 여러 약의 복약안내를 한 문장으로 통합 정리해.
 - 확실하지 않은 필드는 null로 설정하고 confidence를 낮게 설정해.
 반드시 JSON만 출력하고 다른 말은 하지 마.
 
 {{
   "document_type": "약봉투",
   "hospital_name": "병원명 또는 약국명",
-  "prescription_date": "조제일 (YYYY-MM-DD)",
-  "diagnosis": null,
-  "medications": [
-    {{
-      "medication_name": "약품명",
-      "dosage": "1회 용량",
-      "frequency": "1일 몇 회",
-      "duration_days": 복용일수,
-      "instructions": "식전/식후 등 복용법 (없으면 null)",
-      "confidence": 0.0
-    }}
-  ],
-  "cautions": "주의사항 (없으면 null)",
+  "visit_date": "조제일 (YYYY-MM-DD)",
+  "diagnosis_name": null,{medications_block},
+  "cautions": "전체 주의사항 (없으면 null)",
   "overall_confidence": 0.0,
   "raw_summary": "문서 전체 요약"
 }}
