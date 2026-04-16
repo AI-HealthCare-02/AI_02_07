@@ -4,7 +4,7 @@ import { useAdminStore } from "@/store/admin-store";
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export const adminApiClient = axios.create({
-  baseURL: BASE_URL,
+  baseURL: typeof window === "undefined" ? BASE_URL : "",
   timeout: 15000,
   headers: { "Content-Type": "application/json" },
 });
@@ -92,6 +92,28 @@ export interface ErrorLogList {
   items: ErrorLogItem[];
 }
 
+export interface ChatStatItem {
+  message_id: number;
+  room_id: number;
+  model_name: string | null;
+  input_text: string | null;
+  output_text: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  cost_usd: number | null;
+  latency_ms: number | null;
+  filter_result: string | null;
+  created_at: string;
+}
+
+export interface ChatStatList {
+  totalCount: number;
+  page: number;
+  size: number;
+  items: ChatStatItem[];
+}
+
 // ── API Functions ──────────────────────────────────────────
 
 export const adminApi = {
@@ -138,4 +160,26 @@ export const adminApi = {
 
   deleteError: (logId: number) =>
     adminApiClient.delete(`/api/admin/errors/${logId}`),
+
+  getChatStats: (params: {
+    page?: number;
+    size?: number;
+    room_id?: number;
+    model_name?: string;
+    filter_result?: string;
+    start_date?: string;
+    end_date?: string;
+  }) => adminApiClient.get("/api/admin/chat/stats", { params }),
+
+  downloadChatStatsCsv: (params: {
+    room_id?: number;
+    model_name?: string;
+    filter_result?: string;
+    start_date?: string;
+    end_date?: string;
+  }) =>
+    adminApiClient.get("/api/admin/chat/stats/download", {
+      params,
+      responseType: "blob",
+    }),
 };
