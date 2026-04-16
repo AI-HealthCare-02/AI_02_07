@@ -56,9 +56,7 @@ async def analyze_document(
 
     files = [f for f in [file1, file2, file3, file4, file5] if f is not None]
 
-    # 검진결과 제거 — 처방전 / 진료기록 / 약봉투 / 자동인식만 지원
     valid_doc_types = {"처방전", "진료기록", "약봉투", "자동인식"}
-    valid_doc_types = {"처방전", "진료기록", "약봉투", "검진결과", "자동인식"}
     if document_type not in valid_doc_types:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -176,13 +174,10 @@ async def get_analysis_result(
             "doc_result_id": result.doc_result_id,
             "document_type": medical_doc_service.DOC_TYPE_NAME_MAP.get(result.doc_type_code, result.doc_type_code),
             "hospital_name": analysis.get("hospital_name"),
-            "visit_date": analysis.get("visit_date"),           # prescription_date → visit_date
-            "diagnosis_name": analysis.get("diagnosis_name"),   # diagnosis → diagnosis_name
+            "visit_date": analysis.get("visit_date"),
+            "diagnosis_name": analysis.get("diagnosis_name"),
             "medications": analysis.get("medications", []),
             "medication_schedule": analysis.get("medication_schedule"),
-            "prescription_date": analysis.get("prescription_date"),
-            "diagnosis": analysis.get("diagnosis"),
-            "medications": analysis.get("medications", []),
             "cautions": analysis.get("cautions"),
             "overall_confidence": result.overall_confidence,
             "raw_summary": result.raw_summary,
