@@ -56,6 +56,7 @@ async def analyze_document(
 
     files = [f for f in [file1, file2, file3, file4, file5] if f is not None]
 
+    # 검진결과 제거 — 처방전 / 진료기록 / 약봉투 / 자동인식만 지원
     valid_doc_types = {"처방전", "진료기록", "약봉투", "자동인식"}
     if document_type not in valid_doc_types:
         raise HTTPException(
@@ -164,8 +165,6 @@ async def get_analysis_result(
             detail="분석 결과를 찾을 수 없습니다.",
         )
 
-
-    # analysis_json 에서 상세 데이터 추출
     analysis = result.analysis_json or {}
 
     return ResponseDTO(
