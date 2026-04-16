@@ -1,315 +1,212 @@
-# ai_worker/tasks/medical_doc.py
-# ──────────────────────────────────────────
-# 의료 문서 분석 작업 핸들러 – 이승원 담당
+# app/apis/v1/medical_doc.py
+# ──────────────────────────────────────────────
+# 의료 문서 분석 API — 이승원 담당
 #
-# 이 파일에 vLLM 기반 의료 문서 분석 로직을 구현하세요.
-# S3에서 문서를 다운로드 → vLLM 추론 → 결과 반환
-# ──────────────────────────────────────────
+# 엔드포인트:
+#   POST /medical-doc/analyze       → 의료 문서 이미지 분석 + DB 저장
+#   GET  /medical-doc/results       → 분석 결과 목록 조회
+#   GET  /medical-doc/results/{id}  → 분석 결과 단건 조회
+#   DELETE /medical-doc/results/{id} → 분석 결과 삭제
+# ──────────────────────────────────────────────
 
-import base64
-import io
-import json
+import logging
+import time
 
-import httpx
-from openai import AsyncOpenAI
-from PIL import Image, ImageOps
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
-from ai_worker.core.config import get_worker_settings
-from ai_worker.core.logger import setup_logger
+from ai_worker.tasks.medical_doc import analyze_medical_document
+from app.core.dependencies import get_current_user
+from app.dtos.common_dto import ResponseDTO
+from app.models.user import User
+from app.services import medical_doc_service
 
-logger = setup_logger("task.medical_doc")
-settings = get_worker_settings()
+logger = logging.getLogger(__name__)
+router = APIRouter()
 
-# ── 상수 ──────────────────────────────────
-CONFIDENCE_THRESHOLD = 0.7
-INSTRUCTION_KEYWORDS = ["식전", "식후", "취침전"]
-
-
-# ── OpenAI 클라이언트 ──────────────────────
-def get_openai_client() -> AsyncOpenAI:
-    return AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
+MAX_IMAGE_SIZE = 10 * 1024 * 1024
+MAX_PDF_SIZE = 20 * 1024 * 1024
 
 
-# ── 이미지 전처리 ──────────────────────────
-def preprocess_image(image_bytes: bytes, rotate: int = 0) -> bytes:
-    img = Image.open(io.BytesIO(image_bytes))
-    try:
-        img = ImageOps.exif_transpose(img)
-    except Exception:
-        pass
-    if rotate != 0:
-        img = img.rotate(rotate, expand=True)
-    max_size = 1500
-    if max(img.size) > max_size:
-        img.thumbnail((max_size, max_size), Image.LANCZOS)
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=90)
-    return buffer.getvalue()
+# ============================================================
+# 의료 문서 분석 + DB 저장
+# ============================================================
 
+@router.post(
+    "/analyze",
+    response_model=ResponseDTO[dict],
+    summary="의료 문서 분석",
+)
+async def analyze_document(
+    file1: UploadFile = File(description="의료 문서 이미지 1 (필수)"),
+    file2: UploadFile | None = File(default=None, description="의료 문서 이미지 2 (선택, 뒷면 등)"),
+    file3: UploadFile | None = File(default=None, description="의료 문서 이미지 3 (선택)"),
+    file4: UploadFile | None = File(default=None, description="의료 문서 이미지 4 (선택)"),
+    file5: UploadFile | None = File(default=None, description="의료 문서 이미지 5 (선택)"),
+    document_type: str = Form(default="자동인식", description="문서 종류: 처방전 / 진료기록 / 약봉투 / 자동인식"),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    의료 문서 이미지를 업로드하면 AI가 분석하여 구조화된 JSON을 반환하고 DB에 저장합니다.
 
-# ── 클로버 OCR ─────────────────────────────
-async def extract_text_with_clova(image_bytes: bytes) -> str | None:
-    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-    payload = {
-        "images": [{"format": "jpg", "name": "medical_doc", "data": image_base64}],
-        "requestId": "healthguide",
-        "version": "V2",
-        "timestamp": 0,
-    }
-    headers = {
-        "X-OCR-SECRET": settings.OCR_SECRET_KEY,
-        "Content-Type": "application/json",
-    }
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            settings.OCR_INVOKE_URL,
-            headers=headers,
-            json=payload,
-            timeout=30,
+    - **file1**: 이미지 파일 (JPG, PNG, PDF) 필수
+    - **file2~5**: 추가 이미지 (선택, 앞면/뒷면 등)
+    - **document_type**: 처방전 / 진료기록 / 약봉투 / 자동인식 (기본값)
+    """
+
+    files = [f for f in [file1, file2, file3, file4, file5] if f is not None]
+
+    # 검진결과 제거 — 처방전 / 진료기록 / 약봉투 / 자동인식만 지원
+    valid_doc_types = {"처방전", "진료기록", "약봉투", "자동인식"}
+    if document_type not in valid_doc_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"유효하지 않은 문서 종류입니다. 선택 가능: {sorted(valid_doc_types)}",
         )
-    if response.status_code != 200:
-        logger.error(f"클로버 OCR 오류: {response.status_code}")
-        return None
-    result = response.json()
-    texts = []
-    for image in result.get("images", []):
-        for field in image.get("fields", []):
-            texts.append(field.get("inferText", ""))
-    return " ".join(texts)
 
+    image_bytes_list = []
+    for file in files:
+        if file.content_type not in ALLOWED_CONTENT_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{file.filename}: 지원하지 않는 파일 형식입니다. (JPG, PNG, PDF만 가능)",
+            )
+        file_bytes = await file.read()
+        max_size = MAX_PDF_SIZE if file.content_type == "application/pdf" else MAX_IMAGE_SIZE
+        if len(file_bytes) > max_size:
+            max_mb = max_size // (1024 * 1024)
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"{file.filename}: 파일 크기 초과 (최대 {max_mb}MB)",
+            )
+        image_bytes_list.append(file_bytes)
+        logger.info(f"파일 수신: {file.filename} ({len(file_bytes)} bytes)")
 
-# ── 자동 회전 감지 + 텍스트 추출 (재시도 포함) ─────────────
-async def extract_text_with_auto_rotate(
-    image_bytes: bytes,
-    max_retries: int = 3,
-    retry_delay: float = 1.0,
-) -> str | None:
-    import asyncio
-
-    for angle in [0, 90, 180, 270]:
-        processed = preprocess_image(image_bytes, rotate=angle)
-
-        for attempt in range(1, max_retries + 1):
-            try:
-                text = await extract_text_with_clova(processed)
-                if text and len(text.strip()) > 10:
-                    logger.info(f"{angle}도에서 텍스트 추출 성공 ({len(text)}자)")
-                    return text
-                else:
-                    logger.info(f"{angle}도 실패, 다음 각도 시도...")
-                    break  # 텍스트가 없으면 재시도 없이 다음 각도로
-
-            except Exception as e:
-                if attempt < max_retries:
-                    logger.warning(
-                        f"{angle}도 OCR 오류 (시도 {attempt}/{max_retries}): {e} "
-                        f"→ {retry_delay}초 후 재시도"
-                    )
-                    await asyncio.sleep(retry_delay)
-                else:
-                    logger.error(
-                        f"{angle}도 OCR 최종 실패 (시도 {max_retries}/{max_retries}): {e}"
-                    )
-
-    return None
-
-
-# ── 문서 종류별 프롬프트 ───────────────────
-def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
-    # 공통 medications 블록 (처방전/약봉투용)
-    medications_block = """
-  "medications": [
-    {
-      "medication_name": "약품명",
-      "category": "약 분류 (예: 해열·진통·소염제, 항생제, 위점막보호제 등. 없으면 null)",
-      "form": "제형 (정/캡슐/시럽/점안액/연고/주사/패치 중 해당하는 것. 알 수 없으면 null)",
-      "dosage": "1회 용량 (예: 1정, 500mg. 없으면 null)",
-      "frequency": "1일 몇 회 (예: 1일 2회. 없으면 null)",
-      "duration_days": 복용일수 (숫자. 없으면 null),
-      "timing": "식전/식후/취침전 등 (점안액·연고·외용제는 반드시 null. 먹는 약만 기재. 없으면 null)",
-      "cautions": ["이 약의 개별 주의사항1", "주의사항2"],
-      "confidence": 0.0
-    }
-  ],
-  "medication_schedule": {
-    "note": "전체 복약안내 요약 (예: 카발린·넥실렌은 식전, 셀비트는 식후 복용. 해당 없으면 null)"
-  }"""
-
-    prompts = {
-        "처방전": f"""아래는 처방전에서 OCR로 추출한 텍스트야.
-이 텍스트를 분석해서 JSON 형식으로 구조화해줘.
-
-규칙:
-- 텍스트에 있는 내용만 추출해. 절대 추측하거나 지어내지 마.
-- 텍스트에 명시되지 않은 정보는 반드시 null로 설정해.
-- 확실하지 않은 필드는 null로 설정하고 confidence를 낮게 설정해.
-- timing 필드: 점안액·연고·외용제·주사는 반드시 null. 먹는 약만 식전/식후 등을 기재해.
-- cautions 필드: 이 약의 주의사항을 배열로 기재해. 없으면 빈 배열 [].
-- medication_schedule.note: 여러 약의 복약안내를 한 문장으로 통합 정리해.
-반드시 JSON만 출력하고 다른 말은 하지 마.
-
-{{
-  "document_type": "처방전",
-  "hospital_name": "병원명",
-  "doctor_name": "의사명 (없으면 null)",
-  "visit_date": "처방일 (YYYY-MM-DD)",
-  "diagnosis_name": "진단명 (없으면 null)",{medications_block},
-  "cautions": "전체 주의사항 (없으면 null)",
-  "overall_confidence": 0.0,
-  "raw_summary": "문서 전체 요약"
-}}
-
---- 추출된 텍스트 ---
-{extracted_text}""",
-
-        "진료기록": f"""아래는 진료기록에서 OCR로 추출한 텍스트야.
-이 텍스트를 분석해서 JSON 형식으로 구조화해줘.
-
-규칙:
-- 텍스트에 있는 내용만 추출해. 절대 추측하거나 지어내지 마.
-- 텍스트에 명시되지 않은 정보는 반드시 null로 설정해.
-- 확실하지 않은 필드는 null로 설정하고 confidence를 낮게 설정해.
-- timing 필드: 점안액·연고·외용제·주사는 반드시 null. 먹는 약만 식전/식후 등을 기재해.
-- cautions 필드: 이 약의 주의사항을 배열로 기재해. 없으면 빈 배열 [].
-- medication_schedule.note: 여러 약의 복약안내를 한 문장으로 통합 정리해.
-반드시 JSON만 출력하고 다른 말은 하지 마.
-
-{{
-  "document_type": "진료기록",
-  "hospital_name": "병원명",
-  "doctor_name": "의사명 (없으면 null)",
-  "visit_date": "진료일 (YYYY-MM-DD)",
-  "diagnosis_name": "진단명 (없으면 null)",
-  "symptoms": "주요 증상 (없으면 null)",
-  "treatment": "처치 내용 (없으면 null)",{medications_block},
-  "cautions": "전체 주의사항 (없으면 null)",
-  "next_visit": "다음 방문일 (없으면 null)",
-  "overall_confidence": 0.0,
-  "raw_summary": "문서 전체 요약"
-}}
-
---- 추출된 텍스트 ---
-{extracted_text}""",
-
-        "약봉투": f"""아래는 약봉투에서 OCR로 추출한 텍스트야.
-이 텍스트를 분석해서 JSON 형식으로 구조화해줘.
-
-규칙:
-- 반드시 '복약안내' 또는 '복약안내문' 섹션 내용을 기준으로 분석해.
-- 약제비 계산서, 영수증, 손글씨 메모는 무시해.
-- 텍스트에 있는 내용만 추출해. 절대 추측하거나 지어내지 마.
-- 텍스트에 명시되지 않은 정보는 반드시 null로 설정해.
-- timing 필드: 점안액·연고·외용제·주사는 반드시 null. 먹는 약만 식전/식후 등을 기재해.
-- cautions 필드: 이 약봉투에 적힌 해당 약의 개별 주의사항을 배열로 기재해. 없으면 빈 배열 [].
-- medication_schedule.note: 여러 약의 복약안내를 한 문장으로 통합 정리해.
-- 확실하지 않은 필드는 null로 설정하고 confidence를 낮게 설정해.
-반드시 JSON만 출력하고 다른 말은 하지 마.
-
-{{
-  "document_type": "약봉투",
-  "hospital_name": "병원명 또는 약국명",
-  "visit_date": "조제일 (YYYY-MM-DD)",
-  "diagnosis_name": null,{medications_block},
-  "cautions": "전체 주의사항 (없으면 null)",
-  "overall_confidence": 0.0,
-  "raw_summary": "문서 전체 요약"
-}}
-
---- 추출된 텍스트 ---
-{extracted_text}""",
-    }
-    return prompts.get(doc_type, prompts["약봉투"])
-
-
-# ── 문서 종류 자동 감지 ───────────────────
-async def detect_document_type(client: AsyncOpenAI, extracted_text: str) -> str:
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0,
-        messages=[
-            {
-                "role": "user",
-                "content": f"""아래 텍스트가 어떤 종류의 의료 문서인지 판단해줘.
-반드시 아래 JSON만 출력하고 다른 말은 하지 마.
-
-{{"document_type": "처방전" 또는 "진료기록" 또는 "검진결과" 또는 "약봉투"}}
-
---- 텍스트 ---
-{extracted_text[:300]}""",
-            }
-        ],
-        max_tokens=50,
+    job = await medical_doc_service.create_analysis_job(
+        user=current_user,
+        document_type=document_type,
     )
-    result = response.choices[0].message.content.strip()
+
+    start_time = time.time()
     try:
-        parsed = json.loads(result)
-        return parsed.get("document_type", "약봉투")
-    except Exception:
-        return "약봉투"
+        result = await analyze_medical_document(
+            image_bytes_list=image_bytes_list,
+            document_type=document_type,
+        )
+        processing_time = time.time() - start_time
+        ocr_raw_text = result.get("raw_summary", "")
+
+        saved_result = await medical_doc_service.save_analysis_result(
+            job=job,
+            user=current_user,
+            analysis_result=result,
+            ocr_raw_text=ocr_raw_text,
+            processing_time=processing_time,
+        )
+
+        result["doc_result_id"] = saved_result.doc_result_id
+        result["processing_time"] = round(processing_time, 2)
+
+    except Exception as e:
+        await medical_doc_service.fail_analysis_job(job, str(e))
+        logger.error(f"의료 문서 분석 실패: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="문서 분석 중 오류가 발생했습니다.",
+        )
+
+    return ResponseDTO(success=True, message="분석 완료", data=result)
 
 
-# ── GPT 구조화 분석 ───────────────────────
-async def analyze_with_gpt(
-    client: AsyncOpenAI,
-    extracted_text: str,
-    doc_type: str,
-) -> dict:
-    if doc_type == "자동인식":
-        doc_type = await detect_document_type(client, extracted_text)
-        logger.info(f"자동 감지된 문서 종류: {doc_type}")
-    else:
-        logger.info(f"선택된 문서 종류: {doc_type}")
+# ============================================================
+# 분석 결과 목록 조회
+# ============================================================
 
-    prompt = get_prompt_by_document_type(doc_type, extracted_text)
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=1500,
+@router.get(
+    "/results",
+    response_model=ResponseDTO[dict],
+    summary="분석 결과 목록 조회",
+)
+async def list_analysis_results(
+    page: int = 1,
+    page_size: int = 10,
+    current_user: User = Depends(get_current_user),
+):
+    """사용자의 의료 문서 분석 결과 목록을 조회합니다."""
+    results = await medical_doc_service.get_analysis_results(
+        user=current_user,
+        page=page,
+        page_size=page_size,
     )
-    result = response.choices[0].message.content.strip()
-    cleaned = result
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("```")[1]
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.strip()
-    return json.loads(cleaned)
+    return ResponseDTO(success=True, data=results)
 
 
-# ── 메인 분석 파이프라인 ──────────────────
-async def analyze_medical_document(
-    image_bytes_list: list[bytes],
-    document_type: str,
-) -> dict:
-    """
-    여러 이미지를 받아서 OCR + GPT 분석 후 결과 반환
+# ============================================================
+# 분석 결과 단건 조회
+# ============================================================
 
-    Args:
-        image_bytes_list: 이미지 바이트 리스트 (앞면, 뒷면 등)
-        document_type: 문서 종류 (처방전/진료기록/약봉투/검진결과/자동인식)
+@router.get(
+    "/results/{doc_result_id}",
+    response_model=ResponseDTO[dict],
+    summary="분석 결과 단건 조회",
+)
+async def get_analysis_result(
+    doc_result_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """특정 분석 결과를 조회합니다."""
+    result = await medical_doc_service.get_analysis_result(
+        user=current_user,
+        doc_result_id=doc_result_id,
+    )
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="분석 결과를 찾을 수 없습니다.",
+        )
 
-    Returns:
-        분석 결과 JSON dict
-    """
-    client = get_openai_client()
-    all_texts = []
+    analysis = result.analysis_json or {}
 
-    for i, image_bytes in enumerate(image_bytes_list):
-        logger.info(f"[{i+1}/{len(image_bytes_list)}] 이미지 처리 중...")
-        text = await extract_text_with_auto_rotate(image_bytes)
-        if text:
-            all_texts.append(f"=== 이미지 {i+1} ===\n{text}")
-        else:
-            logger.warning(f"이미지 {i+1} 텍스트 추출 실패")
+    return ResponseDTO(
+        success=True,
+        data={
+            "doc_result_id": result.doc_result_id,
+            "document_type": medical_doc_service.DOC_TYPE_NAME_MAP.get(result.doc_type_code, result.doc_type_code),
+            "hospital_name": analysis.get("hospital_name"),
+            "visit_date": analysis.get("visit_date"),           # prescription_date → visit_date
+            "diagnosis_name": analysis.get("diagnosis_name"),   # diagnosis → diagnosis_name
+            "medications": analysis.get("medications", []),
+            "medication_schedule": analysis.get("medication_schedule"),
+            "cautions": analysis.get("cautions"),
+            "overall_confidence": result.overall_confidence,
+            "raw_summary": result.raw_summary,
+            "ocr_raw_text": result.ocr_raw_text,
+            "created_at": result.created_at.isoformat(),
+        },
+    )
 
-    if not all_texts:
-        return {"error": "텍스트 추출 실패", "overall_confidence": 0.0}
 
-    combined_text = "\n\n".join(all_texts)
-    logger.info(f"전체 추출 텍스트 길이: {len(combined_text)}자")
+# ============================================================
+# 분석 결과 삭제
+# ============================================================
 
-    result = await analyze_with_gpt(client, combined_text, document_type)
-    return result
+@router.delete(
+    "/results/{doc_result_id}",
+    response_model=ResponseDTO,
+    summary="분석 결과 삭제",
+)
+async def delete_analysis_result(
+    doc_result_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """분석 결과를 삭제합니다 (소프트 삭제)."""
+    deleted = await medical_doc_service.delete_analysis_result(
+        user=current_user,
+        doc_result_id=doc_result_id,
+    )
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="분석 결과를 찾을 수 없습니다.",
+        )
+    return ResponseDTO(success=True, message="분석 결과가 삭제되었습니다.")

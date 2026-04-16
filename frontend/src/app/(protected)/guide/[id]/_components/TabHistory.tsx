@@ -4,6 +4,32 @@ import { useState } from "react";
 
 type DayStatus = "done" | "partial" | "missed" | "future" | "none";
 
+interface MedRecord {
+  date: string;
+  drug: string;
+  time_slot: string;
+  taken_at: string | null;
+  status: "done" | "missed" | "pending";
+}
+
+// Mock 복약 리스트
+const MOCK_RECORDS: MedRecord[] = [
+  { date: "04.10", drug: "오메프라졸 20mg",    time_slot: "아침 식전", taken_at: "08:10", status: "done"    },
+  { date: "04.10", drug: "아모디핀 5mg",       time_slot: "아침 식후", taken_at: "08:28", status: "done"    },
+  { date: "04.10", drug: "로수바스타틴 10mg",  time_slot: "저녁 식후", taken_at: null,    status: "pending" },
+  { date: "04.09", drug: "오메프라졸 20mg",    time_slot: "아침 식전", taken_at: "07:55", status: "done"    },
+  { date: "04.08", drug: "오메프라졸 20mg",    time_slot: "아침 식전", taken_at: null,    status: "missed"  },
+];
+
+const STATUS_BADGE: Record<MedRecord["status"], string> = {
+  done:    "bg-teal-500/15 text-teal-400",
+  pending: "bg-muted/50 text-muted-foreground",
+  missed:  "bg-red-500/15 text-red-400",
+};
+const STATUS_LABEL: Record<MedRecord["status"], string> = {
+  done: "완료", pending: "대기", missed: "누락",
+};
+
 // Mock: 날짜별 상태
 function getMockStatus(year: number, month: number, day: number): DayStatus {
   const today = new Date();
@@ -119,6 +145,25 @@ export default function TabHistory({ guideId }: { guideId: number }) {
             <div key={label} className="flex items-center gap-1.5">
               <div className={`h-3 w-3 rounded-sm ${color}`} />
               <span className="text-[10px] text-muted-foreground">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* 달력 아래 복약 리스트 */}
+      <div className="rounded-2xl border border-border bg-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <p className="text-sm font-semibold text-foreground">복약 기록</p>
+        </div>
+        <div className="divide-y divide-border">
+          {MOCK_RECORDS.map((r, i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-3 text-xs">
+              <span className="w-10 shrink-0 text-muted-foreground">{r.date}</span>
+              <span className="flex-1 font-medium text-foreground truncate">{r.drug}</span>
+              <span className="shrink-0 text-muted-foreground">{r.time_slot}</span>
+              <span className="w-10 shrink-0 text-center text-muted-foreground">{r.taken_at ?? "—"}</span>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 font-medium ${STATUS_BADGE[r.status]}`}>
+                {STATUS_LABEL[r.status]}
+              </span>
             </div>
           ))}
         </div>

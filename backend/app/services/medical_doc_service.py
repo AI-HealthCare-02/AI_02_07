@@ -62,11 +62,13 @@ def log_confidence_warnings(analysis_result: dict, job_id: int) -> None:
     for i, med in enumerate(medications):
         med_confidence = med.get("confidence", 1.0)
         medication_name = med.get("medication_name", "알 수 없음")
+        medication_name = med.get("medication_name", "알 수 없음")  # ← drug_name → medication_name
 
         if med_confidence < CONFIDENCE_THRESHOLD:
             logger.warning(
                 f"[confidence 경고] 약품 신뢰도 낮음: "
                 f"[{i+1}번째] medication_name={medication_name}, "
+                f"[{i+1}번] medication_name={medication_name}, "
                 f"confidence={med_confidence} (job_id={job_id})"
             )
 
@@ -76,6 +78,9 @@ def log_confidence_warnings(analysis_result: dict, job_id: int) -> None:
                 f"[confidence 경고] 복약안내 누락: "
                 f"[{i+1}번째] medication_name={medication_name}, "
                 f"timing=null (job_id={job_id})"
+                f"[confidence 경고] 복용법 미확인: "
+                f"[{i+1}번] medication_name={medication_name}, "
+                f"instructions=null (job_id={job_id})"
             )
 
     exam_items = analysis_result.get("exam_items", [])
@@ -176,6 +181,7 @@ async def get_analysis_results(
                 "hospital_name": (r.analysis_json or {}).get("hospital_name"),
                 # prescription_date → visit_date 로 필드명 변경
                 "visit_date": (r.analysis_json or {}).get("visit_date"),
+                "prescription_date": (r.analysis_json or {}).get("prescription_date"),
                 "overall_confidence": r.overall_confidence,
                 "raw_summary": r.raw_summary,
                 "created_at": r.created_at.isoformat(),

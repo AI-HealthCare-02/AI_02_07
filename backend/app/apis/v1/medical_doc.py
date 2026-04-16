@@ -58,6 +58,7 @@ async def analyze_document(
 
     # 검진결과 제거 — 처방전 / 진료기록 / 약봉투 / 자동인식만 지원
     valid_doc_types = {"처방전", "진료기록", "약봉투", "자동인식"}
+    valid_doc_types = {"처방전", "진료기록", "약봉투", "검진결과", "자동인식"}
     if document_type not in valid_doc_types:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -165,6 +166,8 @@ async def get_analysis_result(
             detail="분석 결과를 찾을 수 없습니다.",
         )
 
+
+    # analysis_json 에서 상세 데이터 추출
     analysis = result.analysis_json or {}
 
     return ResponseDTO(
@@ -177,6 +180,9 @@ async def get_analysis_result(
             "diagnosis_name": analysis.get("diagnosis_name"),   # diagnosis → diagnosis_name
             "medications": analysis.get("medications", []),
             "medication_schedule": analysis.get("medication_schedule"),
+            "prescription_date": analysis.get("prescription_date"),
+            "diagnosis": analysis.get("diagnosis"),
+            "medications": analysis.get("medications", []),
             "cautions": analysis.get("cautions"),
             "overall_confidence": result.overall_confidence,
             "raw_summary": result.raw_summary,

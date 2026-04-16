@@ -11,12 +11,15 @@ interface MedInput {
   dosage: string;
   frequency: string;
   duration_days: string;
-  time_slot: string;
+  time_slots: string[];
 }
 
 const TIME_SLOTS = [
   { value: "morning_before", label: "아침 식전" },
   { value: "morning_after",  label: "아침 식후" },
+  { value: "lunch_before",   label: "점심 식전" },
+  { value: "lunch_after",    label: "점심 식후" },
+  { value: "evening_before", label: "저녁 식전" },
   { value: "evening_after",  label: "저녁 식후" },
   { value: "bedtime",        label: "취침 전"   },
 ];
@@ -35,9 +38,9 @@ const MOCK_INIT = {
   diseases:       ["고혈압"],
   allergies:      [] as string[],
   meds: [
-    { id: "1", name: "오메프라졸캡슐 20mg",  dosage: "1캡슐", frequency: "1회", duration_days: "30", time_slot: "morning_before" },
-    { id: "2", name: "아모디핀정 5mg",       dosage: "1정",   frequency: "1회", duration_days: "30", time_slot: "morning_after"  },
-    { id: "3", name: "로수바스타틴정 10mg",  dosage: "1정",   frequency: "1회", duration_days: "30", time_slot: "evening_after"  },
+    { id: "1", name: "오메프라졸캡슐 20mg",  dosage: "1캡슐", frequency: "1회", duration_days: "30", time_slots: ["morning_before"] },
+    { id: "2", name: "아모디핀정 5mg",       dosage: "1정",   frequency: "1회", duration_days: "30", time_slots: ["morning_after"]  },
+    { id: "3", name: "로수바스타틴정 10mg",  dosage: "1정",   frequency: "1회", duration_days: "30", time_slots: ["evening_after"]  },
   ] as MedInput[],
 };
 
@@ -106,7 +109,7 @@ export default function GuideEditPage() {
   const addMed = () =>
     setForm((p) => ({
       ...p,
-      meds: [...p.meds, { id: crypto.randomUUID(), name: "", dosage: "1정", frequency: "1회", duration_days: "30", time_slot: "morning_after" }],
+      meds: [...p.meds, { id: crypto.randomUUID(), name: "", dosage: "1정", frequency: "1회", duration_days: "30", time_slots: ["morning_after"] }],
     }));
 
   const removeMed = (id: string) => {
@@ -114,7 +117,7 @@ export default function GuideEditPage() {
     setForm((p) => ({ ...p, meds: p.meds.filter((m) => m.id !== id) }));
   };
 
-  const updateMed = (id: string, field: keyof MedInput, value: string) =>
+  const updateMed = (id: string, field: keyof MedInput, value: string | string[]) =>
     setForm((p) => ({ ...p, meds: p.meds.map((m) => m.id === id ? { ...m, [field]: value } : m) }));
 
   // ── 저장 ──
@@ -282,23 +285,30 @@ export default function GuideEditPage() {
               </div>
 
               <div>
-                <label className="mb-2 block text-xs font-medium text-muted-foreground">복용 시점</label>
-                <div className="flex flex-wrap gap-2">
-                  {TIME_SLOTS.map((ts) => (
-                    <label key={ts.value} className="flex cursor-pointer items-center gap-1.5 text-xs">
-                      <input
-                        type="radio"
-                        name={`ts_${med.id}`}
-                        value={ts.value}
-                        checked={med.time_slot === ts.value}
-                        onChange={() => updateMed(med.id, "time_slot", ts.value)}
-                        className="accent-teal-500"
-                      />
-                      <span className={med.time_slot === ts.value ? "font-medium text-teal-400" : "text-muted-foreground"}>
-                        {ts.label}
-                      </span>
-                    </label>
-                  ))}
+                <label className="mb-2 block text-xs font-medium text-muted-foreground">복용 시점 (중복 선택 가능)</label>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  {TIME_SLOTS.map((ts) => {
+                    const checked = med.time_slots.includes(ts.value);
+                    return (
+                      <label key={ts.value} className="flex cursor-pointer items-center gap-1.5 text-xs">
+                        <input
+                          type="checkbox"
+                          value={ts.value}
+                          checked={checked}
+                          onChange={() => {
+                            const next = checked
+                              ? med.time_slots.filter((v) => v !== ts.value)
+                              : [...med.time_slots, ts.value];
+                            updateMed(med.id, "time_slots", next);
+                          }}
+                          className="accent-teal-500"
+                        />
+                        <span className={checked ? "font-medium text-teal-400" : "text-muted-foreground"}>
+                          {ts.label}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             </div>
