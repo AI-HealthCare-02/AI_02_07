@@ -11,11 +11,15 @@ import io
 import json
 
 import httpx
-from openai import AsyncOpenAI
 from PIL import Image, ImageOps
 
 from ai_worker.core.config import get_worker_settings
 from ai_worker.core.logger import setup_logger
+
+try:
+    from langfuse.openai import AsyncOpenAI
+except ImportError:
+    from openai import AsyncOpenAI  # type: ignore[assignment]
 
 logger = setup_logger("task.medical_doc")
 settings = get_worker_settings()
@@ -262,22 +266,24 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
 
 # ── 문서 종류 자동 감지 ───────────────────
 async def detect_document_type(client: AsyncOpenAI, extracted_text: str) -> str:
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0,
-        messages=[
-            {
-                "role": "user",
-                "content": f"""아래 텍스트가 어떤 종류의 의료 문서인지 판단해줘.
+    messages = [
+        {
+            "role": "user",
+            "content": f"""아래 텍스트가 어떤 종류의 의료 문서인지 판단해줘.
 반드시 아래 JSON만 출력하고 다른 말은 하지 마.
 
 {{"document_type": "처방전" 또는 "진료기록" 또는 "검진결과" 또는 "약봉투"}}
 
 --- 텍스트 ---
 {extracted_text[:300]}""",
-            }
-        ],
+        }
+    ]
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0,
         max_tokens=50,
+        name="detect_doc_type",
+        messages=messages,
     )
     result = response.choices[0].message.content.strip()
     try:
@@ -303,8 +309,9 @@ async def analyze_with_gpt(
     response = await client.chat.completions.create(
         model="gpt-4o-mini",
         temperature=0,
-        messages=[{"role": "user", "content": prompt}],
         max_tokens=1500,
+        name="analyze_doc",
+        messages=[{"role": "user", "content": prompt}],
     )
     result = response.choices[0].message.content.strip()
     cleaned = result
@@ -348,5 +355,4 @@ async def analyze_medical_document(
     combined_text = "\n\n".join(all_texts)
     logger.info(f"전체 추출 텍스트 길이: {len(combined_text)}자")
 
-    result = await analyze_with_gpt(client, combined_text, document_type)
-    return result
+    return await analyze_with_gpt(client, combined_text, document_type)

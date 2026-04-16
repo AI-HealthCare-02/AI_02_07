@@ -60,6 +60,12 @@ class WorkerSettings(BaseSettings):
     # ── OpenAI (Worker에서도 GPT 호출이 필요할 수 있음) ──
     OPENAI_API_KEY: str = ""
 
+    # ── Langfuse (LLM Observability) ──
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+    LANGFUSE_TRACING: bool = False
+
     # ── Worker Queue 설정 ──
     WORKER_QUEUE_NAME: str = "ai_task_queue"
     WORKER_RESULT_PREFIX: str = "ai_result:"

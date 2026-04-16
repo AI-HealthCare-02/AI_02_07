@@ -17,6 +17,7 @@ dependencies = [
     "redis>=5.2",
     "python-dotenv>=1.0",
     "tzdata>=2024.1",  # Windows 타임존 데이터 (Linux/Mac에는 시스템 제공)
+    "langfuse>=4.2.0",
 ]
 
 # ── 의존성 그룹: uv sync --group <name> 으로 선택 설치 ──

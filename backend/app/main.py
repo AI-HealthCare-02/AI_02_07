@@ -133,6 +133,13 @@ def create_app() -> FastAPI:
         logger.info(f"🚀 HealthGuide 서버 시작 (env={settings.APP_ENV})")
         logger.info("✅ PostgreSQL 연결 완료 (register_tortoise)")
 
+        # Langfuse 초기화 (환경변수 세팅 + 싱글턴 생성)
+        try:
+            from app.core.langfuse_client import init_langfuse
+            init_langfuse()
+        except Exception as e:
+            logger.warning(f"⚠️ Langfuse 초기화 실패: {e}")
+
         # Redis 초기화
         try:
             await init_redis()
