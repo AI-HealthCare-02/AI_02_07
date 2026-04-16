@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         return (
-            f"postgres://{self.DB_USER}:{self.DB_PASSWORD}"
+            f"asyncpg://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
 
@@ -75,10 +75,6 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
-
-    # ── Clova OCR ──
-    OCR_SECRET_KEY: str = ""
-    OCR_INVOKE_URL: str = ""
 
     # ── 공공데이터포털 ──
     PUBLIC_DATA_API_KEY: str = ""

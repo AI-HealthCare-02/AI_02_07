@@ -43,7 +43,7 @@ async def analyze_document(
     file3: UploadFile | None = File(default=None, description="의료 문서 이미지 3 (선택)"),
     file4: UploadFile | None = File(default=None, description="의료 문서 이미지 4 (선택)"),
     file5: UploadFile | None = File(default=None, description="의료 문서 이미지 5 (선택)"),
-    document_type: str = Form(default="자동인식", description="문서 종류: 처방전 / 진료기록 / 약봉투 / 검진결과 / 자동인식"),
+    document_type: str = Form(default="자동인식", description="문서 종류: 처방전 / 진료기록 / 약봉투 / 자동인식"),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -51,11 +51,13 @@ async def analyze_document(
 
     - **file1**: 이미지 파일 (JPG, PNG, PDF) 필수
     - **file2~5**: 추가 이미지 (선택, 앞면/뒷면 등)
-    - **document_type**: 처방전 / 진료기록 / 약봉투 / 검진결과 / 자동인식 (기본값)
+    - **document_type**: 처방전 / 진료기록 / 약봉투 / 자동인식 (기본값)
     """
 
     files = [f for f in [file1, file2, file3, file4, file5] if f is not None]
 
+    # 검진결과 제거 — 처방전 / 진료기록 / 약봉투 / 자동인식만 지원
+    valid_doc_types = {"처방전", "진료기록", "약봉투", "자동인식"}
     valid_doc_types = {"처방전", "진료기록", "약봉투", "검진결과", "자동인식"}
     if document_type not in valid_doc_types:
         raise HTTPException(
@@ -164,6 +166,7 @@ async def get_analysis_result(
             detail="분석 결과를 찾을 수 없습니다.",
         )
 
+
     # analysis_json 에서 상세 데이터 추출
     analysis = result.analysis_json or {}
 
@@ -173,6 +176,10 @@ async def get_analysis_result(
             "doc_result_id": result.doc_result_id,
             "document_type": medical_doc_service.DOC_TYPE_NAME_MAP.get(result.doc_type_code, result.doc_type_code),
             "hospital_name": analysis.get("hospital_name"),
+            "visit_date": analysis.get("visit_date"),           # prescription_date → visit_date
+            "diagnosis_name": analysis.get("diagnosis_name"),   # diagnosis → diagnosis_name
+            "medications": analysis.get("medications", []),
+            "medication_schedule": analysis.get("medication_schedule"),
             "prescription_date": analysis.get("prescription_date"),
             "diagnosis": analysis.get("diagnosis"),
             "medications": analysis.get("medications", []),

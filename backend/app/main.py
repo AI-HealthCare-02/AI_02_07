@@ -249,3 +249,69 @@ async def _seed_tester_account() -> None:
 
 # ── 앱 인스턴스 생성 ──
 app = create_app()
+
+# ============================================================
+# FastAPI 엔드포인트 연동 방법
+# ============================================================
+# 아래 코드를 프로젝트의 main.py (또는 app/api/router.py)에 추가하세요.
+# ============================================================
+
+# app/main.py 예시 ─────────────────────────────────────────────
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from tortoise.contrib.fastapi import RegisterTortoise
+
+from app.core.config import settings
+
+# ✅ 완성된 가이드 라우터 import
+from app.apis.v1.guide import router as guide_router
+
+# 다른 라우터들도 같은 방식으로 추가
+# from app.apis.v1.auth import router as auth_router
+# from app.apis.v1.user import router as user_router
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 시작/종료 시 Tortoise ORM 초기화·해제"""
+    async with RegisterTortoise(
+        app,
+        db_url=settings.database_url,
+        modules={"models": ["app.models.guide", "app.models.user"]},
+        generate_schemas=False,  # 운영: False, 로컬 최초 실행: True
+        add_exception_handlers=True,
+    ):
+        yield
+
+
+app = FastAPI(
+    title="건강가이드 API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# ── 라우터 등록 ───────────────────────────────────────────────
+API_PREFIX = "/api/v1"
+
+app.include_router(guide_router, prefix=API_PREFIX)
+# app.include_router(auth_router,  prefix=API_PREFIX)
+# app.include_router(user_router,  prefix=API_PREFIX)
+
+# 최종 엔드포인트 목록:
+# GET    /api/v1/guides
+# POST   /api/v1/guides
+# GET    /api/v1/guides/{guide_id}
+# PATCH  /api/v1/guides/{guide_id}
+# DELETE /api/v1/guides/{guide_id}
+# GET    /api/v1/guides/{guide_id}/conditions
+# PUT    /api/v1/guides/{guide_id}/conditions
+# POST   /api/v1/guides/{guide_id}/ai-generate
+# GET    /api/v1/guides/{guide_id}/ai-results
+# GET    /api/v1/guides/{guide_id}/med-check
+# POST   /api/v1/guides/{guide_id}/med-check
+# DELETE /api/v1/guides/{guide_id}/med-check/{check_id}
+# GET    /api/v1/guides/{guide_id}/reminder
+# POST   /api/v1/guides/{guide_id}/reminder
+# PATCH  /api/v1/guides/{guide_id}/reminder
+# DELETE /api/v1/guides/{guide_id}/reminder
