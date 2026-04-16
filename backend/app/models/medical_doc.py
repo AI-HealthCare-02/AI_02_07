@@ -14,11 +14,9 @@ class DocAnalysisJob(Model):
     job_id = fields.BigIntField(pk=True, generated=True)
     user = fields.ForeignKeyField("models.User", related_name="doc_analysis_jobs")
 
-    # 상태 (공통코드)
     status_grp = fields.CharField(max_length=20, default="JOB_STATUS")
     status_code = fields.CharField(max_length=20, default="JOB_PENDING")
 
-    # 문서 종류 (공통코드)
     doc_type_grp = fields.CharField(max_length=20, default="DOC_TYPE")
     doc_type_code = fields.CharField(max_length=20, null=True)
 
@@ -40,11 +38,9 @@ class DocAnalysisResult(Model):
     job = fields.OneToOneField("models.DocAnalysisJob", related_name="result")
     user = fields.ForeignKeyField("models.User", related_name="doc_analysis_results")
 
-    # 문서 종류 (공통코드)
     doc_type_grp = fields.CharField(max_length=20, default="DOC_TYPE")
     doc_type_code = fields.CharField(max_length=20)
 
-    # OCR 상태 (공통코드)
     ocr_status_grp = fields.CharField(max_length=20, default="OCR_STATUS")
     ocr_status_code = fields.CharField(max_length=20, default="OCR_PENDING")
 
@@ -52,6 +48,10 @@ class DocAnalysisResult(Model):
     ocr_confidence = fields.IntField(null=True)
     overall_confidence = fields.FloatField(null=True)
     raw_summary = fields.TextField(null=True)
+
+    # ── 전체 분석 결과 JSON 저장 (약품명, 복용법 등 포함) ──
+    analysis_json = fields.JSONField(null=True)
+
     is_deleted = fields.BooleanField(default=False)
     created_at = fields.DatetimeField(auto_now_add=True)
 

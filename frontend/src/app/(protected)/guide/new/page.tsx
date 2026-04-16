@@ -13,7 +13,7 @@ interface MedInput {
   dosage: string;
   frequency: string;
   duration_days: string;
-  time_slot: string;
+  time_slots: string[];
 }
 
 interface Step1Data {
@@ -28,6 +28,9 @@ interface Step1Data {
 const TIME_SLOTS = [
   { value: "morning_before", label: "아침 식전" },
   { value: "morning_after",  label: "아침 식후" },
+  { value: "lunch_before",   label: "점심 식전" },
+  { value: "lunch_after",    label: "점심 식후" },
+  { value: "evening_before", label: "저녁 식전" },
   { value: "evening_after",  label: "저녁 식후" },
   { value: "bedtime",        label: "취침 전"   },
 ];
@@ -112,7 +115,7 @@ export default function NewGuidePage() {
   const [meds, setMeds] = useState<MedInput[]>([newMed()]);
 
   function newMed(): MedInput {
-    return { id: crypto.randomUUID(), name: "", dosage: "1정", frequency: "1회", duration_days: "30", time_slot: "morning_after" };
+    return { id: crypto.randomUUID(), name: "", dosage: "1정", frequency: "1회", duration_days: "30", time_slots: ["morning_after"] };
   }
 
   const showToast = (msg: string, type: "ok" | "err" = "err") => {
@@ -145,7 +148,7 @@ export default function NewGuidePage() {
   // ── 약물 추가/삭제 ──
   const addMed = () => setMeds((p) => [...p, newMed()]);
   const removeMed = (id: string) => setMeds((p) => p.filter((m) => m.id !== id));
-  const updateMed = (id: string, field: keyof MedInput, value: string) =>
+  const updateMed = (id: string, field: keyof MedInput, value: string | string[]) =>
     setMeds((p) => p.map((m) => m.id === id ? { ...m, [field]: value } : m));
 
   // ── AI 가이드 생성 ──
@@ -174,7 +177,7 @@ export default function NewGuidePage() {
           dosage: m.dosage || null,
           frequency: m.frequency || null,
           duration_days: m.duration_days ? parseInt(m.duration_days) : null,
-          time_slot: m.time_slot,
+          time_slots: m.time_slots,
         })),
       };
 
@@ -444,23 +447,30 @@ export default function NewGuidePage() {
 
               {/* 복용 시점 */}
               <div>
-                <label className="mb-2 block text-xs font-medium text-muted-foreground">복용 시점</label>
-                <div className="flex flex-wrap gap-2">
-                  {TIME_SLOTS.map((ts) => (
-                    <label key={ts.value} className="flex cursor-pointer items-center gap-1.5 text-xs">
-                      <input
-                        type="radio"
-                        name={`time_slot_${med.id}`}
-                        value={ts.value}
-                        checked={med.time_slot === ts.value}
-                        onChange={() => updateMed(med.id, "time_slot", ts.value)}
-                        className="accent-teal-500"
-                      />
-                      <span className={med.time_slot === ts.value ? "text-teal-400 font-medium" : "text-muted-foreground"}>
-                        {ts.label}
-                      </span>
-                    </label>
-                  ))}
+                <label className="mb-2 block text-xs font-medium text-muted-foreground">복용 시점 (중복 선택 가능)</label>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  {TIME_SLOTS.map((ts) => {
+                    const checked = med.time_slots.includes(ts.value);
+                    return (
+                      <label key={ts.value} className="flex cursor-pointer items-center gap-1.5 text-xs">
+                        <input
+                          type="checkbox"
+                          value={ts.value}
+                          checked={checked}
+                          onChange={() => {
+                            const next = checked
+                              ? med.time_slots.filter((v) => v !== ts.value)
+                              : [...med.time_slots, ts.value];
+                            updateMed(med.id, "time_slots", next);
+                          }}
+                          className="accent-teal-500"
+                        />
+                        <span className={checked ? "text-teal-400 font-medium" : "text-muted-foreground"}>
+                          {ts.label}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             </div>
