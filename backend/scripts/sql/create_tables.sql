@@ -193,6 +193,10 @@ DO $$ BEGIN
     ALTER TABLE chat_messages ADD COLUMN latency_ms INT;
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
+DO $$ BEGIN
+    ALTER TABLE chat_messages ADD COLUMN model_name VARCHAR(50);
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
 -- users 테이블에 last_active_at 컬럼 추가
 DO $$ BEGIN

@@ -206,7 +206,7 @@ async def stream_chat(
 
 _ROUTER_PROMPT = (
     "당신은 질문 분류기입니다. 아래 질문을 읽고 카테고리 하나만 출력하세요.\n"
-    "EMERGENCY: 즉각적인 응급 처치가 필요한 상황(심정지, 뇌졸중, 심한 출혈, 자살 위기 등)\n"
+    "EMERGENCY: 즉각적인 응급 처치가 필요한 상황(심정지, 뇌졸중, 심한 출혈, 자살 위기 등), 심장이 아파 라고 하면 EMERGENCY로 반환해.\n"
     "GREETING: 인사, 감사, 안부, 자기소개 요청 등 순수 인사성 메시지\n"
     "DOMAIN: 건강·의료·복약·증상·질병·영양·운동·정신건강 관련 질문\n"
     "OTHER: 그 외 일반 비의료 질문/잡담\n"
@@ -218,7 +218,7 @@ _VALID_CATEGORIES = {"EMERGENCY", "GREETING", "DOMAIN", "OTHER"}
 
 async def _classify(client: AsyncOpenAI, ai_cfg: "AiConfig", message: str) -> str:
     resp = await client.chat.completions.create(
-        **build_create_kwargs(model=ai_cfg.model, max_tokens=10, temperature=None),
+        **build_create_kwargs(model=ai_cfg.model, max_tokens=200, temperature=None),
         messages=[
             {"role": "system", "content": _ROUTER_PROMPT},
             {"role": "user", "content": message},
@@ -297,6 +297,7 @@ async def _stream_answer(
                 msg.prompt_tokens = prompt_tokens
                 msg.completion_tokens = comp_tokens
                 msg.latency_ms = latency_ms
+                msg.model_name = ai_cfg.model
                 await msg.save(
                     update_fields=[
                         "content",
@@ -304,6 +305,7 @@ async def _stream_answer(
                         "prompt_tokens",
                         "completion_tokens",
                         "latency_ms",
+                        "model_name",
                     ]
                 )
             logger.info(
