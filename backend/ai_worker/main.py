@@ -57,6 +57,17 @@ async def run_worker() -> None:
     redis = await get_worker_redis()
     logger.info("🤖 AI Worker 시작 (queue=%s)", settings.WORKER_QUEUE_NAME)
 
+    # Langfuse 환경변수 세팅 (langfuse.openai drop-in이 자동 인식)
+    try:
+        import os
+        if settings.LANGFUSE_TRACING and settings.LANGFUSE_PUBLIC_KEY:
+            os.environ.setdefault("LANGFUSE_PUBLIC_KEY", settings.LANGFUSE_PUBLIC_KEY)
+            os.environ.setdefault("LANGFUSE_SECRET_KEY", settings.LANGFUSE_SECRET_KEY)
+            os.environ.setdefault("LANGFUSE_HOST", settings.LANGFUSE_BASE_URL)
+            logger.info("[Langfuse] worker tracing enabled")
+    except Exception as e:
+        logger.warning("Langfuse 환경변수 세팅 실패: %s", e)
+
     try:
         while True:
             # BRPOP: 큐에 작업이 올 때까지 블로킹 대기 (timeout=5초)

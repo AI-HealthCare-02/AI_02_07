@@ -2,6 +2,27 @@
 # ──────────────────────────────────────────────
 # 의료 문서 분석 API — 이승원 담당
 #
+# 이 파일에 vLLM 기반 의료 문서 분석 로직을 구현하세요.
+# S3에서 문서를 다운로드 → vLLM 추론 → 결과 반환
+# ──────────────────────────────────────────
+
+import base64
+import io
+import json
+
+import httpx
+from PIL import Image, ImageOps
+
+from ai_worker.core.config import get_worker_settings
+from ai_worker.core.logger import setup_logger
+
+try:
+    from langfuse.openai import AsyncOpenAI
+except ImportError:
+    from openai import AsyncOpenAI  # type: ignore[assignment]
+
+logger = setup_logger("task.medical_doc")
+settings = get_worker_settings()
 # 엔드포인트:
 #   POST /medical-doc/analyze       → 의료 문서 이미지 분석 + DB 저장
 #   GET  /medical-doc/results       → 분석 결과 목록 조회
@@ -104,6 +125,13 @@ async def analyze_document(
             processing_time=processing_time,
         )
 
+# ── 문서 종류 자동 감지 ───────────────────
+async def detect_document_type(client: AsyncOpenAI, extracted_text: str) -> str:
+    messages = [
+        {
+            "role": "user",
+            "content": f"""아래 텍스트가 어떤 종류의 의료 문서인지 판단해줘.
+반드시 아래 JSON만 출력하고 다른 말은 하지 마.
         result["doc_result_id"] = saved_result.doc_result_id
         result["processing_time"] = round(processing_time, 2)
 
@@ -115,6 +143,44 @@ async def analyze_document(
             detail="문서 분석 중 오류가 발생했습니다.",
         )
 
+--- 텍스트 ---
+{extracted_text[:300]}""",
+        }
+    ]
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        max_tokens=50,
+        name="detect_doc_type",
+        messages=messages,
+    )
+    result = response.choices[0].message.content.strip()
+    try:
+        parsed = json.loads(result)
+        return parsed.get("document_type", "약봉투")
+    except Exception:
+        return "약봉투"
+
+
+# ── GPT 구조화 분석 ───────────────────────
+async def analyze_with_gpt(
+    client: AsyncOpenAI,
+    extracted_text: str,
+    doc_type: str,
+) -> dict:
+    if doc_type == "자동인식":
+        doc_type = await detect_document_type(client, extracted_text)
+        logger.info(f"자동 감지된 문서 종류: {doc_type}")
+    else:
+        logger.info(f"선택된 문서 종류: {doc_type}")
+
+    prompt = get_prompt_by_document_type(doc_type, extracted_text)
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        max_tokens=1500,
+        name="analyze_doc",
+        messages=[{"role": "user", "content": prompt}],
     return ResponseDTO(success=True, message="분석 완료", data=result)
 
 
@@ -185,7 +251,8 @@ async def get_analysis_result(
         },
     )
 
-
+    return await analyze_with_gpt(client, combined_text, document_type)
+      
 # ============================================================
 # 분석 결과 삭제
 # ============================================================

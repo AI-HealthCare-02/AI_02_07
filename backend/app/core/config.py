@@ -88,6 +88,12 @@ class Settings(BaseSettings):
     KAKAO_CHANNEL_ID: str = ""                   # 카카오 채널 ID (@ 포함, 예: @healthguide)
     KAKAO_TEMPLATE_ID_REMINDER: str = ""         # 복약 알림 템플릿 ID
 
+    # ── Langfuse ──
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+    LANGFUSE_TRACING: bool = False
+
     # ── vLLM ──
     VLLM_HOST: str = "localhost"
     VLLM_PORT: int = 8001

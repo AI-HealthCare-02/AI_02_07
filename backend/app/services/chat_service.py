@@ -13,7 +13,7 @@ from openai import AsyncOpenAI
 from tortoise import Tortoise
 
 from app.core.config import get_settings
-from app.core.openai_utils import build_create_kwargs
+from app.core.openai_utils import AsyncOpenAI, build_create_kwargs
 from app.core.redis import get_redis
 from app.dtos.chat_dto import (
     BookmarkResponseDTO,
@@ -67,7 +67,7 @@ async def delete_session(user: User, room_id: int) -> None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="대화를 찾을 수 없습니다."
         )
-    await repo.soft_delete_room(room)
+    await _get_repo().soft_delete_room(room)
 
 
 # ── 메시지 ────────────────────────────────────────────────────────────────────
@@ -196,7 +196,7 @@ async def stream_chat(
     except Exception as e:
         logger.error("스트리밍 오류: %s", e)
         yield _sse(
-            "error", {"message": "⏳ 시스템 점검 중입니다. 잠시 후 다시 시도해주세요."}
+            "error", {"message": "시스템 점검 중입니다. 잠시 후 다시 시도해주세요."}
         )
 
     yield _sse("done", "[DONE]")
@@ -217,15 +217,16 @@ _VALID_CATEGORIES = {"EMERGENCY", "GREETING", "DOMAIN", "OTHER"}
 
 
 async def _classify(client: AsyncOpenAI, ai_cfg: "AiConfig", message: str) -> str:
+    messages = [
+        {"role": "system", "content": _ROUTER_PROMPT},
+        {"role": "user", "content": message},
+    ]
     resp = await client.chat.completions.create(
-        **build_create_kwargs(model=ai_cfg.model, max_tokens=200, temperature=None),
-        messages=[
-            {"role": "system", "content": _ROUTER_PROMPT},
-            {"role": "user", "content": message},
-        ],
+        **build_create_kwargs(model=ai_cfg.model, max_tokens=200, name="classify"),
+        messages=messages,
     )
-    category = (resp.choices[0].message.content or "").strip().upper()
-    return category if category in _VALID_CATEGORIES else "DOMAIN"
+    result = (resp.choices[0].message.content or "").strip().upper()
+    return result if result in _VALID_CATEGORIES else "DOMAIN"
 
 
 # ── 2단계: 스트리밍 답변 ──────────────────────────────────────────────────────
@@ -240,13 +241,6 @@ async def _stream_answer(
     message_id: int,
     filter_result: str,
 ) -> AsyncGenerator[str, None]:
-    """
-    OpenAI 스트림을 백그라운드 태스크로 실행하고
-    asyncio.Queue를 통해 SSE 토큰을 yield.
-
-    클라이언트가 연결을 끊어도 백그라운드 태스크는 계속 실행되어
-    스트림 완료 후 DB에 저장.
-    """
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 
     async def _run() -> None:
@@ -255,6 +249,11 @@ async def _stream_answer(
         prompt_tokens = comp_tokens = 0
         latency_ms: int | None = None
         start_at = time.monotonic()
+        input_messages = [
+            {"role": "system", "content": system_prompt},
+            *history_ctx,
+            {"role": "user", "content": message},
+        ]
         try:
             stream = await client.chat.completions.create(
                 **build_create_kwargs(
@@ -263,20 +262,17 @@ async def _stream_answer(
                     temperature=ai_cfg.temperature,
                     stream=True,
                     stream_options={"include_usage": True},
+                    name="stream_answer",
                 ),
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    *history_ctx,
-                    {"role": "user", "content": message},
-                ],
+                messages=input_messages,
             )
             async for chunk in stream:
                 if await redis.exists(f"chat:cancel:{message_id}"):
                     await redis.delete(f"chat:cancel:{message_id}")
                     break
                 if chunk.usage:
-                    prompt_tokens += chunk.usage.prompt_tokens
-                    comp_tokens += chunk.usage.completion_tokens
+                    prompt_tokens += chunk.usage.prompt_tokens or 0
+                    comp_tokens += chunk.usage.completion_tokens or 0
                 if not chunk.choices:
                     continue
                 token = chunk.choices[0].delta.content or ""
@@ -317,10 +313,8 @@ async def _stream_answer(
                 latency_ms,
             )
 
-    # 백그라운드로 실행 — 클라이언트 연결과 독립적으로 동작
     asyncio.create_task(_run())
 
-    # queue에서 None(종료 신호)이 올 때까지 SSE 토큰 yield
     while True:
         item = await queue.get()
         if item is None:
@@ -379,7 +373,7 @@ async def remove_bookmark(user: User, message_id: int) -> BookmarkResponseDTO:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다."
         )
-    await repo.delete_bookmark(bookmark)
+    await _get_repo().delete_bookmark(bookmark)
     return BookmarkResponseDTO(bookmarkId=bookmark.bookmark_id, isBookmarked=False)
 
 
@@ -405,14 +399,12 @@ _DEFAULT_AI_CONFIG = AiConfig(
     max_tokens=1000,
 )
 
-# ai_settings 캐시 — 60초 TTL, 매 요청마다 DB 조회 방지
 _AI_CONFIG_CACHE: AiConfig | None = None
 _AI_CONFIG_CACHE_AT: float = 0.0
 _AI_CONFIG_CACHE_TTL: float = 60.0
 
 
 def _get_repo() -> ChatRepository:
-    """요청마다 새 인스턴스 반환 — 모듈 레벨 싱글톤 상태 공유 방지."""
     return ChatRepository()
 
 

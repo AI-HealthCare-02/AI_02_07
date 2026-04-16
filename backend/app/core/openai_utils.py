@@ -1,11 +1,15 @@
 # app/core/openai_utils.py
 # ──────────────────────────────────────────────
 # OpenAI 모델별 파라미터 분기 헬퍼
-#
-# max_completion_tokens 사용: o1, o3, gpt-5 계열
-# temperature 미지원:        o1, o3 계열
-# 그 외 모두 max_tokens + temperature 사용
+# Langfuse tracing은 langfuse.openai drop-in이 자동 처리
 # ──────────────────────────────────────────────
+
+try:
+    from langfuse.openai import AsyncOpenAI  # tracing 자동 적용
+except ImportError:
+    from openai import AsyncOpenAI  # type: ignore[assignment]
+
+__all__ = ["AsyncOpenAI", "build_create_kwargs"]
 
 _COMPLETION_TOKENS_PREFIXES = ("o1", "o3", "gpt-5")
 _NO_TEMPERATURE_PREFIXES    = ("o1", "o3", "gpt-5")
@@ -17,8 +21,11 @@ def build_create_kwargs(
     temperature: float | None = None,
     stream: bool = False,
     stream_options: dict | None = None,
+    name: str | None = None,
 ) -> dict:
-    """client.chat.completions.create()에 전달할 kwargs 구성."""
+    """client.chat.completions.create()에 전달할 kwargs 구성.
+    name을 넘기면 Langfuse UI에서 해당 이름으로 generation이 표시됩니다.
+    """
     m = model.lower().strip()
     kwargs: dict = {"model": model}
 
@@ -35,5 +42,8 @@ def build_create_kwargs(
         kwargs["stream"] = True
         if stream_options:
             kwargs["stream_options"] = stream_options
+
+    if name:
+        kwargs["name"] = name  # langfuse.openai가 generation 이름으로 사용
 
     return kwargs
