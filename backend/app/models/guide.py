@@ -12,7 +12,7 @@ class Guide(Model):
     guide_id = fields.IntField(pk=True)
     user = fields.ForeignKeyField("models.User", related_name="guides", on_delete=fields.CASCADE)
     title = fields.CharField(max_length=200)
-    diagnosis_name = fields.CharField(max_length=200)
+    diagnosis_name = fields.CharField(max_length=200, null=True)   # 약봉투 분석 시 null 허용
     hospital_name = fields.CharField(max_length=200, null=True)
     visit_date = fields.DateField(null=True)
     med_start_date = fields.DateField()
@@ -105,14 +105,14 @@ class GuideMedCheck(Model):
 
 class GuideReminder(Model):
     """
-    복약 알림 설정 (가이드당 1개)
+    복약 알림 설정 (가이드당 여러 개 — 다중 구조)
     repeat_type: RPT_DAILY | RPT_WEEKDAY | RPT_CUSTOM
     ※ 1차 배포: 설정 저장만, 실제 발송 스케줄러(Celery beat) 미포함
     ※ 카카오 알림톡 제외
     """
 
     reminder_id = fields.IntField(pk=True)
-    guide = fields.OneToOneField("models.Guide", related_name="reminder", on_delete=fields.CASCADE)
+    guide = fields.ForeignKeyField("models.Guide", related_name="reminders", on_delete=fields.CASCADE)
     reminder_time = fields.TimeField()                           # HH:MM:SS
     repeat_type = fields.CharField(max_length=20, default="RPT_DAILY")
     custom_days = fields.JSONField(null=True)                    # RPT_CUSTOM일 때 요일 목록

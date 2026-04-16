@@ -54,7 +54,7 @@ class ConditionCreateItem(BaseModel):
 
 
 class GuideCreateRequest(BaseModel):
-    diagnosis_name: str = Field(..., min_length=1, max_length=200)
+    diagnosis_name: str | None = Field(None, min_length=1, max_length=200)   # 약봉투 등 null 허용
     med_start_date: date
     patient_age: int | None = Field(None, gt=0, lt=150)     # Optional: 프론트 폼 미포함
     patient_gender: str | None = Field(None, pattern="^(GD_MALE|GD_FEMALE)$")  # Optional
@@ -64,6 +64,14 @@ class GuideCreateRequest(BaseModel):
     title: str | None = None    # 미입력 시 서버에서 자동 생성
     conditions: list[ConditionCreateItem] = []
     medications: list[MedicationCreateItem] = Field(..., min_length=1)
+
+
+class GuideCreateFromDocRequest(BaseModel):
+    """의료 문서 분석 결과(doc_result_id)로 가이드 생성 — 승원 파트 연동"""
+    doc_result_id: int
+    med_start_date: date
+    med_end_date: date | None = None
+    title: str | None = None    # 미입력 시 진단명 or 병원명으로 자동 생성
 
 
 class GuideCreateResponse(BaseModel):
@@ -77,7 +85,7 @@ class GuideCreateResponse(BaseModel):
 # 가이드 상세 조회
 # ──────────────────────────────────────────
 class MedicationDetailItem(BaseModel):
-    medication_id: int
+    guide_medication_id: int
     medication_name: str
     dosage: str | None
     frequency: str | None

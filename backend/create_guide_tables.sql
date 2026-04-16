@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS guides (
     guide_id        SERIAL PRIMARY KEY,
     user_id         INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     title           VARCHAR(200) NOT NULL,
-    diagnosis_name  VARCHAR(200) NOT NULL,
+    diagnosis_name  VARCHAR(200),                  -- 약봉투 분석 시 null 허용
     hospital_name   VARCHAR(200),
     visit_date      DATE,
     med_start_date  DATE NOT NULL,
@@ -82,13 +82,13 @@ CREATE TABLE IF NOT EXISTS guide_med_checks (
 
 CREATE INDEX IF NOT EXISTS idx_guide_med_checks_guide_date ON guide_med_checks(guide_id, check_date);
 
--- 복약 알림 설정 (가이드당 1개 — OneToOne)
+-- 복약 알림 설정 (가이드당 여러 개 — 다중 구조)
 -- repeat_type: RPT_DAILY | RPT_WEEKDAY | RPT_CUSTOM
 -- ※ 1차 배포: 설정 저장만, Celery beat 스케줄러 미포함
 -- ※ 카카오 알림톡 컬럼 미포함 (2차 배포에서 ALTER TABLE로 추가)
 CREATE TABLE IF NOT EXISTS guide_reminders (
     reminder_id     SERIAL PRIMARY KEY,
-    guide_id        INTEGER NOT NULL UNIQUE REFERENCES guides(guide_id) ON DELETE CASCADE,
+    guide_id        INTEGER NOT NULL REFERENCES guides(guide_id) ON DELETE CASCADE,
     reminder_time   TIME NOT NULL,
     repeat_type     VARCHAR(20) NOT NULL DEFAULT 'RPT_DAILY',
     custom_days     JSONB,                  -- RPT_CUSTOM: [0,1,2,3,4] (0=월)
@@ -105,10 +105,18 @@ CREATE TABLE IF NOT EXISTS guide_reminders (
 -- 신규 설치 시에는 위 CREATE TABLE로 충분하므로 실행 불필요
 -- ============================================================
 
--- 1. guides: patient_age / patient_gender NOT NULL → NULL 허용
-ALTER TABLE guides ALTER COLUMN patient_age    DROP NOT NULL;
-ALTER TABLE guides ALTER COLUMN patient_gender DROP NOT NULL;
+-- 1. guides: patient_age / patient_gender / diagnosis_name NOT NULL → NULL 허용
+ALTER TABLE guides ALTER COLUMN patient_age      DROP NOT NULL;
+ALTER TABLE guides ALTER COLUMN patient_gender   DROP NOT NULL;
+ALTER TABLE guides ALTER COLUMN diagnosis_name   DROP NOT NULL;   -- 약봉투 null 허용
 
 -- 2. guide_medications: timing 컬럼 VARCHAR(50) → VARCHAR(200)
 --    (복용 시점 복수 선택 저장을 위한 확장, 예: "아침 식전,저녁 식후")
 ALTER TABLE guide_medications ALTER COLUMN timing TYPE VARCHAR(200);
+
+-- 3. guide_reminders: UNIQUE(guide_id) 제약 제거 → 가이드당 다중 알림 허용
+--    기존에 UNIQUE 제약이 있는 경우에만 실행 (제약명은 환경에 따라 다를 수 있음)
+ALTER TABLE guide_reminders DROP CONSTRAINT IF EXISTS guide_reminders_guide_id_key;
+
+-- 4. guide_dto 변경: MedicationDetailItem.medication_id → guide_medication_id
+--    (DB 스키마 변경 없음 — 컬럼명은 medication_id 그대로, DTO 응답 필드명만 변경)

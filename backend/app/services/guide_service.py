@@ -11,6 +11,7 @@ from app.dtos.guide_dto import (
     ConditionItem,
     ConditionsPutRequest,
     ConditionsResponse,
+    GuideCreateFromDocRequest,
     GuideCreateRequest,
     GuideCreateResponse,
     GuideDetailResponse,
@@ -99,7 +100,9 @@ class GuideService:
     # 가이드 생성 (직접 입력)
     # ──────────────────────────────────────────
     async def create_guide(self, user_id: int, req: GuideCreateRequest) -> GuideCreateResponse:
-        title = req.title or f"{req.diagnosis_name} 가이드"
+        title = req.title or (
+            f"{req.diagnosis_name} 가이드" if req.diagnosis_name else "건강 가이드"
+        )
 
         guide = await self._repo.create_guide(
             user_id=user_id,
@@ -149,7 +152,7 @@ class GuideService:
             input_method=guide.input_method,
             medications=[
                 MedicationDetailItem(
-                    medication_id=m.medication_id,
+                    guide_medication_id=m.medication_id,
                     medication_name=m.medication_name,
                     dosage=m.dosage,
                     frequency=m.frequency,
@@ -332,33 +335,28 @@ class GuideService:
 
     # ──────────────────────────────────────────
     # 복약 알림 (설정 저장만, 실제 발송 스케줄러 미포함)
+    # 가이드당 여러 알림 카드 지원 (다중 구조)
     # ──────────────────────────────────────────
-    async def get_reminder(self, guide_id: int, user_id: int) -> ReminderResponse:
+    async def get_reminders(self, guide_id: int, user_id: int) -> list[ReminderResponse]:
         await self._get_guide_or_404(guide_id, user_id)
-        reminder = await self._repo.get_reminder(guide_id)
-        if not reminder:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="등록된 알림이 없습니다.")
-
-        return ReminderResponse(
-            reminder_id=reminder.reminder_id,
-            reminder_time=reminder.reminder_time,
-            repeat_type=reminder.repeat_type,
-            custom_days=reminder.custom_days,
-            is_browser_noti=reminder.is_browser_noti,
-            is_email_noti=reminder.is_email_noti,
-            is_active=reminder.is_active,
-        )
+        reminders = await self._repo.get_reminders(guide_id)
+        return [
+            ReminderResponse(
+                reminder_id=r.reminder_id,
+                reminder_time=r.reminder_time,
+                repeat_type=r.repeat_type,
+                custom_days=r.custom_days,
+                is_browser_noti=r.is_browser_noti,
+                is_email_noti=r.is_email_noti,
+                is_active=r.is_active,
+            )
+            for r in reminders
+        ]
 
     async def create_reminder(
         self, guide_id: int, user_id: int, req: ReminderCreateRequest
     ) -> ReminderSimpleResponse:
         await self._get_guide_or_404(guide_id, user_id)
-
-        if await self._repo.get_reminder(guide_id):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="이미 알림이 등록되어 있습니다.",
-            )
 
         reminder = await self._repo.create_reminder(
             guide_id=guide_id,
@@ -378,10 +376,10 @@ class GuideService:
         )
 
     async def patch_reminder(
-        self, guide_id: int, user_id: int, req: ReminderPatchRequest
+        self, guide_id: int, reminder_id: int, user_id: int, req: ReminderPatchRequest
     ) -> ReminderSimpleResponse:
         await self._get_guide_or_404(guide_id, user_id)
-        reminder = await self._repo.get_reminder(guide_id)
+        reminder = await self._repo.get_reminder_by_id(reminder_id, guide_id)
         if not reminder:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="등록된 알림이 없습니다.")
 
@@ -392,9 +390,9 @@ class GuideService:
             is_active=reminder.is_active,
         )
 
-    async def delete_reminder(self, guide_id: int, user_id: int) -> MessageResponse:
+    async def delete_reminder(self, guide_id: int, reminder_id: int, user_id: int) -> MessageResponse:
         await self._get_guide_or_404(guide_id, user_id)
-        reminder = await self._repo.get_reminder(guide_id)
+        reminder = await self._repo.get_reminder_by_id(reminder_id, guide_id)
         if not reminder:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="등록된 알림이 없습니다.")
 
@@ -469,6 +467,88 @@ class GuideService:
             overall = "processing"
 
         return AiGenerateStatusResponse(status=overall, completed_types=completed_types)
+
+    # ──────────────────────────────────────────
+    # 문서 분석 결과로 가이드 생성 (승원 파트 연동)
+    # ──────────────────────────────────────────
+    async def create_guide_from_doc(
+        self, user_id: int, req: GuideCreateFromDocRequest
+    ) -> GuideCreateResponse:
+        """
+        의료 문서 분석 결과(doc_result_id)를 읽어 가이드 + 약물 정보를 자동 생성.
+        약봉투는 diagnosis_name이 null일 수 있으므로 병원명으로 title 대체.
+        """
+        # 승원 파트 모델 임포트 (의존성 분리)
+        from app.models.medical_doc import DocAnalysisResult
+
+        result = await DocAnalysisResult.get_or_none(
+            doc_result_id=req.doc_result_id,
+            user_id=user_id,
+            is_deleted=False,
+        )
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="분석 결과를 찾을 수 없습니다.",
+            )
+
+        analysis: dict = result.analysis_json or {}
+        medications_raw: list = analysis.get("medications", [])
+        if not medications_raw:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="분석 결과에 약물 정보가 없습니다.",
+            )
+
+        diagnosis_name: str | None = analysis.get("diagnosis_name") or None
+        hospital_name: str | None = analysis.get("hospital_name") or None
+        visit_date_str: str | None = analysis.get("visit_date")
+        visit_date = None
+        if visit_date_str:
+            try:
+                visit_date = date.fromisoformat(visit_date_str)
+            except (ValueError, TypeError):
+                visit_date = None
+
+        title = req.title or (
+            f"{diagnosis_name} 가이드" if diagnosis_name
+            else f"{hospital_name or '의료 문서'} 복약 가이드"
+        )
+
+        guide = await self._repo.create_guide(
+            user_id=user_id,
+            data={
+                "title": title,
+                "diagnosis_name": diagnosis_name,
+                "hospital_name": hospital_name,
+                "visit_date": visit_date,
+                "med_start_date": req.med_start_date,
+                "med_end_date": req.med_end_date,
+                "guide_status": "GS_ACTIVE",
+                "input_method": "IM_DOCUMENT",
+            },
+        )
+
+        med_dicts = [
+            {
+                "medication_name": m.get("medication_name", ""),
+                "dosage": m.get("dosage"),
+                "frequency": m.get("frequency"),
+                "timing": m.get("timing"),
+                "duration_days": m.get("duration_days"),
+            }
+            for m in medications_raw
+            if m.get("medication_name")
+        ]
+        if med_dicts:
+            await self._repo.create_medications(guide.guide_id, med_dicts)
+
+        return GuideCreateResponse(
+            guide_id=guide.guide_id,
+            title=guide.title,
+            guide_status=guide.guide_status,
+            input_method=guide.input_method,
+        )
 
     # ──────────────────────────────────────────
     # 내부 헬퍼

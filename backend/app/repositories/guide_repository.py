@@ -165,10 +165,13 @@ class GuideRepository:
         await med_check.delete()
 
     # ──────────────────────────────────────────
-    # GuideReminder
+    # GuideReminder (가이드당 다중 알림 지원)
     # ──────────────────────────────────────────
-    async def get_reminder(self, guide_id: int) -> GuideReminder | None:
-        return await GuideReminder.filter(guide_id=guide_id).first()
+    async def get_reminders(self, guide_id: int) -> list[GuideReminder]:
+        return await GuideReminder.filter(guide_id=guide_id).order_by("reminder_time")
+
+    async def get_reminder_by_id(self, reminder_id: int, guide_id: int) -> GuideReminder | None:
+        return await GuideReminder.filter(reminder_id=reminder_id, guide_id=guide_id).first()
 
     async def create_reminder(self, guide_id: int, data: dict) -> GuideReminder:
         return await GuideReminder.create(guide_id=guide_id, **data)
