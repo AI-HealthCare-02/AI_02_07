@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import {
   motion,
   useMotionValue,
@@ -12,7 +11,8 @@ import {
   MotionValue,
 } from "framer-motion";
 import { useAuthStore } from "@/store/auth-store";
-import UserProfile from "@/components/layout/UserProfile";
+import { useThemeStore } from "@/store/theme-store";
+import Header from "@/components/layout/header";
 
 // ── SVG 아이콘 ────────────────────────────────────────────
 function IconChat({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
@@ -92,13 +92,6 @@ const FEATURES = [
   { Icon: IconDoc,   label: "의료 문서 분석", desc: "vLLM 기반 처방전·진단서 즉시 분석",  href: "/docs",  accent: "#10b981" },
   { Icon: IconPill,  label: "알약 분석",      desc: "이미지 AI로 약품 정보 즉시 식별",     href: "/pill",  accent: "#06b6d4" },
   { Icon: IconGuide, label: "건강 가이드",    desc: "맞춤형 복약 일정 및 생활습관 관리",  href: "/guide", accent: "#14b8a6" },
-];
-
-const NAV_ITEMS = [
-  { href: "/chat",  label: "AI 상담",    Icon: IconChat  },
-  { href: "/guide", label: "건강 가이드", Icon: IconGuide },
-  { href: "/pill",  label: "알약 분석",  Icon: IconPill  },
-  { href: "/docs",  label: "의료 문서",  Icon: IconDoc   },
 ];
 
 // ── EKG 모니터 (Canvas 기반) ─────────────────────────────
@@ -261,9 +254,10 @@ function OrbItem({ orb, pX, pY }: { orb: (typeof ORBS)[number]; pX: MotionValue<
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────
 export default function HeroSection() {
-  const pathname = usePathname();
-  const { isAuthenticated } = useAuthStore();
   const containerRef = useRef<HTMLDivElement>(null);
+  const { theme } = useThemeStore();
+  const { isAuthenticated } = useAuthStore();
+  const isDark = theme === 'dark';
 
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
@@ -289,8 +283,12 @@ export default function HeroSection() {
     <div
       ref={containerRef}
       onMouseMove={handleMouseMove}
-      className="relative min-h-screen w-full overflow-hidden bg-[#090a0f]"
+      className="relative min-h-screen w-full overflow-hidden bg-background"
     >
+      {/* 공통 헤더 재사용 */}
+      <div className="relative z-30">
+        <Header />
+      </div>
       {/* Spotlight */}
       <motion.div
         className="pointer-events-none absolute z-10 h-[700px] w-[700px] -translate-x-1/2 -translate-y-1/2 rounded-full"
@@ -331,7 +329,9 @@ export default function HeroSection() {
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.025]"
         style={{
-          backgroundImage: "linear-gradient(rgba(20,184,166,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(20,184,166,0.8) 1px, transparent 1px)",
+          backgroundImage: isDark
+            ? "linear-gradient(rgba(20,184,166,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(20,184,166,0.8) 1px, transparent 1px)"
+            : "linear-gradient(rgba(20,184,166,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(20,184,166,0.4) 1px, transparent 1px)",
           backgroundSize: "80px 80px",
         }}
       />
@@ -340,56 +340,7 @@ export default function HeroSection() {
       <EKGMonitor />
 
       {/* ── 콘텐츠 ── */}
-      <div className="relative z-20 flex min-h-screen flex-col pb-16 lg:pb-0">
-
-        {/* 헤더 */}
-        <header className="flex items-center justify-between px-6 py-5 sm:px-10">
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8 }}
-            className="flex items-center gap-3"
-          >
-            <motion.div
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-teal-500/30 bg-teal-500/10"
-              animate={{ boxShadow: ["0 0 0px rgba(20,184,166,0.3)", "0 0 20px rgba(20,184,166,0.6)", "0 0 0px rgba(20,184,166,0.3)"] }}
-              transition={{ duration: 3, repeat: Infinity }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-              </svg>
-            </motion.div>
-            <span className="text-lg font-bold tracking-widest text-white/90">
-              HEALTH<span className="text-teal-400">GUIDE</span>
-            </span>
-          </motion.div>
-
-          {/* 데스크탑 nav */}
-          <nav className="hidden items-center gap-8 lg:flex">
-            {NAV_ITEMS.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`text-sm font-medium tracking-wide transition-colors ${
-                  pathname === item.href ? "text-teal-400" : "text-white/40 hover:text-white/80"
-                }`}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-
-          {isAuthenticated ? (
-            <UserProfile />
-          ) : (
-            <Link
-              href="/login"
-              className="rounded-full border border-teal-500/30 bg-teal-500/5 px-5 py-2 text-sm font-medium text-teal-300 backdrop-blur-sm transition-all hover:border-teal-400/60 hover:bg-teal-500/15"
-            >
-              로그인
-            </Link>
-          )}
-        </header>
+      <div className="relative z-20 flex min-h-screen flex-col pb-16 pt-16 lg:pb-0">
 
         {/* Hero 본문 */}
         <main className="flex flex-1 flex-col items-center justify-center px-6 pb-8 pt-4 text-center sm:px-12">
@@ -416,7 +367,7 @@ export default function HeroSection() {
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, delay: 0.45, ease: [0.16, 1, 0.3, 1] }}
-            className="mb-6 text-5xl font-black leading-[1.05] tracking-tight text-white sm:text-7xl lg:text-8xl"
+            className="mb-6 text-5xl font-black leading-[1.05] tracking-tight text-foreground sm:text-7xl lg:text-8xl"
           >
             당신의 건강을
             <br />
@@ -436,7 +387,7 @@ export default function HeroSection() {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.9, delay: 0.65 }}
-            className="mb-10 max-w-xl text-base leading-relaxed text-white/40 sm:text-lg"
+            className="mb-10 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg"
           >
             첨단 AI가 의료 문서를 분석하고, 알약을 식별하며,
             <br className="hidden sm:block" />
@@ -497,7 +448,7 @@ export default function HeroSection() {
                 <div className="text-3xl font-black tracking-tight sm:text-4xl">
                   <span className="text-teal-400">{stat.value}</span>
                 </div>
-                <div className="mt-1 text-xs uppercase tracking-widest text-white/30">{stat.label}</div>
+                <div className="mt-1 text-xs uppercase tracking-widest text-muted-foreground">{stat.label}</div>
               </div>
             ))}
           </motion.div>
@@ -515,7 +466,7 @@ export default function HeroSection() {
                   whileHover={{ y: -6, scale: 1.02 }}
                   whileTap={{ scale: 0.97 }}
                   transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                  className="group relative overflow-hidden rounded-2xl border border-white/8 bg-white/[0.03] p-5 text-left backdrop-blur-md"
+                  className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 text-left backdrop-blur-md"
                   style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)" }}
                 >
                   {/* 호버 글로우 */}
@@ -535,8 +486,8 @@ export default function HeroSection() {
                   >
                     <f.Icon size={18} color={f.accent} />
                   </div>
-                  <div className="mb-1 text-sm font-semibold text-white/85">{f.label}</div>
-                  <div className="text-xs leading-relaxed text-white/35">{f.desc}</div>
+                  <div className="mb-1 text-sm font-semibold text-foreground">{f.label}</div>
+                  <div className="text-xs leading-relaxed text-muted-foreground">{f.desc}</div>
                 </motion.div>
               </Link>
             ))}
@@ -548,39 +499,13 @@ export default function HeroSection() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1.5 }}
-          className="hidden items-center justify-center gap-6 px-6 py-5 text-xs text-white/20 lg:flex"
+          className="hidden items-center justify-center gap-6 px-6 py-5 text-xs text-muted-foreground lg:flex"
         >
           <span>© 2026 HealthGuide</span>
-          <span className="h-3 w-px bg-white/15" />
+          <span className="h-3 w-px bg-border" />
           <span>본 서비스는 전문 의료 행위를 대체하지 않습니다</span>
         </motion.footer>
       </div>
-
-      {/* 모바일 / 태블릿 하단 고정 nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/8 bg-[#090a0f]/90 backdrop-blur-xl lg:hidden">
-        <div className="flex h-16 items-center justify-around">
-          {NAV_ITEMS.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex flex-1 flex-col items-center justify-center gap-1 py-2"
-              >
-                <span style={{ filter: isActive ? "drop-shadow(0 0 6px rgba(20,184,166,0.7))" : "none" }}>
-                  <item.Icon size={20} color={isActive ? "#14b8a6" : "rgba(255,255,255,0.35)"} />
-                </span>
-                <span
-                  className="text-[10px] font-medium"
-                  style={{ color: isActive ? "#14b8a6" : "rgba(255,255,255,0.30)" }}
-                >
-                  {item.label}
-                </span>
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
     </div>
   );
 }

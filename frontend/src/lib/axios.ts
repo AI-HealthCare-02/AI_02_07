@@ -4,7 +4,8 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
-  timeout: 15000,
+  baseURL: typeof window === "undefined" ? BASE_URL : "",
+  timeout: 60000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -35,7 +36,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        const { data } = await axios.post(`${BASE_URL}/api/v1/auth/token/refresh`, null, {
+        const { data } = await axios.post(`/api/v1/auth/token/refresh`, null, {
           withCredentials: true,
         });
         const newToken = data?.data?.access_token;

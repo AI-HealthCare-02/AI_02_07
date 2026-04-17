@@ -33,12 +33,12 @@ function CodeSelect({
   onChange: (v: string) => void;
   loading: boolean;
 }) {
-  if (loading) return <div className="h-10 animate-pulse rounded-lg bg-white/5" />;
+  if (loading) return <div className="h-10 animate-pulse rounded-lg bg-muted" />;
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-white/80 focus:border-teal-500/50 focus:outline-none"
+      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-teal-500/50 focus:outline-none"
     >
       {(codes ?? []).map((c) => (
         <option key={c.code} value={c.code}>{c.code_name}</option>
@@ -78,7 +78,7 @@ function TagInput({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
           placeholder={placeholder}
-          className="flex-1 rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-white/80 placeholder:text-white/30 focus:border-teal-500/50 focus:outline-none"
+          className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
         />
         <button
           onClick={handleAdd}
@@ -92,12 +92,12 @@ function TagInput({
         {items.map((item) => (
           <span
             key={item.id}
-            className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70"
+            className="flex items-center gap-1.5 rounded-full border border-border bg-muted px-3 py-1 text-xs text-foreground"
           >
             {item.name}
             <button
               onClick={() => onDelete(item.id)}
-              className="text-white/30 transition hover:text-red-400"
+              className="text-muted-foreground transition hover:text-red-400"
             >
               ✕
             </button>
@@ -113,7 +113,6 @@ export default function HealthProfilePage() {
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
 
-  // 공통코드
   const { data: genderCodes,    isLoading: loadingGender }    = useCodesByGroup("GENDER");
   const { data: pregnancyCodes, isLoading: loadingPregnancy } = useCodesByGroup("PREGNANCY");
   const { data: smokingCodes,   isLoading: loadingSmoking }   = useCodesByGroup("SMOKING");
@@ -121,7 +120,6 @@ export default function HealthProfilePage() {
   const { data: exerciseCodes,  isLoading: loadingExercise }  = useCodesByGroup("EXERCISE");
   const { data: sleepCodes,     isLoading: loadingSleep }     = useCodesByGroup("SLEEP_TIME");
 
-  // 상태
   const [pageLoading, setPageLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [addingAllergy, setAddingAllergy] = useState(false);
@@ -144,15 +142,11 @@ export default function HealthProfilePage() {
   const sortedFirst = (codes?: CommonCode[]) =>
     codes?.slice().sort((a, b) => a.sort_order - b.sort_order)[0]?.code ?? "";
 
-  // 초기 데이터 로드 — 공통코드 준비 후 실행하여 기본값 순서 보장
   useEffect(() => {
     if (!codesReady) return;
 
     const token = localStorage.getItem("access_token");
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
+    if (!token) { router.replace("/login"); return; }
 
     const load = async () => {
       try {
@@ -163,12 +157,10 @@ export default function HealthProfilePage() {
           apiClient.get("/api/v1/users/me/diseases"),
         ]);
 
-        // 성별: API 값 우선, 없으면 OTHER
         const profile = profileRes.data.data;
         setGender(profile.gender_code ?? "OTHER");
         setBirthDate(profile.birth_date ?? "");
 
-        // 생활습관: API 값 우선, 없으면 sort_order 가장 낮은 공통코드로 기본값
         const ls = lifestyleRes.data.data;
         setLifestyle({
           height:          ls?.height?.toString() ?? "",
@@ -192,29 +184,25 @@ export default function HealthProfilePage() {
     load();
   }, [codesReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 저장
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
-      // 프로필 (성별, 생년월일)
       await apiClient.patch("/api/v1/users/me", {
         gender_code: gender === "OTHER" ? null : gender,
         ...(birthDate ? { birth_date: birthDate } : {}),
       });
 
-      // 생활습관
       const lsPayload: Record<string, string | number | null> = {};
-      if (lifestyle.height)         lsPayload.height         = Number(lifestyle.height);
-      if (lifestyle.weight)         lsPayload.weight         = Number(lifestyle.weight);
-      if (lifestyle.pregnancy_code) lsPayload.pregnancy_code = lifestyle.pregnancy_code;
-      if (lifestyle.smoking_code)   lsPayload.smoking_code   = lifestyle.smoking_code;
-      if (lifestyle.drinking_code)  lsPayload.drinking_code  = lifestyle.drinking_code;
-      if (lifestyle.exercise_code)  lsPayload.exercise_code  = lifestyle.exercise_code;
+      if (lifestyle.height)          lsPayload.height          = Number(lifestyle.height);
+      if (lifestyle.weight)          lsPayload.weight          = Number(lifestyle.weight);
+      if (lifestyle.pregnancy_code)  lsPayload.pregnancy_code  = lifestyle.pregnancy_code;
+      if (lifestyle.smoking_code)    lsPayload.smoking_code    = lifestyle.smoking_code;
+      if (lifestyle.drinking_code)   lsPayload.drinking_code   = lifestyle.drinking_code;
+      if (lifestyle.exercise_code)   lsPayload.exercise_code   = lifestyle.exercise_code;
       if (lifestyle.sleep_time_code) lsPayload.sleep_time_code = lifestyle.sleep_time_code;
 
       await apiClient.put("/api/v1/users/me/lifestyle", lsPayload);
-
       router.push("/");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "저장에 실패했습니다.");
@@ -223,61 +211,52 @@ export default function HealthProfilePage() {
     }
   };
 
-  // 알레르기 추가/삭제
   const addAllergy = async (name: string) => {
     setAddingAllergy(true);
     try {
       const { data } = await apiClient.post("/api/v1/users/me/allergies", { allergy_name: name });
       setAllergies((prev) => [...prev, data.data]);
-    } finally {
-      setAddingAllergy(false);
-    }
+    } finally { setAddingAllergy(false); }
   };
   const deleteAllergy = async (id: number) => {
     await apiClient.delete(`/api/v1/users/me/allergies/${id}`);
     setAllergies((prev) => prev.filter((a) => a.allergy_id !== id));
   };
 
-  // 기저질환 추가/삭제
   const addDisease = async (name: string) => {
     setAddingDisease(true);
     try {
       const { data } = await apiClient.post("/api/v1/users/me/diseases", { disease_name: name });
       setDiseases((prev) => [...prev, data.data]);
-    } finally {
-      setAddingDisease(false);
-    }
+    } finally { setAddingDisease(false); }
   };
   const deleteDisease = async (id: number) => {
     await apiClient.delete(`/api/v1/users/me/diseases/${id}`);
     setDiseases((prev) => prev.filter((d) => d.disease_id !== id));
   };
 
-  // ── 로딩 ──
   if (pageLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <span className="h-8 w-8 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-400" />
       </div>
     );
   }
 
-  // ── 렌더 ──
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
-      <h1 className="mb-8 text-2xl font-bold text-white">헬스정보 수정</h1>
+      <h1 className="mb-8 text-2xl font-bold text-foreground">헬스정보 수정</h1>
 
       {error && (
-        <div className="mb-6 rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>
+        <div className="mb-6 rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</div>
       )}
 
       <div className="space-y-8">
         {/* ── 기본 정보 ── */}
         <Section title="기본 정보">
-          {/* 성별 */}
           <Field label="성별">
             {loadingGender ? (
-              <div className="h-10 animate-pulse rounded-lg bg-white/5" />
+              <div className="h-10 animate-pulse rounded-lg bg-muted" />
             ) : (
               <div className="flex gap-3">
                 {(genderCodes ?? []).map((opt) => (
@@ -286,8 +265,8 @@ export default function HealthProfilePage() {
                     onClick={() => setGender(opt.code)}
                     className={`flex-1 rounded-lg border py-2 text-sm font-medium transition ${
                       gender === opt.code
-                        ? "border-teal-500 bg-teal-500/15 text-teal-300"
-                        : "border-white/10 bg-white/5 text-white/50 hover:border-white/20"
+                        ? "border-teal-500 bg-teal-500/15 text-teal-500"
+                        : "border-border bg-muted text-muted-foreground hover:border-teal-500/40 hover:text-foreground"
                     }`}
                   >
                     {opt.code_name}
@@ -297,14 +276,13 @@ export default function HealthProfilePage() {
             )}
           </Field>
 
-          {/* 생년월일 */}
           <Field label="생년월일">
             <input
               type="date"
               value={birthDate}
               onChange={(e) => setBirthDate(e.target.value)}
               max={new Date().toISOString().split("T")[0]}
-              className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-white/80 focus:border-teal-500/50 focus:outline-none [color-scheme:dark]"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-teal-500/50 focus:outline-none"
             />
           </Field>
         </Section>
@@ -323,7 +301,7 @@ export default function HealthProfilePage() {
                 }}
                 placeholder="예: 170"
                 min={1} max={250}
-                className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-white/80 placeholder:text-white/30 focus:border-teal-500/50 focus:outline-none"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
               />
             </Field>
             <Field label="몸무게 (kg)">
@@ -337,7 +315,7 @@ export default function HealthProfilePage() {
                 }}
                 placeholder="예: 65"
                 min={1} max={200}
-                className="w-full rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-white/80 placeholder:text-white/30 focus:border-teal-500/50 focus:outline-none"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
               />
             </Field>
           </div>
@@ -399,7 +377,7 @@ export default function HealthProfilePage() {
       <div className="mt-10 flex gap-3">
         <button
           onClick={() => router.back()}
-          className="flex-1 rounded-lg border border-white/10 py-3 text-sm font-medium text-white/50 transition hover:border-white/20 hover:text-white/70"
+          className="flex-1 rounded-lg border border-border py-3 text-sm font-medium text-muted-foreground transition hover:border-teal-500/40 hover:text-foreground"
         >
           취소
         </button>
@@ -423,8 +401,8 @@ export default function HealthProfilePage() {
 // ── 레이아웃 헬퍼 ──
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-white/8 bg-white/3 p-6">
-      <h2 className="mb-4 text-sm font-semibold text-teal-400">{title}</h2>
+    <div className="rounded-xl border border-border bg-card p-6">
+      <h2 className="mb-4 text-sm font-semibold text-teal-500">{title}</h2>
       <div className="space-y-4">{children}</div>
     </div>
   );
@@ -433,7 +411,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-white/40">{label}</label>
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
       {children}
     </div>
   );

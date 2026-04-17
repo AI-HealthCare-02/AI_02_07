@@ -4,12 +4,15 @@
 # 앱 생명주기(startup/shutdown)에서 DB, Redis 초기화/해제
 # ──────────────────────────────────────────────
 import logging
+import traceback
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from tortoise.contrib.fastapi import register_tortoise
 
 from app.apis.v1 import api_v1_router
+from app.apis.admin_router import admin_router
 from app.core.config import get_settings
 from app.core.redis import close_redis, init_redis
 from app.db.databases import MODELS
@@ -73,6 +76,59 @@ def create_app() -> FastAPI:
 
     # ── API 라우터 등록 ──
     app.include_router(api_v1_router)
+    app.include_router(admin_router)
+
+    # ── 전역 예외 핸들러 (500) ──
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        # HTTPException은 FastAPI가 자체 처리하므로 제외
+        from fastapi import HTTPException
+
+        if isinstance(exc, HTTPException):
+            raise exc
+
+        stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error("[Unhandled] %s %s\n%s", request.method, request.url.path, stack)
+
+        # user_id 추출 시도 (JWT 파싱 실패해도 무시)
+        user_id: int | None = None
+        try:
+            from jose import jwt as _jwt
+
+            auth = request.headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                payload = _jwt.decode(
+                    auth[7:],
+                    get_settings().JWT_SECRET_KEY,
+                    algorithms=[get_settings().JWT_ALGORITHM],
+                )
+                role = payload.get("role", "user")
+                if role == "user":
+                    user_id = int(payload.get("sub", 0)) or None
+        except Exception:
+            pass
+
+        try:
+            from app.services.error_log_service import log_error
+
+            await log_error(
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                user_id=user_id,
+                request_url=str(request.url),
+                exception=exc,
+            )
+        except Exception as log_err:
+            logger.error("오류 로그 저장 실패: %s", log_err)
+
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": 500,
+                "message": "서버 내부 오류가 발생했습니다.",
+                "error": "INTERNAL_SERVER_ERROR",
+            },
+        )
 
     # ──────────────────────────────────────────
     # Startup 이벤트
@@ -83,6 +139,14 @@ def create_app() -> FastAPI:
     async def on_startup():
         logger.info(f"🚀 HealthGuide 서버 시작 (env={settings.APP_ENV})")
         logger.info("✅ PostgreSQL 연결 완료 (register_tortoise)")
+
+        # Langfuse 초기화 (환경변수 세팅 + 싱글턴 생성)
+        try:
+            from app.core.langfuse_client import init_langfuse
+
+            init_langfuse()
+        except Exception as e:
+            logger.warning(f"⚠️ Langfuse 초기화 실패: {e}")
 
         # Redis 초기화
         try:
@@ -148,7 +212,9 @@ async def _seed_tester_account() -> None:
 
     existing = await User.get_or_none(email=settings.DEV_TESTER_EMAIL)
     if existing:
-        logger.info(f"  ✅ 테스터 계정 이미 존재: user_id={existing.user_id}, email={existing.email}")
+        logger.info(
+            f"  ✅ 테스터 계정 이미 존재: user_id={existing.user_id}, email={existing.email}"
+        )
         return
 
     tester = await User.create(
@@ -159,36 +225,9 @@ async def _seed_tester_account() -> None:
         provider_code="LOCAL",
         provider_id=None,
     )
-    logger.info(f"  🧪 테스터 계정 생성 완료: user_id={tester.user_id}, email={tester.email}")
-
-
-# async def _seed_default_ai_settings() -> None:
-#     """AI 기본 설정 시드."""
-#     from app.models.ai_settings import AISettings
-
-#     existing = await AISettings.get_or_none(is_active=True)
-#     if existing:
-#         logger.info(f"  ✅ 활성 AI 설정 존재: {existing.config_name}")
-#         return
-
-#     settings_count = await AISettings.all().count()
-#     if settings_count == 0:
-#         await AISettings.create(
-#             config_name="CHATBOT_v1",
-#             api_model="gpt-4",
-#             system_prompt=(
-#                 "당신은 HealthGuide AI 건강 상담 도우미입니다. "
-#                 "사용자의 건강 관련 질문에 친절하고 정확하게 답변하세요. "
-#                 "전문 의료 행위를 대체하지 않으며, 심각한 증상은 의사 상담을 권유하세요."
-#             ),
-#             emergency_keywords="자살,자해,죽고싶,사라지고싶",
-#             temperature=0.70,
-#             max_tokens=1000,
-#             min_threshold=0.50,
-#             auto_retry_count=3,
-#             is_active=True,
-#         )
-#         logger.info("  📝 AI 기본 설정 시드 완료: CHATBOT_v1")
+    logger.info(
+        f"  🧪 테스터 계정 생성 완료: user_id={tester.user_id}, email={tester.email}"
+    )
 
 
 # ── 앱 인스턴스 생성 ──

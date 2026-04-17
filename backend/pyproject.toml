@@ -17,6 +17,7 @@ dependencies = [
     "redis>=5.2",
     "python-dotenv>=1.0",
     "tzdata>=2024.1",  # Windows 타임존 데이터 (Linux/Mac에는 시스템 제공)
+    "langfuse>=4.2.0",
 ]
 
 # ── 의존성 그룹: uv sync --group <name> 으로 선택 설치 ──
@@ -39,11 +40,9 @@ app = [
 ]
 ai = [
     # AI Worker 관련
-    "torch>=2.6",
-    "vllm>=0.7",
-    "transformers>=4.48",
+    "httpx>=0.28",             # Clova OCR 호출
     "Pillow>=11.1",            # 이미지 처리 (알약 분석)
-    "boto3>=1.36",             # S3에서 모델/이미지 다운로드
+    "boto3>=1.36",             # S3에서 이미지 다운로드
     "openai>=1.60",
 ]
 dev = [

@@ -15,6 +15,22 @@ from ai_worker.core.redis_client import get_worker_redis
 logger = logging.getLogger(__name__)
 
 
+def _is_o_series(model: str) -> bool:
+    m = model.lower().strip()
+    return m.startswith("o1") or m.startswith("o3")
+
+
+def _build_kwargs(model: str, max_tokens: int, temperature: float | None = None) -> dict:
+    kwargs: dict = {"model": model}
+    if _is_o_series(model):
+        kwargs["max_completion_tokens"] = max_tokens
+    else:
+        kwargs["max_tokens"] = max_tokens
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+    return kwargs
+
+
 async def process_chat_filter(task_data: dict) -> dict:
     """
     3단계 필터링 태스크.
@@ -53,7 +69,7 @@ async def process_chat_filter(task_data: dict) -> dict:
 
 async def _check_domain(client: AsyncOpenAI, message: str) -> bool:
     resp = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        **_build_kwargs("gpt-4o-mini", max_tokens=5, temperature=0),
         messages=[
             {
                 "role": "system",
@@ -64,15 +80,13 @@ async def _check_domain(client: AsyncOpenAI, message: str) -> bool:
             },
             {"role": "user", "content": message},
         ],
-        max_tokens=5,
-        temperature=0,
     )
     return "YES" in (resp.choices[0].message.content or "").upper()
 
 
 async def _check_emergency(client: AsyncOpenAI, message: str) -> bool:
     resp = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        **_build_kwargs("gpt-4o-mini", max_tokens=5, temperature=0),
         messages=[
             {
                 "role": "system",
@@ -83,7 +97,5 @@ async def _check_emergency(client: AsyncOpenAI, message: str) -> bool:
             },
             {"role": "user", "content": message},
         ],
-        max_tokens=5,
-        temperature=0,
     )
     return "YES" in (resp.choices[0].message.content or "").upper()

@@ -7,6 +7,7 @@
 # ── 관리자 ──
 from app.models.admin import AdminUser
 from app.models.common_code import CommonCode, CommonGroupCode
+from app.models.medical_doc import DocAnalysisJob, DocAnalysisResult
 
 # ── 사용자 관련 ──
 from app.models.user import User
@@ -17,7 +18,6 @@ from app.models.user_lifestyle import UserLifestyle
 # 팀원들이 추가하는 모델도 여기에 등록
 # from app.models.chat import ChatSession, ChatMessage
 # from app.models.ai_settings import AISettings
-# from app.models.medical_doc import MedicalDocument
 # from app.models.guide import HealthGuide
 # from app.models.pill import PillAnalysis
 # from app.models.admin import AdminLog
@@ -30,4 +30,6 @@ __all__ = [
     "UserLifestyle",
     "UserAllergy",
     "UserDisease",
+    "DocAnalysisJob",
+    "DocAnalysisResult",
 ]

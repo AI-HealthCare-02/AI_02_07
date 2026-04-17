@@ -1,11 +1,13 @@
 # docker-compose.prod.yml
 # ──────────────────────────────────────────────
-# EC2 프로덕션 배포용
+# EC2 t3.medium 프로덕션 배포용 (vCPU 2, RAM 4GB, Disk 30GB)
+# - worker 3개로 동시 요청 처리
+# - 메모리/로그 제한 설정 필수
 # docker compose -f docker-compose.prod.yml up -d
 # ──────────────────────────────────────────────
 
 services:
-  # ── PostgreSQL ──
+  # ── PostgreSQL (~400MB) ──
   db:
     image: postgres:16-alpine
     container_name: healthguide-db
@@ -18,55 +20,93 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - ws
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-healthguide}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ── Redis ──
+  # ── Redis (~128MB) ──
   redis:
     image: redis:7-alpine
     container_name: healthguide-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     networks:
       - ws
+    deploy:
+      resources:
+        limits:
+          memory: 192m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ── FastAPI 서버 ──
+  # ── FastAPI 서버 (worker 3개, ~600MB) ──
   app:
     image: ${DOCKER_USER}/${DOCKER_REPOSITORY}:app-${APP_VERSION}
     container_name: healthguide-app
     restart: unless-stopped
     env_file: envs/.prod.env
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "3"]
     networks:
       - ws
+    deploy:
+      resources:
+        limits:
+          memory: 768m
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
 
-  # ── AI Worker (현재 미사용 - GPU 인스턴스 필요 시 활성화) ──
-  # ai_worker:
-  #   image: ${DOCKER_USER}/${DOCKER_REPOSITORY}:worker-${AI_WORKER_VERSION}
-  #   container_name: healthguide-worker
-  #   restart: unless-stopped
-  #   env_file: envs/.prod.env
-  #   networks:
-  #     - ws
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
+  # ── AI Worker (worker 2개, ~400MB) ──
+  ai_worker:
+    image: ${DOCKER_USER}/${DOCKER_REPOSITORY}:worker-${AI_WORKER_VERSION}
+    container_name: healthguide-worker
+    restart: unless-stopped
+    env_file: envs/.prod.env
+    command: ["python", "-m", "ai_worker.main"]
+    networks:
+      - ws
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
 
-  # ── Nginx ──
+  # ── Nginx (~64MB) ──
   nginx:
     image: nginx:1.27-alpine
     container_name: healthguide-nginx
@@ -80,8 +120,17 @@ services:
       - certbot_www:/var/www/certbot:ro
     networks:
       - ws
+    deploy:
+      resources:
+        limits:
+          memory: 128m
     depends_on:
       - app
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ── Certbot (SSL 자동 갱신) ──
   certbot:
@@ -94,6 +143,11 @@ services:
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 12h & wait $${!}; done;'"
     depends_on:
       - nginx
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
 
 volumes:
   postgres_data:

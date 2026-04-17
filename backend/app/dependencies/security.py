@@ -1,24 +1,8 @@
-from typing import Annotated
-
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
 from app.models.user import User
-from app.repositories.user_repository import UserRepository
-from app.services.jwt import JwtService
+from fastapi import HTTPException
 
-security = HTTPBearer()
-
-
-async def get_request_user(
-    credential: Annotated[HTTPAuthorizationCredentials, Depends(security)],
-) -> User:
-    token = credential.credentials
-    verified = JwtService().verify_jwt(token=token, token_type="access")
-    user_id = verified.payload["user_id"]
-    user = await UserRepository().get_user(user_id)
+async def get_current_user() -> User:
+    user = await User.filter(is_suspended=False).first()
     if not user:
-        raise HTTPException(
-            detail="Authenticate Failed.", status_code=status.HTTP_401_UNAUTHORIZED
-        )
+        raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다.")
     return user

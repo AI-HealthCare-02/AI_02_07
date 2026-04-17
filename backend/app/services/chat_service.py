@@ -1,14 +1,17 @@
 # app/services/chat_service.py
 # 채팅 비즈니스 로직 + SSE 스트리밍
 
+import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncGenerator
 
 from fastapi import HTTPException, status
 from openai import AsyncOpenAI
 
 from app.core.config import get_settings
+from app.core.openai_utils import AsyncOpenAI, build_create_kwargs
 from app.core.redis import get_redis
 from app.dtos.chat_dto import (
     BookmarkResponseDTO,
@@ -23,13 +26,12 @@ from app.models.user import User
 from app.repositories.chat_repository import ChatRepository
 
 logger = logging.getLogger(__name__)
-repo = ChatRepository()
 
 
 # ── 세션 ──────────────────────────────────────────────────────────────────────
 
 async def create_session(user: User) -> ChatRoomCreateResponseDTO:
-    room = await repo.create_room(user.user_id)
+    room = await _get_repo().create_room(user.user_id)
     return ChatRoomCreateResponseDTO(
         roomId=room.room_id,
         title=room.title,
@@ -38,7 +40,7 @@ async def create_session(user: User) -> ChatRoomCreateResponseDTO:
 
 
 async def list_sessions(user: User, page: int, size: int) -> ChatRoomListDataDTO:
-    total, rooms = await repo.list_rooms(user.user_id, page, size)
+    total, rooms = await _get_repo().list_rooms(user.user_id, page, size)
     return ChatRoomListDataDTO(
         totalCount=total,
         items=[
@@ -54,21 +56,26 @@ async def list_sessions(user: User, page: int, size: int) -> ChatRoomListDataDTO
 
 
 async def delete_session(user: User, room_id: int) -> None:
-    room = await repo.get_room(room_id, user.user_id)
+    room = await _get_repo().get_room(room_id, user.user_id)
     if room is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화를 찾을 수 없습니다.")
-    await repo.soft_delete_room(room)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="대화를 찾을 수 없습니다."
+        )
+    await _get_repo().soft_delete_room(room)
 
 
 # ── 메시지 ────────────────────────────────────────────────────────────────────
 
-async def list_messages(user: User, room_id: int, page: int, size: int) -> ChatRoomMessagesDataDTO:
-    room = await repo.get_room(room_id, user.user_id)
+
+async def list_messages(
+    user: User, room_id: int, page: int, size: int
+) -> ChatRoomMessagesDataDTO:
+    room = await _get_repo().get_room(room_id, user.user_id)
     if room is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화를 찾을 수 없습니다.")
 
-    total, messages = await repo.list_messages(room_id, page, size)
-    bookmarked_ids = await repo.get_bookmarked_message_ids(room_id)
+    total, messages = await _get_repo().list_messages(room_id, page, size)
+    bookmarked_ids = await _get_repo().get_bookmarked_message_ids(room_id)
 
     return ChatRoomMessagesDataDTO(
         roomId=room.room_id,
@@ -91,207 +98,414 @@ async def list_messages(user: User, room_id: int, page: int, size: int) -> ChatR
 # ── SSE 스트리밍 ──────────────────────────────────────────────────────────────
 
 async def validate_session(user: User, session_id: int) -> ChatRoom:
-    """SSE generator 진입 전 세션 검증 — HTTPException은 generator 밖에서 raise해야 함."""
-    room = await repo.get_room(session_id, user.user_id)
+    room = await _get_repo().get_room(session_id, user.user_id)
     if room is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="세션을 찾을 수 없습니다.")
     return room
 
 
 async def stream_chat(
-    room: ChatRoom,
-    user: User,
-    message: str,
+    room: ChatRoom, user: User, message: str
 ) -> AsyncGenerator[str, None]:
-    """
-    3단계 필터링 → SSE 스트리밍 응답 생성기.
-    세션 검증은 validate_session()에서 미리 수행 후 room을 전달받음.
-    yields: SSE 형식 문자열
-    """
-
+    """2단계 GPT 호출 — 1단계 분류 후 2단계 스트리밍."""
     session_id = room.room_id
 
-    # 사용자 메시지 저장
+    repo = _get_repo()
     await repo.create_message(session_id, "USER", message, filter_result="PASS")
-
-    # 첫 메시지면 제목 업데이트
-    msg_count = await ChatMessage.filter(room_id=session_id).count()
-    if msg_count <= 1:
+    if await ChatMessage.filter(room_id=session_id).count() <= 1:
         await repo.update_room_title(room, message[:50])
 
     settings = get_settings()
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)  # OPENAI_API_KEY from env
+    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    ai_cfg = await _get_ai_settings()
+    _, history = await repo.list_messages(session_id, page=1, size=10)
+    history_ctx = _build_messages(history[:-1])
+    health_ctx = await _build_health_context(user)
 
-    # ── 1단계: 도메인 필터 ──
-    domain_result = await _check_domain(client, message)
-    if not domain_result:
-        blocked_msg = "🚫 죄송합니다. 헬스가이드 챗봇은 건강·의료·복약 관련 질문에만 답변드릴 수 있습니다."
-        await repo.create_message(session_id, "ASSISTANT", blocked_msg, filter_result="DOMAIN")
-        yield _sse("filter_blocked", {"type": "DOMAIN", "message": blocked_msg})
-        yield _sse("done", "[DONE]")
-        return
-
-    # ── 2단계: 응급 필터 ──
-    emergency_result = await _check_emergency(client, message)
-    if emergency_result:
-        blocked_msg = "🚨 응급 상황이 의심됩니다. 즉시 119에 전화하세요."
-        await repo.create_message(session_id, "ASSISTANT", blocked_msg, filter_result="EMERGENCY")
-        yield _sse("filter_blocked", {"type": "EMERGENCY", "message": blocked_msg})
-        yield _sse("done", "[DONE]")
-        return
-
-    # ── 3단계: 답변 생성 (스트리밍) ──
-    # 이전 대화 컨텍스트 (최근 10개)
-    _, history = await repo.list_messages(session_id, page=1, size=50)
-    messages_ctx = _build_messages(history[:-1])  # 방금 저장한 user_msg 제외 (마지막에 추가)
-    messages_ctx.append({"role": "user", "content": message})
-
-    full_content = ""
-    # 취소 처리를 위해 먼저 빈 레코드 생성
-    assistant_msg = await repo.create_message(session_id, "ASSISTANT", "", filter_result="PASS")
-    redis = get_redis()
+    assistant_msg = await repo.create_message(
+        session_id, "ASSISTANT", "", filter_result="PASS"
+    )
+    yield _sse("message_id", {"messageId": assistant_msg.message_id})
 
     try:
-        stream = await client.chat.completions.create(
-            model="gpt-4o-mini",  # OpenAI GPT-4o mini
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "당신은 HealthGuide AI 건강 상담 도우미입니다. "
-                        "사용자의 건강·의료·복약 관련 질문에 친절하고 정확하게 답변하세요. "
-                        "전문 의료 행위를 대체하지 않으며, 심각한 증상은 의사 상담을 권유하세요."
-                    ),
-                },
-                *messages_ctx,
-            ],
-            stream=True,
-            max_tokens=1000,
-            temperature=0.7,
+        # 1단계: 분류
+        category = await _classify(client, ai_cfg, message)
+        logger.info(
+            "[분류] model=%s | input=%.80s | category=%s",
+            ai_cfg.model,
+            message,
+            category,
         )
 
-        async for chunk in stream:
-            # 취소 플래그 확인
-            cancel_key = f"chat:cancel:{assistant_msg.message_id}"
-            if await redis.exists(cancel_key):
-                await redis.delete(cancel_key)
-                break
+        # 차단 처리
+        if category in ("EMERGENCY", "OTHER"):
+            fixed = (
+                "🚨 상황이 응급의심됩니다. 즉시 119에 전화하세요."
+                if category == "EMERGENCY"
+                else "🚫 죄송합니다. 헬스가이드 상담은 건강·의료 관련 질문에만 답변드릴 수 있습니다."
+            )
+            yield _sse("filter_blocked", {"type": category, "message": fixed})
+            assistant_msg.content = fixed
+            assistant_msg.filter_result = category
+            await assistant_msg.save(
+                update_fields=[
+                    "content",
+                    "filter_result",
+                    "prompt_tokens",
+                    "completion_tokens",
+                ]
+            )
+            yield _sse("done", "[DONE]")
+            return
 
-            token = chunk.choices[0].delta.content or ""
-            if token:
-                full_content += token
-                yield _sse("token", {"token": token})
+        # 2단계: 스트리밍 답변
+        system_prompt = ai_cfg.system_prompt
+        if health_ctx:
+            system_prompt += f"\n\n[사용자 건강 정보]\n{health_ctx}"
+        if category == "GREETING":
+            system_prompt += "\n사용자가 인사를 건넸습니다. 친절하게 인사하고 HealthGuide 서비스를 간략히 소개하세요."
+        system_prompt += (
+            "\n\n답변은 반드시 300자 이내로 작성하세요."
+            "\n반드시 2~3줄로 나누어 작성하세요."
+            "\n각 줄은 한 문장씩만 작성하세요."
+            "\n불필요한 서론/결론 없이 핵심만 답변하세요."
+        )
+
+        async for chunk_sse in _stream_answer(
+            client,
+            ai_cfg,
+            system_prompt,
+            history_ctx,
+            message,
+            assistant_msg.message_id,
+            category,
+        ):
+            yield chunk_sse
 
     except Exception as e:
         logger.error("스트리밍 오류: %s", e)
-        yield _sse("error", {"message": "⏳ 시스템 점검 중입니다. 잠시 후 다시 시도해주세요."})
-    finally:
-        # 스트리밍 완료/취소/오류 모두 최종 내용 저장
-        assistant_msg.content = full_content
-        await assistant_msg.save(update_fields=["content"])
+        yield _sse(
+            "error", {"message": "시스템 점검 중입니다. 잠시 후 다시 시도해주세요."}
+        )
 
     yield _sse("done", "[DONE]")
 
 
+# ── 1단계: 분류 ───────────────────────────────────────────────────────────────
+
+_ROUTER_PROMPT = (
+    "당신은 질문 분류기입니다. 아래 질문을 읽고 카테고리 하나만 출력하세요.\n"
+    "EMERGENCY: 즉각적인 응급 처치가 필요한 상황(심정지, 뇌졸중, 심한 출혈, 자살 위기 등), 심장이 아파 라고 하면 EMERGENCY로 반환해.\n"
+    "GREETING: 인사, 감사, 안부, 자기소개 요청 등 순수 인사성 메시지\n"
+    "DOMAIN: 건강·의료·복약·증상·질병·영양·운동·정신건강 관련 질문\n"
+    "OTHER: 그 외 일반 비의료 질문/잡담\n"
+    "반드시 EMERGENCY / GREETING / DOMAIN / OTHER 중 하나만 출력하세요."
+)
+
+_VALID_CATEGORIES = {"EMERGENCY", "GREETING", "DOMAIN", "OTHER"}
+
+
+async def _classify(client: AsyncOpenAI, ai_cfg: "AiConfig", message: str) -> str:
+    messages = [
+        {"role": "system", "content": _ROUTER_PROMPT},
+        {"role": "user", "content": message},
+    ]
+    resp = await client.chat.completions.create(
+        **build_create_kwargs(model=ai_cfg.model, max_tokens=200, name="classify"),
+        messages=messages,
+    )
+    result = (resp.choices[0].message.content or "").strip().upper()
+    return result if result in _VALID_CATEGORIES else "DOMAIN"
+
+
+# ── 2단계: 스트리밍 답변 ──────────────────────────────────────────────────────
+
+
+async def _stream_answer(
+    client: AsyncOpenAI,
+    ai_cfg: "AiConfig",
+    system_prompt: str,
+    history_ctx: list[dict],
+    message: str,
+    message_id: int,
+    filter_result: str,
+) -> AsyncGenerator[str, None]:
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+    async def _run() -> None:
+        redis = get_redis()
+        full_content = ""
+        prompt_tokens = comp_tokens = 0
+        latency_ms: int | None = None
+        start_at = time.monotonic()
+        input_messages = [
+            {"role": "system", "content": system_prompt},
+            *history_ctx,
+            {"role": "user", "content": message},
+        ]
+        try:
+            stream = await client.chat.completions.create(
+                **build_create_kwargs(
+                    model=ai_cfg.model,
+                    max_tokens=ai_cfg.max_tokens,
+                    temperature=ai_cfg.temperature,
+                    stream=True,
+                    stream_options={"include_usage": True},
+                    name="stream_answer",
+                ),
+                messages=input_messages,
+            )
+            async for chunk in stream:
+                if await redis.exists(f"chat:cancel:{message_id}"):
+                    await redis.delete(f"chat:cancel:{message_id}")
+                    break
+                if chunk.usage:
+                    prompt_tokens += chunk.usage.prompt_tokens or 0
+                    comp_tokens += chunk.usage.completion_tokens or 0
+                if not chunk.choices:
+                    continue
+                token = chunk.choices[0].delta.content or ""
+                if not token:
+                    continue
+                if latency_ms is None:
+                    latency_ms = int((time.monotonic() - start_at) * 1000)
+                full_content += token
+                await queue.put(_sse("token", {"token": token}))
+        except Exception as e:
+            logger.error("[_stream_answer] OpenAI 오류: %s", e)
+        finally:
+            await queue.put(None)
+            msg = await ChatMessage.get_or_none(message_id=message_id)
+            if msg:
+                msg.content = full_content.strip()
+                msg.filter_result = filter_result
+                msg.prompt_tokens = prompt_tokens
+                msg.completion_tokens = comp_tokens
+                msg.latency_ms = latency_ms
+                msg.model_name = ai_cfg.model
+                await msg.save(
+                    update_fields=[
+                        "content",
+                        "filter_result",
+                        "prompt_tokens",
+                        "completion_tokens",
+                        "latency_ms",
+                        "model_name",
+                    ]
+                )
+            logger.info(
+                "[2단계 완료] model=%s | 응답=%.80s | prompt=%s | completion=%s | latency=%sms",
+                ai_cfg.model,
+                full_content,
+                prompt_tokens,
+                comp_tokens,
+                latency_ms,
+            )
+
+    asyncio.create_task(_run())
+
+    while True:
+        item = await queue.get()
+        if item is None:
+            break
+        yield item
+
+
+# ── 취소 ──────────────────────────────────────────────────────────────────────
+
+
 async def cancel_stream(user: User, message_id: int) -> None:
-    msg = await repo.get_message(message_id)
+    msg = await _get_repo().get_message(message_id)
     if msg is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="해당 메시지를 찾을 수 없습니다.")
     if msg.content:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 완료된 응답입니다.")
-
-    redis = get_redis()
-    await redis.set(f"chat:cancel:{message_id}", "1", ex=30)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="이미 완료된 응답입니다."
+        )
+    await get_redis().set(f"chat:cancel:{message_id}", "1", ex=30)
 
 
 # ── 북마크 ────────────────────────────────────────────────────────────────────
 
 async def add_bookmark(user: User, message_id: int) -> BookmarkResponseDTO:
-    answer_msg = await repo.get_message(message_id)
+    answer_msg = await _get_repo().get_message(message_id)
     if answer_msg is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="메시지를 찾을 수 없습니다.")
 
-    # 이미 북마크된 경우 기존 반환
-    existing = await repo.get_bookmark_by_answer(message_id, user.user_id)
+    existing = await _get_repo().get_bookmark_by_answer(message_id, user.user_id)
     if existing:
         return BookmarkResponseDTO(bookmarkId=existing.bookmark_id, isBookmarked=True)
 
-    # 직전 USER 메시지 찾기
-    question_msg = await ChatMessage.filter(
-        room_id=answer_msg.room_id,
-        message_id__lt=message_id,
-        sender_type_code="USER",
-    ).order_by("-message_id").first()
+    question_msg = (
+        await ChatMessage.filter(
+            room_id=answer_msg.room_id,
+            message_id__lt=message_id,
+            sender_type_code="USER",
+        )
+        .order_by("-message_id")
+        .first()
+    ) or answer_msg
 
-    if question_msg is None:
-        question_msg = answer_msg  # fallback
-
-    bookmark = await repo.create_bookmark(user.user_id, question_msg, answer_msg)
+    bookmark = await _get_repo().create_bookmark(user.user_id, question_msg, answer_msg)
     return BookmarkResponseDTO(bookmarkId=bookmark.bookmark_id, isBookmarked=True)
 
 
 async def remove_bookmark(user: User, message_id: int) -> BookmarkResponseDTO:
-    bookmark = await repo.get_bookmark_by_answer(message_id, user.user_id)
+    bookmark = await _get_repo().get_bookmark_by_answer(message_id, user.user_id)
     if bookmark is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다.")
-
-    await repo.delete_bookmark(bookmark)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다."
+        )
+    await _get_repo().delete_bookmark(bookmark)
     return BookmarkResponseDTO(bookmarkId=bookmark.bookmark_id, isBookmarked=False)
 
 
 # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class AiConfig:
+    model: str
+    system_prompt: str
+    temperature: float
+    max_tokens: int
+
+
+_DEFAULT_AI_CONFIG = AiConfig(
+    model="gpt-4o-mini",
+    system_prompt=(
+        "당신은 HealthGuide AI 건강 상담 도우미입니다. "
+        "사용자의 건강·의료·복약·증상·질병·영양·운동·정신건강 관련 질문에 친절하고 정확하게 답변하세요. "
+        "전문 의료 행위를 대체하지 않으며, 심각한 증상은 의사 상담을 권유하세요."
+    ),
+    temperature=0.7,
+    max_tokens=1000,
+)
+
+_AI_CONFIG_CACHE: AiConfig | None = None
+_AI_CONFIG_CACHE_AT: float = 0.0
+_AI_CONFIG_CACHE_TTL: float = 60.0
+
+
+def _get_repo() -> ChatRepository:
+    return ChatRepository()
+
+
+async def _get_ai_settings() -> AiConfig:
+    global _AI_CONFIG_CACHE, _AI_CONFIG_CACHE_AT
+    now = time.monotonic()
+    if (
+        _AI_CONFIG_CACHE is not None
+        and now - _AI_CONFIG_CACHE_AT < _AI_CONFIG_CACHE_TTL
+    ):
+        return _AI_CONFIG_CACHE
+    try:
+        conn = Tortoise.get_connection("default")
+        rows = await conn.execute_query_dict(
+            "SELECT api_model, system_prompt, temperature, max_tokens "
+            "FROM ai_settings WHERE config_name = $1 AND is_active = TRUE LIMIT 1",
+            ["chat"],
+        )
+        if rows:
+            r = rows[0]
+            cfg = AiConfig(
+                model=r["api_model"],
+                system_prompt=r["system_prompt"],
+                temperature=float(r["temperature"]),
+                max_tokens=int(r["max_tokens"]),
+            )
+            _AI_CONFIG_CACHE = cfg
+            _AI_CONFIG_CACHE_AT = now
+            logger.info(
+                "[AI설정] model=%s | temperature=%s | max_tokens=%s",
+                cfg.model,
+                cfg.temperature,
+                cfg.max_tokens,
+            )
+            return cfg
+    except Exception as e:
+        logger.warning("ai_settings 조회 실패, 기본값 사용: %s", e)
+    return _DEFAULT_AI_CONFIG
+
+
+async def _build_health_context(user: User) -> str:
+    parts: list[str] = []
+    lifestyle = await UserLifestyle.get_or_none(user_id=user.user_id)
+    if lifestyle:
+        for attr, label in [
+            ("height", "키"),
+            ("weight", "몸무게"),
+            ("smoking_code", "흡연"),
+            ("drinking_code", "음주"),
+            ("exercise_code", "운동"),
+            ("sleep_time_code", "수면"),
+        ]:
+            val = getattr(lifestyle, attr, None)
+            if val:
+                unit = "cm" if attr == "height" else "kg" if attr == "weight" else ""
+                parts.append(f"{label}: {val}{unit}")
+        if lifestyle.pregnancy_code and lifestyle.pregnancy_code != "NONE":
+            parts.append(f"임신/수유: {lifestyle.pregnancy_code}")
+
+    diseases = await UserDisease.filter(user_id=user.user_id).values_list(
+        "disease_name", flat=True
+    )
+    allergies = await UserAllergy.filter(user_id=user.user_id).values_list(
+        "allergy_name", flat=True
+    )
+    if diseases:
+        parts.append(f"기저질환: {', '.join(diseases)}")
+    if allergies:
+        parts.append(f"알레르기: {', '.join(allergies)}")
+    if user.birth_date:
+        parts.append(f"생년월일: {user.birth_date}")
+    if user.gender_code:
+        parts.append(f"성별: {user.gender_code}")
+    return " / ".join(parts)
+
 
 def _sse(event: str, data: dict | str) -> str:
     payload = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False)
     return f"event: {event}\ndata: {payload}\n\n"
 
 
-async def _check_domain(client: AsyncOpenAI, message: str) -> bool:
-    """건강/의료 도메인 여부 확인. True = 통과."""
-    resp = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
+def _estimate_tokens(text: str) -> int:
+    korean = sum(1 for c in text if "\uac00" <= c <= "\ud7a3")
+    return korean + (len(text) - korean) // 4 + 1
+
+
+def _build_messages(
+    history: list[ChatMessage], max_tokens: int = 2000, keep_last: int = 10
+) -> list[dict]:
+    recent = history[-keep_last:]
+    if not recent:
+        return []
+    protected = recent[-2:]
+    candidates = recent[:-2]
+    token_sum = sum(_estimate_tokens(m.content) for m in candidates)
+
+    if token_sum > max_tokens:
+        while candidates and token_sum > max_tokens:
+            token_sum -= _estimate_tokens(candidates.pop(0).content)
+        result = [
             {
                 "role": "system",
-                "content": (
-                    "다음 질문이 건강, 의료, 복약, 증상, 질병, 영양, 운동, 정신건강 관련인지 판단하세요. "
-                    "관련 있으면 'YES', 없으면 'NO'만 답하세요."
-                ),
-            },
-            {"role": "user", "content": message},
-        ],
-        max_tokens=5,
-        temperature=0,
-    )
-    answer = resp.choices[0].message.content or ""
-    return "YES" in answer.upper()
+                "content": "[이전 대화 요약: 건강 관련 상담이 있었습니다.]",
+            }
+        ]
+        for m in [*candidates, *protected]:
+            result.append(
+                {
+                    "role": "user" if m.sender_type_code == "USER" else "assistant",
+                    "content": m.content,
+                }
+            )
+        return result
 
-
-async def _check_emergency(client: AsyncOpenAI, message: str) -> bool:
-    """응급 상황 여부 확인. True = 응급."""
-    resp = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "다음 질문에서 즉각적인 응급 처치가 필요한 상황(심정지, 뇌졸중, 심한 출혈, 자살 위기 등)이 "
-                    "감지되면 'YES', 아니면 'NO'만 답하세요."
-                ),
-            },
-            {"role": "user", "content": message},
-        ],
-        max_tokens=5,
-        temperature=0,
-    )
-    answer = resp.choices[0].message.content or ""
-    return "YES" in answer.upper()
-
-
-def _build_messages(history: list[ChatMessage]) -> list[dict]:
-    """ChatMessage 목록을 OpenAI messages 형식으로 변환."""
-    result = []
-    for msg in history[-10:]:  # 최근 10개만
-        role = "user" if msg.sender_type_code == "USER" else "assistant"
-        result.append({"role": role, "content": msg.content})
-    return result
+    return [
+        {
+            "role": "user" if m.sender_type_code == "USER" else "assistant",
+            "content": m.content,
+        }
+        for m in [*candidates, *protected]
+    ]

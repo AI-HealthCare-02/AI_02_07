@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
 import apiClient from "@/lib/axios";
 
-// ── 타입 ──────────────────────────────────────────────────────────────────────
-
 interface ChatRoom {
   roomId: number;
   title: string;
@@ -21,8 +19,6 @@ interface ChatMessage {
   createdAt: string;
 }
 
-// ── 로딩 스피너 ───────────────────────────────────────────────────────────────
-
 function Spinner({ size = 20 }: { size?: number }) {
   return (
     <span
@@ -31,8 +27,6 @@ function Spinner({ size = 20 }: { size?: number }) {
     />
   );
 }
-
-// ── AI 타이핑 로딩 버블 ───────────────────────────────────────────────────────
 
 function TypingBubble() {
   return (
@@ -55,7 +49,53 @@ function TypingBubble() {
   );
 }
 
-// ── 메시지 버블 ───────────────────────────────────────────────────────────────
+const markdownComponents = {
+  p: ({ children }: { children?: React.ReactNode }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+  strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-semibold text-white">{children}</strong>,
+  ul: ({ children }: { children?: React.ReactNode }) => <ul className="mb-2 ml-4 list-disc space-y-1">{children}</ul>,
+  ol: ({ children }: { children?: React.ReactNode }) => <ol className="mb-2 ml-4 list-decimal space-y-1">{children}</ol>,
+  li: ({ children }: { children?: React.ReactNode }) => <li className="leading-relaxed">{children}</li>,
+  code: ({ children }: { children?: React.ReactNode }) => <code className="rounded bg-black/30 px-1 py-0.5 text-xs font-mono text-teal-200">{children}</code>,
+  h1: ({ children }: { children?: React.ReactNode }) => <h1 className="mb-2 text-base font-bold">{children}</h1>,
+  h2: ({ children }: { children?: React.ReactNode }) => <h2 className="mb-1.5 text-sm font-bold">{children}</h2>,
+  h3: ({ children }: { children?: React.ReactNode }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
+};
+
+function BookmarkButton({ messageId, initialBookmarked = false }: { messageId: number; initialBookmarked?: boolean }) {
+  const [bookmarked, setBookmarked] = useState(initialBookmarked);
+  const [loading, setLoading] = useState(false);
+
+  const toggle = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      if (bookmarked) {
+        await apiClient.delete(`/api/v1/chat/messages/${messageId}/bookmark`);
+      } else {
+        await apiClient.post(`/api/v1/chat/messages/${messageId}/bookmark`);
+      }
+      setBookmarked((prev) => !prev);
+    } catch {
+      // 무시
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={loading}
+      className="mt-1.5 flex items-center gap-1 text-[11px] transition disabled:opacity-40"
+      style={{ color: bookmarked ? "#14b8a6" : "hsl(var(--muted-foreground))" }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill={bookmarked ? "#14b8a6" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+      </svg>
+      {bookmarked ? "북마크됨" : "북마크"}
+    </button>
+  );
+}
 
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   const isUser = msg.senderTypeCode === "USER";
@@ -104,8 +144,6 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   );
 }
 
-// ── 메인 페이지 ───────────────────────────────────────────────────────────────
-
 export default function ChatPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
@@ -121,23 +159,20 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  // 현재 화면에 표시 중인 방 ID (ref — 스트림 클로저에서 참조)
+  const activeRoomIdRef = useRef<number | null>(null);
 
-  // ── 인증 확인 ──
   useEffect(() => {
     if (!isAuthenticated) router.replace("/login");
   }, [isAuthenticated, router]);
 
-  // ── body 스크롤 잠금 ──
   useEffect(() => {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
   }, []);
 
-  // ── 세션 목록 로드 ──
   const loadRooms = useCallback(async () => {
     try {
       const { data } = await apiClient.get("/api/v1/chat/sessions?size=50");
@@ -157,13 +192,10 @@ export default function ChatPage() {
     if (isAuthenticated) loadRooms();
   }, [isAuthenticated, loadRooms]);
 
-  // ── 메시지 목록 로드 ──
   const loadMessages = useCallback(async (roomId: number) => {
     setLoadingMessages(true);
     try {
-      const { data } = await apiClient.get(
-        `/api/v1/chat/sessions/${roomId}/messages?size=200`
-      );
+      const { data } = await apiClient.get(`/api/v1/chat/sessions/${roomId}/messages?size=200`);
       setMessages(data.data.messages ?? []);
     } catch {
       setMessages([]);
@@ -173,19 +205,22 @@ export default function ChatPage() {
   }, []);
 
   // ── 세션 선택 ──
+  // 스트림은 abort하지 않고 DONE까지 백그라운드에서 계속 실행
+  // activeRoomIdRef만 바꿔서 이전 방 토큰이 현재 UI에 표시되지 않게 함
   const selectRoom = useCallback(
     (roomId: number) => {
       if (activeRoomId === roomId) return;
-      eventSourceRef.current?.close();
+      activeRoomIdRef.current = roomId;
       setActiveRoomId(roomId);
+      // 새 방에서는 입력 가능하도록 상태 초기화
       setAiTyping(false);
+      setSending(false);
       setSidebarOpen(false);
       loadMessages(roomId);
     },
     [activeRoomId, loadMessages]
   );
 
-  // ── 새 대화 ──
   const createRoom = async () => {
     try {
       const { data } = await apiClient.post("/api/v1/chat/sessions");
@@ -196,6 +231,7 @@ export default function ChatPage() {
       };
       setRooms((prev) => [newRoom, ...prev]);
       setActiveRoomId(newRoom.roomId);
+      activeRoomIdRef.current = newRoom.roomId;
       setMessages([]);
       setSidebarOpen(false);
     } catch {
@@ -203,20 +239,17 @@ export default function ChatPage() {
     }
   };
 
-  // ── 스크롤 하단 ──
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (container) container.scrollTop = container.scrollHeight;
   }, [messages, aiTyping]);
 
-  // ── 메시지 전송 (SSE) ──
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || sending || aiTyping) return;
 
     let roomId = activeRoomId;
 
-    // 세션 없으면 자동 생성
     if (!roomId) {
       try {
         const { data } = await apiClient.post("/api/v1/chat/sessions");
@@ -233,7 +266,6 @@ export default function ChatPage() {
       }
     }
 
-    // 사용자 메시지 즉시 표시
     const tempUserMsg: ChatMessage = {
       messageId: Date.now(),
       senderTypeCode: "USER",
@@ -246,16 +278,17 @@ export default function ChatPage() {
     setSending(true);
     setAiTyping(true);
 
-    const token = localStorage.getItem("access_token");
+    const accessToken = localStorage.getItem("access_token");
     const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+    // 이 스트림이 시작된 방 ID — 클로저로 캡처
+    const streamRoomId = roomId;
 
-    // SSE fetch 스트리밍
     try {
       const res = await fetch(`${BASE_URL}/api/v1/chat/send`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({ sessionId: roomId, message: text }),
       });
@@ -268,6 +301,8 @@ export default function ChatPage() {
       let aiMsgAdded = false;
 
       const processLine = (line: string) => {
+        // 방이 바뀌었어도 processLine은 계속 실행 — UI 반영만 건너뜀
+        const isCurrentRoom = activeRoomIdRef.current === streamRoomId;
         if (!line.startsWith("data:")) return;
         const raw = line.slice(5).trim();
         if (raw === "[DONE]") return;
@@ -275,9 +310,9 @@ export default function ChatPage() {
         try {
           const parsed = JSON.parse(raw);
 
-          // 토큰 스트리밍
           if (parsed.token !== undefined) {
             aiContent += parsed.token;
+            if (!isCurrentRoom) return; // 다른 방이면 UI 반영 안 함
             setAiTyping(false);
             if (!aiMsgAdded) {
               aiMsgAdded = true;
@@ -300,8 +335,18 @@ export default function ChatPage() {
             }
           }
 
-          // 필터 차단
-          if (parsed.type === "DOMAIN" || parsed.type === "EMERGENCY") {
+          if (parsed.messageId !== undefined && isCurrentRoom) {
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.senderTypeCode === "ASSISTANT") {
+                next[next.length - 1] = { ...last, messageId: parsed.messageId };
+              }
+              return next;
+            });
+          }
+
+          if ((parsed.type === "EMERGENCY" || parsed.type === "OTHER") && isCurrentRoom) {
             setAiTyping(false);
             setMessages((prev) => [
               ...prev,
@@ -320,33 +365,50 @@ export default function ChatPage() {
       };
 
       let buffer = "";
+      let streamDone = false;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
-        for (const line of lines) processLine(line.trim());
+        for (const line of lines) {
+          const trimmed = line.trim();
+          // [DONE] 수신 → 스트림 정상 완료, reader 종료
+          if (trimmed === "data: [DONE]") {
+            streamDone = true;
+            reader.cancel();
+            break;
+          }
+          processLine(trimmed);
+        }
+        if (streamDone) break;
       }
 
-      // 전송 완료 후 세션 목록 갱신 (제목 업데이트 반영)
-      loadRooms();
     } catch {
-      setAiTyping(false);
-      setMessages((prev) => [
-        ...prev,
-        {
-          messageId: Date.now() + 1,
-          senderTypeCode: "ASSISTANT",
-          content: "⏳ 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요.",
-          filterResult: null,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      // 현재 방일 때만 에러 메시지 표시
+      if (activeRoomIdRef.current === streamRoomId) {
+        setAiTyping(false);
+        setMessages((prev) => [
+          ...prev,
+          {
+            messageId: Date.now() + 1,
+            senderTypeCode: "ASSISTANT",
+            content: "⏳ 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요.",
+            filterResult: null,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
     } finally {
-      setSending(false);
-      setAiTyping(false);
-      inputRef.current?.focus();
+      // 현재 방일 때만 sending/aiTyping 해제
+      // 방 전환 후엔 selectRoom에서 이미 해제했으므로 덮어쓰지 않음
+      if (activeRoomIdRef.current === streamRoomId) {
+        setSending(false);
+        setAiTyping(false);
+        inputRef.current?.focus();
+      }
+      loadRooms();
     }
   };
 
@@ -356,8 +418,6 @@ export default function ChatPage() {
       sendMessage();
     }
   };
-
-  // ── 렌더 ──────────────────────────────────────────────────────────────────
 
   return (
     <>
@@ -370,7 +430,6 @@ export default function ChatPage() {
 
       <div className="flex h-[calc(100vh-64px)] bg-[#090a0f]">
 
-        {/* ── 모바일 사이드바 오버레이 ── */}
         {sidebarOpen && (
           <div
             className="fixed inset-0 z-20 bg-black/60 lg:hidden"
@@ -378,13 +437,12 @@ export default function ChatPage() {
           />
         )}
 
-        {/* ── 사이드바 ── */}
+        {/* 사이드바 */}
         <aside
           className={`fixed left-0 top-16 z-30 flex h-[calc(100vh-64px)] w-72 flex-col border-r border-white/8 bg-[#0d1117] transition-transform duration-300 lg:static lg:translate-x-0 lg:z-auto ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          {/* 새 대화 버튼 */}
           <div className="p-4">
             <button
               onClick={createRoom}
@@ -397,16 +455,11 @@ export default function ChatPage() {
             </button>
           </div>
 
-          {/* 대화 목록 */}
           <div className="flex-1 overflow-y-auto px-2 pb-4">
             {loadingRooms ? (
-              <div className="flex justify-center py-8">
-                <Spinner />
-              </div>
+              <div className="flex justify-center py-8"><Spinner /></div>
             ) : rooms.length === 0 ? (
-              <p className="px-3 py-6 text-center text-xs text-white/30">
-                대화 내역이 없습니다
-              </p>
+              <p className="px-3 py-6 text-center text-xs text-muted-foreground">대화 내역이 없습니다</p>
             ) : (
               rooms.map((room) => (
                 <button
@@ -430,11 +483,10 @@ export default function ChatPage() {
           </div>
         </aside>
 
-        {/* ── 메인 채팅 영역 ── */}
+        {/* 메인 채팅 영역 */}
         <div className="flex flex-1 flex-col overflow-hidden">
 
-          {/* 모바일 상단 바 */}
-          <div className="flex items-center gap-3 border-b border-white/8 px-4 py-3 lg:hidden">
+          <div className="flex items-center gap-3 border-b border-border px-4 py-3 lg:hidden">
             <button
               onClick={() => setSidebarOpen(true)}
               className="rounded-lg p-1.5 text-white/40 hover:bg-white/5 hover:text-white/70"
@@ -443,17 +495,13 @@ export default function ChatPage() {
                 <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
               </svg>
             </button>
-            <span className="text-sm font-medium text-white/60">
-              {activeRoomId
-                ? rooms.find((r) => r.roomId === activeRoomId)?.title ?? "AI 상담"
-                : "AI 상담"}
+            <span className="text-sm font-medium text-muted-foreground">
+              {activeRoomId ? rooms.find((r) => r.roomId === activeRoomId)?.title ?? "AI 상담" : "AI 상담"}
             </span>
           </div>
 
-          {/* 메시지 영역 */}
           <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-6 pb-2">
             {!activeRoomId ? (
-              /* 빈 상태 */
               <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-teal-500/20 bg-teal-500/5">
                   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -467,29 +515,24 @@ export default function ChatPage() {
                 </div>
               </div>
             ) : loadingMessages ? (
-              <div className="flex h-full items-center justify-center">
-                <Spinner size={28} />
-              </div>
+              <div className="flex h-full items-center justify-center"><Spinner size={28} /></div>
             ) : (
               <div className="mx-auto max-w-2xl space-y-4">
                 {messages.map((msg) => (
                   <MessageBubble key={msg.messageId} msg={msg} />
                 ))}
                 {aiTyping && <TypingBubble />}
-                <div ref={messagesEndRef} />
               </div>
             )}
           </div>
 
-          {/* 면책 고지 */}
           <div className="border-t border-orange-500/20 bg-orange-500/5 px-4 py-2 text-center">
             <p className="text-xs font-medium text-orange-400/80">
               ⚠️ 의료 진단을 대신하지 않습니다. 응급상황 시 119에 연락하세요.
             </p>
           </div>
 
-          {/* 입력창 */}
-          <div className="border-t border-white/8 bg-[#0d1117] px-4 py-3 pb-safe">
+          <div className="border-t border-border bg-card px-4 py-3 pb-20 lg:pb-3">
             <div className="mx-auto flex max-w-2xl items-end gap-3">
               <textarea
                 ref={inputRef}

@@ -25,6 +25,10 @@ class ChatMessage(Model):
     sender_type_code = fields.CharField(max_length=20)  # USER | ASSISTANT
     content = fields.TextField()
     filter_result = fields.CharField(max_length=20, null=True)  # PASS | DOMAIN | EMERGENCY
+    model_name = fields.CharField(max_length=50, null=True)      # 사용된 AI 모델명
+    prompt_tokens = fields.IntField(null=True)      # 입력 토큰 합산
+    completion_tokens = fields.IntField(null=True)   # 출력 토큰 합산
+    latency_ms = fields.IntField(null=True)          # 첫 토큰까지 응답시간(ms)
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:

@@ -1,0 +1,219 @@
+# app/services/medical_doc_service.py
+# ──────────────────────────────────────────
+# 의료 문서 분석 서비스 레이어 담당
+# DB 저장 및 조회 로직
+# ──────────────────────────────────────────
+
+import logging
+
+from app.models.medical_doc import DocAnalysisJob, DocAnalysisResult
+from app.models.user import User
+
+logger = logging.getLogger(__name__)
+
+# ── 상수 ──────────────────────────────────
+CONFIDENCE_THRESHOLD = 0.7
+
+# ── 문서 종류 코드 매핑 ────────────────────
+DOC_TYPE_CODE_MAP = {
+    "처방전": "DOC_PRESCRIPTION",
+    "진료기록": "DOC_DIAGNOSIS",
+    "약봉투": "DOC_MEDICATION_INFO",
+    "자동인식": "DOC_OTHER",
+}
+
+DOC_TYPE_NAME_MAP = {v: k for k, v in DOC_TYPE_CODE_MAP.items()}
+
+
+# ── 분석 작업 생성 ─────────────────────────
+async def create_analysis_job(
+    user: User,
+    document_type: str,
+) -> DocAnalysisJob:
+    """분석 작업 Job 생성 및 분석 시작 전 호출"""
+    doc_type_code = DOC_TYPE_CODE_MAP.get(document_type, "DOC_OTHER")
+
+    job = await DocAnalysisJob.create(
+        user=user,
+        status_grp="JOB_STATUS",
+        status_code="JOB_PENDING",
+        doc_type_grp="DOC_TYPE",
+        doc_type_code=doc_type_code,
+    )
+    logger.info(f"분석 Job 생성: job_id={job.job_id}, user_id={user.user_id}")
+    return job
+
+
+# ── confidence 경고값 로깅 ──────────────────
+def log_confidence_warnings(analysis_result: dict, job_id: int) -> None:
+    """confidence 0.7 미만 항목 경고 로깅"""
+
+    overall_confidence = analysis_result.get("overall_confidence", 0.0)
+    doc_type = analysis_result.get("document_type", "알 수 없음")
+
+    if overall_confidence < CONFIDENCE_THRESHOLD:
+        logger.warning(
+            f"[confidence 경고] 전체 신뢰도 낮음: "
+            f"overall_confidence={overall_confidence} "
+            f"(job_id={job_id}, doc_type={doc_type})"
+        )
+
+    medications = analysis_result.get("medications", [])
+    for i, med in enumerate(medications):
+        med_confidence = med.get("confidence", 1.0)
+        medication_name = med.get("medication_name", "알 수 없음")
+        medication_name = med.get("medication_name", "알 수 없음")  # ← drug_name → medication_name
+
+        if med_confidence < CONFIDENCE_THRESHOLD:
+            logger.warning(
+                f"[confidence 경고] 약품 신뢰도 낮음: "
+                f"[{i+1}번째] medication_name={medication_name}, "
+                f"[{i+1}번] medication_name={medication_name}, "
+                f"confidence={med_confidence} (job_id={job_id})"
+            )
+
+        # instructions → timing 으로 필드명 변경
+        if med.get("timing") is None:
+            logger.warning(
+                f"[confidence 경고] 복약안내 누락: "
+                f"[{i+1}번째] medication_name={medication_name}, "
+                f"timing=null (job_id={job_id})"
+                f"[confidence 경고] 복용법 미확인: "
+                f"[{i+1}번] medication_name={medication_name}, "
+                f"instructions=null (job_id={job_id})"
+            )
+
+    exam_items = analysis_result.get("exam_items", [])
+    for i, item in enumerate(exam_items):
+        item_confidence = item.get("confidence", 1.0)
+        item_name = item.get("item_name", "알 수 없음")
+
+        if item_confidence < CONFIDENCE_THRESHOLD:
+            logger.warning(
+                f"[confidence 경고] 검사항목 신뢰도 낮음: "
+                f"[{i+1}번째] item_name={item_name}, "
+                f"confidence={item_confidence} (job_id={job_id})"
+            )
+
+    if overall_confidence >= CONFIDENCE_THRESHOLD and not medications and not exam_items:
+        logger.info(f"[confidence 정상] 모든 항목 신뢰도 정상 (job_id={job_id})")
+
+
+# ── 분석 결과 저장 ─────────────────────────
+async def save_analysis_result(
+    job: DocAnalysisJob,
+    user: User,
+    analysis_result: dict,
+    ocr_raw_text: str,
+    processing_time: float,
+) -> DocAnalysisResult:
+    """분석 완료 후 결과 저장"""
+
+    overall_confidence = analysis_result.get("overall_confidence", 0.0)
+    raw_summary = analysis_result.get("raw_summary", "")
+    doc_type = analysis_result.get("document_type", "자동인식")
+    doc_type_code = DOC_TYPE_CODE_MAP.get(doc_type, "DOC_OTHER")
+
+    log_confidence_warnings(analysis_result, job.job_id)
+
+    result = await DocAnalysisResult.create(
+        job=job,
+        user=user,
+        doc_type_grp="DOC_TYPE",
+        doc_type_code=doc_type_code,
+        ocr_status_grp="OCR_STATUS",
+        ocr_status_code="OCR_COMPLETED",
+        ocr_raw_text=ocr_raw_text,
+        ocr_confidence=int(overall_confidence * 100),
+        overall_confidence=overall_confidence,
+        raw_summary=raw_summary,
+        analysis_json=analysis_result,
+    )
+
+    job.status_code = "JOB_COMPLETED"
+    job.processing_time = processing_time
+    await job.save()
+
+    logger.info(f"분석 결과 저장: doc_result_id={result.doc_result_id}, job_id={job.job_id}")
+    return result
+
+
+# ── 분석 실패 처리 ─────────────────────────
+async def fail_analysis_job(
+    job: DocAnalysisJob,
+    error_message: str,
+) -> None:
+    """분석 실패 시 Job 상태 업데이트"""
+    job.status_code = "JOB_FAILED"
+    job.error_message = error_message
+    await job.save()
+    logger.error(f"분석 Job 실패: job_id={job.job_id}, error={error_message}")
+
+
+# ── 분석 결과 목록 조회 ────────────────────
+async def get_analysis_results(
+    user: User,
+    page: int = 1,
+    page_size: int = 10,
+) -> dict:
+    """사용자의 분석 결과 목록 조회"""
+    offset = (page - 1) * page_size
+
+    total = await DocAnalysisResult.filter(
+        user=user,
+        is_deleted=False,
+    ).count()
+
+    results = await DocAnalysisResult.filter(
+        user=user,
+        is_deleted=False,
+    ).prefetch_related("job").order_by("-created_at").offset(offset).limit(page_size)
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+        "items": [
+            {
+                "doc_result_id": r.doc_result_id,
+                "document_type": DOC_TYPE_NAME_MAP.get(r.doc_type_code, r.doc_type_code),
+                "hospital_name": (r.analysis_json or {}).get("hospital_name"),
+                # prescription_date → visit_date 로 필드명 변경
+                "visit_date": (r.analysis_json or {}).get("visit_date"),
+                "prescription_date": (r.analysis_json or {}).get("prescription_date"),
+                "overall_confidence": r.overall_confidence,
+                "raw_summary": r.raw_summary,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in results
+        ],
+    }
+
+
+# ── 분석 결과 단건 조회 ────────────────────
+async def get_analysis_result(
+    user: User,
+    doc_result_id: int,
+) -> DocAnalysisResult | None:
+    """특정 분석 결과 단건 조회"""
+    return await DocAnalysisResult.get_or_none(
+        doc_result_id=doc_result_id,
+        user=user,
+        is_deleted=False,
+    )
+
+
+# ── 분석 결과 삭제 ─────────────────────────
+async def delete_analysis_result(
+    user: User,
+    doc_result_id: int,
+) -> bool:
+    """분석 결과 소프트 삭제"""
+    result = await get_analysis_result(user, doc_result_id)
+    if not result:
+        return False
+    result.is_deleted = True
+    await result.save()
+    logger.info(f"분석 결과 삭제: doc_result_id={doc_result_id}")
+    return True

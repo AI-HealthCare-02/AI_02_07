@@ -173,6 +173,36 @@ CREATE TABLE IF NOT EXISTS chat_messages (
         REFERENCES common_code (group_code, code)
 );
 
+-- 이미 생성된 테이블에 filter_result 컬럼이 없는 경우 자동 추가
+DO $$ BEGIN
+    ALTER TABLE chat_messages ADD COLUMN filter_result VARCHAR(20);
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- prompt_tokens / completion_tokens 컬럼 추가
+DO $$ BEGIN
+    ALTER TABLE chat_messages ADD COLUMN prompt_tokens INT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE chat_messages ADD COLUMN completion_tokens INT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE chat_messages ADD COLUMN latency_ms INT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE chat_messages ADD COLUMN model_name VARCHAR(50);
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- users 테이블에 last_active_at 컬럼 추가
+DO $$ BEGIN
+    ALTER TABLE users ADD COLUMN last_active_at TIMESTAMPTZ;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_chat_messages_room
     ON chat_messages (room_id, created_at);
 
@@ -418,6 +448,7 @@ CREATE TABLE IF NOT EXISTS doc_analysis_result (
     ocr_confidence     INT          CHECK (ocr_confidence BETWEEN 0 AND 100),
     overall_confidence FLOAT        CHECK (overall_confidence BETWEEN 0.0 AND 1.0),
     raw_summary        TEXT,
+    analysis_json      JSONB,        -- ← 추가
     is_deleted         BOOLEAN      NOT NULL DEFAULT FALSE,
     created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 

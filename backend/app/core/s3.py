@@ -19,7 +19,7 @@
 import logging
 import uuid
 from datetime import datetime
-from typing import BinaryIO
+from typing import BinaryIO, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -46,11 +46,11 @@ def get_s3_client():
             "s3",
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_REGION,
+            region_name=settings.AWS_S3_REGION,  # ✅ AWS_REGION → AWS_S3_REGION
         )
         logger.info(
             "[S3] 클라이언트 초기화 완료 (region=%s, bucket=%s)",
-            settings.AWS_REGION,
+            settings.AWS_S3_REGION,              # ✅ AWS_REGION → AWS_S3_REGION
             settings.AWS_S3_BUCKET_NAME,
         )
     return _s3_client
@@ -62,7 +62,7 @@ def get_s3_client():
 def generate_s3_key(
     folder: str,
     filename: str,
-    user_id: int | None = None,
+    user_id: Optional[int] = None,
 ) -> str:
     """
     S3 에 저장할 고유 키를 생성합니다.
@@ -85,18 +85,13 @@ def generate_s3_key(
     --------
         key = generate_s3_key("medical-docs", "처방전.pdf", user_id=1)
     """
-    # 확장자 추출
     ext = ""
     if "." in filename:
         ext = "." + filename.rsplit(".", 1)[-1].lower()
 
-    # 날짜별 분류
     date_prefix = datetime.now().strftime("%Y%m%d")
-
-    # 고유 파일명 (UUID)
     unique_name = uuid.uuid4().hex[:16]
 
-    # 경로 구성
     if user_id:
         return f"{folder}/user_{user_id}/{date_prefix}/{unique_name}{ext}"
     else:
@@ -165,7 +160,7 @@ async def upload_file(
 def generate_presigned_url(
     s3_key: str,
     expiration: int = 3600,
-) -> str | None:
+) -> Optional[str]:
     """
     S3 객체에 대한 임시 접근 URL을 생성합니다.
 
@@ -211,7 +206,7 @@ def generate_presigned_upload_url(
     s3_key: str,
     content_type: str = "application/octet-stream",
     expiration: int = 3600,
-) -> dict | None:
+) -> Optional[dict]:
     """
     프론트엔드에서 S3로 직접 업로드할 수 있는 Presigned URL을 생성합니다.
 
