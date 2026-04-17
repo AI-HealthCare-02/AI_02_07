@@ -1,3 +1,8 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/auth-store";
 import Header from "@/components/layout/header";
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {

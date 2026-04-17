@@ -36,7 +36,7 @@ function TypingBubble() {
           <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
         </svg>
       </div>
-      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm border border-white/8 bg-white/5 px-4 py-3">
+      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm border border-border bg-muted px-4 py-3">
         {[0, 1, 2].map((i) => (
           <span
             key={i}
@@ -51,7 +51,7 @@ function TypingBubble() {
 
 const markdownComponents = {
   p: ({ children }: { children?: React.ReactNode }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
-  strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-semibold text-white">{children}</strong>,
+  strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-semibold text-foreground">{children}</strong>,
   ul: ({ children }: { children?: React.ReactNode }) => <ul className="mb-2 ml-4 list-disc space-y-1">{children}</ul>,
   ol: ({ children }: { children?: React.ReactNode }) => <ol className="mb-2 ml-4 list-decimal space-y-1">{children}</ol>,
   li: ({ children }: { children?: React.ReactNode }) => <li className="leading-relaxed">{children}</li>,
@@ -104,7 +104,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-white/10 px-4 py-3 text-sm text-white/85">
+        <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-muted px-4 py-3 text-sm text-foreground">
           {msg.content}
         </div>
       </div>
@@ -135,7 +135,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         </svg>
       </div>
       <div
-        className="max-w-[75%] rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-white"
+        className="max-w-[75%] rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-white dark:text-white"
         style={{ background: "linear-gradient(135deg, rgb(20,184,166), rgb(6,182,212))" }}
       >
         {msg.content}
@@ -428,7 +428,7 @@ export default function ChatPage() {
         }
       `}</style>
 
-      <div className="flex h-[calc(100vh-64px)] bg-[#090a0f]">
+      <div className="flex h-[calc(100vh-64px)] bg-background">
 
         {sidebarOpen && (
           <div
@@ -439,7 +439,7 @@ export default function ChatPage() {
 
         {/* 사이드바 */}
         <aside
-          className={`fixed left-0 top-16 z-30 flex h-[calc(100vh-64px)] w-72 flex-col border-r border-white/8 bg-[#0d1117] transition-transform duration-300 lg:static lg:translate-x-0 lg:z-auto ${
+          className={`fixed left-0 top-16 z-30 flex h-[calc(100vh-64px)] w-72 flex-col border-r border-border bg-card transition-transform duration-300 lg:static lg:translate-x-0 lg:z-auto ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
@@ -468,11 +468,11 @@ export default function ChatPage() {
                   className={`mb-1 w-full rounded-lg px-3 py-2.5 text-left transition ${
                     activeRoomId === room.roomId
                       ? "bg-teal-500/15 text-teal-300"
-                      : "text-white/50 hover:bg-white/5 hover:text-white/80"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
                   <p className="truncate text-sm font-medium">{room.title}</p>
-                  <p className="mt-0.5 text-[10px] text-white/25">
+                  <p className="mt-0.5 text-[10px] text-muted-foreground/60">
                     {new Date(room.updatedAt).toLocaleDateString("ko-KR", {
                       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
                     })}
@@ -489,7 +489,7 @@ export default function ChatPage() {
           <div className="flex items-center gap-3 border-b border-border px-4 py-3 lg:hidden">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="rounded-lg p-1.5 text-white/40 hover:bg-white/5 hover:text-white/70"
+              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
@@ -510,8 +510,8 @@ export default function ChatPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-base font-semibold text-white/70">AI 건강 상담을 시작하세요</p>
-                  <p className="mt-1 text-sm text-white/30">왼쪽에서 새 대화를 시작하거나 기존 대화를 선택하세요</p>
+                  <p className="text-base font-semibold text-foreground">AI 건강 상담을 시작하세요</p>
+                  <p className="mt-1 text-sm text-muted-foreground">왼쪽에서 새 대화를 시작하거나 기존 대화를 선택하세요</p>
                 </div>
               </div>
             ) : loadingMessages ? (
@@ -542,7 +542,7 @@ export default function ChatPage() {
                 placeholder="메시지를 입력하세요"
                 rows={1}
                 disabled={sending || aiTyping}
-                className="flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/85 placeholder:text-white/25 focus:border-teal-500/40 focus:outline-none disabled:opacity-50"
+                className="flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/40 focus:outline-none disabled:opacity-50"
                 style={{ maxHeight: 120, overflowY: "auto" }}
                 onInput={(e) => {
                   const el = e.currentTarget;
