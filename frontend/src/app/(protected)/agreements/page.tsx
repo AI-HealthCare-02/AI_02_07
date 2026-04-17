@@ -125,8 +125,8 @@ export default function AgreementsPage() {
       {/* 헤더 */}
       <div className="mb-8 text-center">
         <span className="text-4xl">🏥</span>
-        <h1 className="mt-3 text-2xl font-bold text-white">서비스 이용 동의</h1>
-        <p className="mt-2 text-sm text-white/40">
+        <h1 className="mt-3 text-2xl font-bold text-foreground">서비스 이용 동의</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
           HealthGuide 서비스 이용을 위해 아래 항목에 동의해주세요.
         </p>
       </div>
@@ -197,12 +197,12 @@ function AgreementItem({
 
   return (
     <div className={`rounded-xl border transition ${
-      checked ? "border-teal-500/30 bg-teal-500/5" : "border-white/8 bg-white/3"
+      checked ? "border-teal-500/30 bg-teal-500/5" : "border-border bg-muted/30"
     }`}>
       {/* 항목 헤더 */}
       <div className="flex items-center gap-3 px-5 py-4">
         <Checkbox checked={checked} onChange={onChange} />
-        <span className="flex-1 text-sm font-medium text-white/80">{title}</span>
+        <span className="flex-1 text-sm font-medium text-foreground">{title}</span>
         <span className="text-xs text-red-400/70">필수</span>
         <button
           onClick={() => setExpanded((v) => !v)}
@@ -215,7 +215,7 @@ function AgreementItem({
       {/* 내용 펼치기 */}
       {expanded && (
         <div className="border-t border-white/8 px-5 py-4">
-          <pre className="whitespace-pre-wrap text-xs leading-relaxed text-white/40">
+          <pre className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
             {content}
           </pre>
           {/* 동의 버튼 */}

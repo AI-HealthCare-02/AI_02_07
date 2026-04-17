@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import QueryProvider from "@/providers/query-provider";
+import ThemeProvider from "@/providers/theme-provider";
 import "./globals.css";
 
 const geist = Geist({
@@ -33,7 +34,9 @@ export default function RootLayout({
     <html lang="ko" suppressHydrationWarning>
       <body className={`${geist.variable} font-sans antialiased`}>
         <QueryProvider>
-          {children}
+          <ThemeProvider>
+            {children}
+          </ThemeProvider>
         </QueryProvider>
       </body>
     </html>

@@ -34,7 +34,7 @@ function Badge({ status }: { status: string }) {
   const isActive = status === "GS_ACTIVE";
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-      isActive ? "bg-teal-500/15 text-teal-400" : "bg-white/5 text-white/40"
+      isActive ? "bg-teal-500/15 text-teal-400" : "bg-muted text-muted-foreground"
     }`}>
       {isActive ? "복약 중" : "완료"}
     </span>
