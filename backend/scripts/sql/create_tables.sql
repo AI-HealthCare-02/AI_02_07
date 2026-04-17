@@ -166,8 +166,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
                          CHECK (sender_type_grp = 'SENDER_TYPE'),
     sender_type_code VARCHAR(20) NOT NULL,
 
-    content       TEXT        NOT NULL,
-    filter_result VARCHAR(20),          -- 3단계 필터 결과: PASS | DOMAIN | EMERGENCY (사용자 메시지는 NULL)
+    content     TEXT        NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     FOREIGN KEY (sender_type_grp, sender_type_code)

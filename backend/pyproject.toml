@@ -37,8 +37,6 @@ app = [
     "boto3>=1.36",             # AWS S3
     "openai>=1.60",            # OpenAI GPT API
     "email-validator>=2.0",
-    "Pillow>=11.1",
-    "python-multipart>=0.0.18",# 파일 업로드
 ]
 ai = [
     # AI Worker 관련
@@ -67,8 +65,14 @@ line-length = 120
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
 ignore = [
     "E501",   # line-length는 formatter가 처리
+    "E402",   # 모듈 레벨 import 순서 (라우터 등록 패턴 허용)
     "B008",   # FastAPI Depends/File 패턴 허용
     "B904",   # except 절 raise from 강제 비활성화
+    "N803",   # 함수 인자 camelCase 허용 (FastAPI Query 파라미터)
+    "N815",   # 클래스 변수 camelCase 허용 (Pydantic DTO camelCase 필드)
+    "SIM117", # 중첩 with 허용 (팀원 코드 스타일)
+    "UP017",  # datetime.UTC alias 강제 비활성화
+    "F841",   # 미사용 변수 강제 비활성화 (TODO 주석 포함 코드)
     "SIM102", # 중첩 if 허용 (가독성)
     "SIM105", # contextlib.suppress 강제 비활성화
     "SIM108", # 삼항 연산자 강제 비활성화

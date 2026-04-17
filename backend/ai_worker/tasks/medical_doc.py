@@ -1,10 +1,11 @@
 # ai_worker/tasks/medical_doc.py
-# ──────────────────────────────────────────
-# 의료 문서 분석 작업 핸들러 – 이승원 담당
+# ──────────────────────────────────────────────
+# 의료 문서 분석 작업 핸들러 — 이승원 담당
 #
 # 이미지/PDF 업로드 → Clova OCR → GPT-4o-mini 구조화 → 결과 반환
 # Langfuse 모니터링 통합 (황보수호)
 # ──────────────────────────────────────────
+
 
 import base64
 import io
@@ -112,14 +113,11 @@ async def extract_text_with_auto_rotate(
             except Exception as e:
                 if attempt < max_retries:
                     logger.warning(
-                        f"{angle}도 OCR 오류 (시도 {attempt}/{max_retries}): {e} "
-                        f"→ {retry_delay}초 후 재시도"
+                        f"{angle}도 OCR 오류 (시도 {attempt}/{max_retries}): {e} → {retry_delay}초 후 재시도"
                     )
                     await asyncio.sleep(retry_delay)
                 else:
-                    logger.error(
-                        f"{angle}도 OCR 최종 실패 (시도 {max_retries}/{max_retries}): {e}"
-                    )
+                    logger.error(f"{angle}도 OCR 최종 실패 (시도 {max_retries}/{max_retries}): {e}")
 
     return None
 
@@ -171,7 +169,6 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
 
 --- 추출된 텍스트 ---
 {extracted_text}""",
-
         "진료기록": f"""아래는 진료기록에서 OCR로 추출한 텍스트야.
 이 텍스트를 분석해서 JSON 형식으로 구조화해줘.
 
@@ -200,7 +197,6 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
 
 --- 추출된 텍스트 ---
 {extracted_text}""",
-
         "약봉투": f"""아래는 약봉투에서 OCR로 추출한 텍스트야.
 이 텍스트를 분석해서 JSON 형식으로 구조화해줘.
 
@@ -256,7 +252,7 @@ async def detect_document_type(client: AsyncOpenAI, extracted_text: str) -> str:
     try:
         parsed = json.loads(result)
         return parsed.get("document_type", "약봉투")
-    except Exception:
+    except json.JSONDecodeError:
         return "약봉투"
 
 
@@ -289,7 +285,7 @@ async def analyze_with_gpt(
         cleaned = cleaned.strip()
     try:
         return json.loads(cleaned)
-    except Exception:
+    except json.JSONDecodeError:
         return {"raw_summary": cleaned, "overall_confidence": 0.5}
 
 
@@ -312,12 +308,12 @@ async def analyze_medical_document(
     all_texts = []
 
     for i, image_bytes in enumerate(image_bytes_list):
-        logger.info(f"[{i+1}/{len(image_bytes_list)}] 이미지 처리 중...")
+        logger.info(f"[{i + 1}/{len(image_bytes_list)}] 이미지 처리 중...")
         text = await extract_text_with_auto_rotate(image_bytes)
         if text:
-            all_texts.append(f"=== 이미지 {i+1} ===\n{text}")
+            all_texts.append(f"=== 이미지 {i + 1} ===\n{text}")
         else:
-            logger.warning(f"이미지 {i+1} 텍스트 추출 실패")
+            logger.warning(f"이미지 {i + 1} 텍스트 추출 실패")
 
     if not all_texts:
         return {"error": "텍스트 추출 실패", "overall_confidence": 0.0}

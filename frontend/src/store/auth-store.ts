@@ -13,9 +13,9 @@ interface AuthState {
   accessToken: string | null;
   isAuthenticated: boolean;
   _hasHydrated: boolean;
+  setHasHydrated: (v: boolean) => void;
   setAuth: (user: User, accessToken: string) => void;
   clearAuth: () => void;
-  setHasHydrated: (v: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -25,6 +25,7 @@ export const useAuthStore = create<AuthState>()(
       accessToken: null,
       isAuthenticated: false,
       _hasHydrated: false,
+      setHasHydrated: (v) => set({ _hasHydrated: v }),
 
       setAuth: (user, accessToken) => {
         localStorage.setItem("access_token", accessToken);
@@ -34,14 +35,13 @@ export const useAuthStore = create<AuthState>()(
       clearAuth: () => {
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
+        // 미들웨어용 쿠키 삭제
         if (typeof document !== "undefined") {
           document.cookie = "access_token=; path=/; max-age=0";
           document.cookie = "refresh_token=; path=/; max-age=0";
         }
         set({ user: null, accessToken: null, isAuthenticated: false });
       },
-
-      setHasHydrated: (v) => set({ _hasHydrated: v }),
     }),
     {
       name: "auth-storage",
