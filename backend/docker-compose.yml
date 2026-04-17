@@ -1,12 +1,13 @@
 # docker-compose.yml
 # ──────────────────────────────────────────────
-# HealthGuide 전체 서비스 스택
-# docker compose up -d --build 로 실행
-# GPU 사용 시: docker compose --profile gpu up -d --build
+# HealthGuide 로컬 개발 환경
+# - worker 없이 --reload 핫 리로드 사용
+# - volumes 마운트로 코드 변경 즉시 반영
+# docker compose up -d --build
 # ──────────────────────────────────────────────
 
 services:
-  # ── PostgreSQL 데이터베이스 ──
+  # ── PostgreSQL ──
   db:
     image: postgres:16-alpine
     container_name: healthguide-db
@@ -20,28 +21,38 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-healthguide} -d ${DB_NAME:-healthguide_db}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-healthguide} -d ${DB_NAME:-healthguide_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ── Redis (캐시 + 작업 큐) ──
+  # ── Redis ──
   redis:
     image: redis:7-alpine
     container_name: healthguide-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ── FastAPI API 서버 ──
+  # ── FastAPI API 서버 (로컈: --reload, worker 1개) ──
   app:
     build:
       context: .
@@ -51,11 +62,8 @@ services:
     env_file:
       - envs/.local.env
     environment:
-      # 컨테이너 안에서는 서비스명으로 접근 (localhost 오버라이드)
       - DB_HOST=db
       - REDIS_HOST=redis
-      # OpenAI API Key 명시 전달 (env_file에서 로드되지만 컨테이너 실행 시 오버라이드 가능하도록 명시)
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
     ports:
       - "8000:8000"
     depends_on:
@@ -67,26 +75,14 @@ services:
       - ./app:/code/app
       - ./scripts:/code/scripts
       - ./ai_worker:/code/ai_worker
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--reload"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ── AI Worker ──
-  # ai_worker:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.worker
-  #   container_name: healthguide-worker
-  #   restart: unless-stopped
-  #   env_file:
-  #     - envs/.local.env
-  #   environment:
-  #     - DB_HOST=db
-  #     - REDIS_HOST=redis
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #   volumes:
-  #     - ./ai_worker:/code/ai_worker
-
-  # ── Nginx 리버스 프록시 ──
+  # ── Nginx ──
   nginx:
     image: nginx:1.27-alpine
     container_name: healthguide-nginx
@@ -99,6 +95,11 @@ services:
       - ./nginx/certs:/etc/nginx/certs:ro
     depends_on:
       - app
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:
