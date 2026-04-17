@@ -83,6 +83,7 @@ def create_app() -> FastAPI:
     async def global_exception_handler(request: Request, exc: Exception):
         # HTTPException은 FastAPI가 자체 처리하므로 제외
         from fastapi import HTTPException
+
         if isinstance(exc, HTTPException):
             raise exc
 
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
         user_id: int | None = None
         try:
             from jose import jwt as _jwt
+
             auth = request.headers.get("Authorization", "")
             if auth.startswith("Bearer "):
                 payload = _jwt.decode(
@@ -108,6 +110,7 @@ def create_app() -> FastAPI:
 
         try:
             from app.services.error_log_service import log_error
+
             await log_error(
                 error_type=type(exc).__name__,
                 error_message=str(exc),
@@ -120,7 +123,11 @@ def create_app() -> FastAPI:
 
         return JSONResponse(
             status_code=500,
-            content={"status": 500, "message": "서버 내부 오류가 발생했습니다.", "error": "INTERNAL_SERVER_ERROR"},
+            content={
+                "status": 500,
+                "message": "서버 내부 오류가 발생했습니다.",
+                "error": "INTERNAL_SERVER_ERROR",
+            },
         )
 
     # ──────────────────────────────────────────
@@ -136,6 +143,7 @@ def create_app() -> FastAPI:
         # Langfuse 초기화 (환경변수 세팅 + 싱글턴 생성)
         try:
             from app.core.langfuse_client import init_langfuse
+
             init_langfuse()
         except Exception as e:
             logger.warning(f"⚠️ Langfuse 초기화 실패: {e}")
@@ -204,7 +212,9 @@ async def _seed_tester_account() -> None:
 
     existing = await User.get_or_none(email=settings.DEV_TESTER_EMAIL)
     if existing:
-        logger.info(f"  ✅ 테스터 계정 이미 존재: user_id={existing.user_id}, email={existing.email}")
+        logger.info(
+            f"  ✅ 테스터 계정 이미 존재: user_id={existing.user_id}, email={existing.email}"
+        )
         return
 
     tester = await User.create(
@@ -215,103 +225,10 @@ async def _seed_tester_account() -> None:
         provider_code="LOCAL",
         provider_id=None,
     )
-    logger.info(f"  🧪 테스터 계정 생성 완료: user_id={tester.user_id}, email={tester.email}")
-
-
-# async def _seed_default_ai_settings() -> None:
-#     """AI 기본 설정 시드."""
-#     from app.models.ai_settings import AISettings
-
-#     existing = await AISettings.get_or_none(is_active=True)
-#     if existing:
-#         logger.info(f"  ✅ 활성 AI 설정 존재: {existing.config_name}")
-#         return
-
-#     settings_count = await AISettings.all().count()
-#     if settings_count == 0:
-#         await AISettings.create(
-#             config_name="CHATBOT_v1",
-#             api_model="gpt-4",
-#             system_prompt=(
-#                 "당신은 HealthGuide AI 건강 상담 도우미입니다. "
-#                 "사용자의 건강 관련 질문에 친절하고 정확하게 답변하세요. "
-#                 "전문 의료 행위를 대체하지 않으며, 심각한 증상은 의사 상담을 권유하세요."
-#             ),
-#             emergency_keywords="자살,자해,죽고싶,사라지고싶",
-#             temperature=0.70,
-#             max_tokens=1000,
-#             min_threshold=0.50,
-#             auto_retry_count=3,
-#             is_active=True,
-#         )
-#         logger.info("  📝 AI 기본 설정 시드 완료: CHATBOT_v1")
+    logger.info(
+        f"  🧪 테스터 계정 생성 완료: user_id={tester.user_id}, email={tester.email}"
+    )
 
 
 # ── 앱 인스턴스 생성 ──
 app = create_app()
-
-# ============================================================
-# FastAPI 엔드포인트 연동 방법
-# ============================================================
-# 아래 코드를 프로젝트의 main.py (또는 app/api/router.py)에 추가하세요.
-# ============================================================
-
-# app/main.py 예시 ─────────────────────────────────────────────
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
-from tortoise.contrib.fastapi import RegisterTortoise
-
-from app.core.config import settings
-
-# ✅ 완성된 가이드 라우터 import
-from app.apis.v1.guide import router as guide_router
-
-# 다른 라우터들도 같은 방식으로 추가
-# from app.apis.v1.auth import router as auth_router
-# from app.apis.v1.user import router as user_router
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """앱 시작/종료 시 Tortoise ORM 초기화·해제"""
-    async with RegisterTortoise(
-        app,
-        db_url=settings.database_url,
-        modules={"models": ["app.models.guide", "app.models.user"]},
-        generate_schemas=False,  # 운영: False, 로컬 최초 실행: True
-        add_exception_handlers=True,
-    ):
-        yield
-
-
-app = FastAPI(
-    title="건강가이드 API",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-# ── 라우터 등록 ───────────────────────────────────────────────
-API_PREFIX = "/api/v1"
-
-app.include_router(guide_router, prefix=API_PREFIX)
-# app.include_router(auth_router,  prefix=API_PREFIX)
-# app.include_router(user_router,  prefix=API_PREFIX)
-
-# 최종 엔드포인트 목록:
-# GET    /api/v1/guides
-# POST   /api/v1/guides
-# GET    /api/v1/guides/{guide_id}
-# PATCH  /api/v1/guides/{guide_id}
-# DELETE /api/v1/guides/{guide_id}
-# GET    /api/v1/guides/{guide_id}/conditions
-# PUT    /api/v1/guides/{guide_id}/conditions
-# POST   /api/v1/guides/{guide_id}/ai-generate
-# GET    /api/v1/guides/{guide_id}/ai-results
-# GET    /api/v1/guides/{guide_id}/med-check
-# POST   /api/v1/guides/{guide_id}/med-check
-# DELETE /api/v1/guides/{guide_id}/med-check/{check_id}
-# GET    /api/v1/guides/{guide_id}/reminder
-# POST   /api/v1/guides/{guide_id}/reminder
-# PATCH  /api/v1/guides/{guide_id}/reminder
-# DELETE /api/v1/guides/{guide_id}/reminder

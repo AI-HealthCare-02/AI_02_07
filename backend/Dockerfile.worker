@@ -1,34 +1,28 @@
-﻿# Dockerfile.worker
+# Dockerfile.worker
 # ──────────────────────────────────────────────
-# AI Worker 이미지 (GPU 지원)
-# vLLM, PyTorch 등 무거운 AI 라이브러리 포함
+# AI Worker 이미지
+# OpenAI API + Clova OCR 기반 (GPU 불필요)
 # ──────────────────────────────────────────────
 
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+# ── Stage 1: 의존성 설치 ──
+FROM python:3.13-slim AS builder
 
-# 시스템 의존성 설치 + Python 3.13 (deadsnakes PPA)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common curl git \
-    && add-apt-repository ppa:deadsnakes/ppa -y \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-    python3.13 python3.13-venv \
-    && rm -rf /var/lib/apt/lists/*
-
-# uv 설치
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /code
 
-# 의존성 파일 복사 및 설치
 COPY pyproject.toml uv.lock ./
-RUN uv sync --group ai --no-dev --frozen
+RUN UV_PROJECT_ENVIRONMENT=/code/.venv uv sync --group ai --no-dev --frozen --no-cache
 
-# Worker 소스 코드 복사
+# ── Stage 2: 런타임 이미지 ──
+FROM python:3.13-slim AS runtime
+
+WORKDIR /code
+
+COPY --from=builder /code/.venv /code/.venv
 COPY ai_worker/ /code/ai_worker/
 
 ENV PATH="/code/.venv/bin:$PATH"
 ENV PYTHONPATH="/code"
 
-# Worker 진입점 실행
 CMD ["python", "-m", "ai_worker.main"]

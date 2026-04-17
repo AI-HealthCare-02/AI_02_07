@@ -241,6 +241,11 @@ $SSH_CMD << DEPLOY_SCRIPT
     echo "🧹 미사용 이미지 정리..."
     docker image prune -f
 
+    echo "⏰ Docker prune cron 등록 (매주 일요일 새벽 3시)..."
+    CRON_JOB="0 3 * * 0 docker container prune -f && docker image prune -f && docker builder prune -f && docker network prune -f >> /var/log/docker-prune.log 2>&1"
+    ( crontab -l 2>/dev/null | grep -v 'docker.*prune'; echo "$CRON_JOB" ) | crontab -
+    echo "✅ cron 등록 완료"
+
     echo "✅ 배포 완료!"
     docker compose ps
 DEPLOY_SCRIPT
