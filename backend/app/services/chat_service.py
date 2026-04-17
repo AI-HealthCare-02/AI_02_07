@@ -6,12 +6,14 @@ import json
 import logging
 import time
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 
 from fastapi import HTTPException, status
 from openai import AsyncOpenAI
+from tortoise import Tortoise
 
 from app.core.config import get_settings
-from app.core.openai_utils import AsyncOpenAI, build_create_kwargs
+from app.core.openai_utils import build_create_kwargs
 from app.core.redis import get_redis
 from app.dtos.chat_dto import (
     BookmarkResponseDTO,
@@ -22,13 +24,14 @@ from app.dtos.chat_dto import (
     ChatRoomMessagesDataDTO,
 )
 from app.models.chat import ChatMessage, ChatRoom
-from app.models.user import User
+from app.models.user import User, UserAllergy, UserDisease, UserLifestyle
 from app.repositories.chat_repository import ChatRepository
 
 logger = logging.getLogger(__name__)
 
 
 # ── 세션 ──────────────────────────────────────────────────────────────────────
+
 
 async def create_session(user: User) -> ChatRoomCreateResponseDTO:
     room = await _get_repo().create_room(user.user_id)
@@ -58,18 +61,14 @@ async def list_sessions(user: User, page: int, size: int) -> ChatRoomListDataDTO
 async def delete_session(user: User, room_id: int) -> None:
     room = await _get_repo().get_room(room_id, user.user_id)
     if room is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="대화를 찾을 수 없습니다."
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화를 찾을 수 없습니다.")
     await _get_repo().soft_delete_room(room)
 
 
 # ── 메시지 ────────────────────────────────────────────────────────────────────
 
 
-async def list_messages(
-    user: User, room_id: int, page: int, size: int
-) -> ChatRoomMessagesDataDTO:
+async def list_messages(user: User, room_id: int, page: int, size: int) -> ChatRoomMessagesDataDTO:
     room = await _get_repo().get_room(room_id, user.user_id)
     if room is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화를 찾을 수 없습니다.")
@@ -97,6 +96,7 @@ async def list_messages(
 
 # ── SSE 스트리밍 ──────────────────────────────────────────────────────────────
 
+
 async def validate_session(user: User, session_id: int) -> ChatRoom:
     room = await _get_repo().get_room(session_id, user.user_id)
     if room is None:
@@ -104,9 +104,7 @@ async def validate_session(user: User, session_id: int) -> ChatRoom:
     return room
 
 
-async def stream_chat(
-    room: ChatRoom, user: User, message: str
-) -> AsyncGenerator[str, None]:
+async def stream_chat(room: ChatRoom, user: User, message: str) -> AsyncGenerator[str]:
     """2단계 GPT 호출 — 1단계 분류 후 2단계 스트리밍."""
     session_id = room.room_id
 
@@ -122,9 +120,7 @@ async def stream_chat(
     history_ctx = _build_messages(history[:-1])
     health_ctx = await _build_health_context(user)
 
-    assistant_msg = await repo.create_message(
-        session_id, "ASSISTANT", "", filter_result="PASS"
-    )
+    assistant_msg = await repo.create_message(session_id, "ASSISTANT", "", filter_result="PASS")
     yield _sse("message_id", {"messageId": assistant_msg.message_id})
 
     try:
@@ -184,9 +180,7 @@ async def stream_chat(
 
     except Exception as e:
         logger.error("스트리밍 오류: %s", e)
-        yield _sse(
-            "error", {"message": "시스템 점검 중입니다. 잠시 후 다시 시도해주세요."}
-        )
+        yield _sse("error", {"message": "시스템 점검 중입니다. 잠시 후 다시 시도해주세요."})
 
     yield _sse("done", "[DONE]")
 
@@ -229,7 +223,7 @@ async def _stream_answer(
     message: str,
     message_id: int,
     filter_result: str,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 
     async def _run() -> None:
@@ -319,13 +313,12 @@ async def cancel_stream(user: User, message_id: int) -> None:
     if msg is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="해당 메시지를 찾을 수 없습니다.")
     if msg.content:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="이미 완료된 응답입니다."
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 완료된 응답입니다.")
     await get_redis().set(f"chat:cancel:{message_id}", "1", ex=30)
 
 
 # ── 북마크 ────────────────────────────────────────────────────────────────────
+
 
 async def add_bookmark(user: User, message_id: int) -> BookmarkResponseDTO:
     answer_msg = await _get_repo().get_message(message_id)
@@ -353,9 +346,7 @@ async def add_bookmark(user: User, message_id: int) -> BookmarkResponseDTO:
 async def remove_bookmark(user: User, message_id: int) -> BookmarkResponseDTO:
     bookmark = await _get_repo().get_bookmark_by_answer(message_id, user.user_id)
     if bookmark is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다."
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다.")
     await _get_repo().delete_bookmark(bookmark)
     return BookmarkResponseDTO(bookmarkId=bookmark.bookmark_id, isBookmarked=False)
 
@@ -394,10 +385,7 @@ def _get_repo() -> ChatRepository:
 async def _get_ai_settings() -> AiConfig:
     global _AI_CONFIG_CACHE, _AI_CONFIG_CACHE_AT
     now = time.monotonic()
-    if (
-        _AI_CONFIG_CACHE is not None
-        and now - _AI_CONFIG_CACHE_AT < _AI_CONFIG_CACHE_TTL
-    ):
+    if _AI_CONFIG_CACHE is not None and now - _AI_CONFIG_CACHE_AT < _AI_CONFIG_CACHE_TTL:
         return _AI_CONFIG_CACHE
     try:
         conn = Tortoise.get_connection("default")
@@ -447,12 +435,8 @@ async def _build_health_context(user: User) -> str:
         if lifestyle.pregnancy_code and lifestyle.pregnancy_code != "NONE":
             parts.append(f"임신/수유: {lifestyle.pregnancy_code}")
 
-    diseases = await UserDisease.filter(user_id=user.user_id).values_list(
-        "disease_name", flat=True
-    )
-    allergies = await UserAllergy.filter(user_id=user.user_id).values_list(
-        "allergy_name", flat=True
-    )
+    diseases = await UserDisease.filter(user_id=user.user_id).values_list("disease_name", flat=True)
+    allergies = await UserAllergy.filter(user_id=user.user_id).values_list("allergy_name", flat=True)
     if diseases:
         parts.append(f"기저질환: {', '.join(diseases)}")
     if allergies:
@@ -474,9 +458,7 @@ def _estimate_tokens(text: str) -> int:
     return korean + (len(text) - korean) // 4 + 1
 
 
-def _build_messages(
-    history: list[ChatMessage], max_tokens: int = 2000, keep_last: int = 10
-) -> list[dict]:
+def _build_messages(history: list[ChatMessage], max_tokens: int = 2000, keep_last: int = 10) -> list[dict]:
     recent = history[-keep_last:]
     if not recent:
         return []
