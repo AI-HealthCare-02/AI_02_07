@@ -35,13 +35,13 @@ jobs:
           python-version: '3.13'
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --group app --group dev --frozen
 
       - name: Run Ruff Check (Linting)
-        run: uv run ruff check app/ ai_worker/
+        run: uv run ruff check app/ ai_worker/ tests/
 
       - name: Run Ruff Format Check
-        run: uv run ruff format app/ ai_worker/ --check
+        run: uv run ruff format app/ ai_worker/ tests/ --check
 
   test:
     runs-on: ubuntu-latest
@@ -101,6 +101,7 @@ jobs:
         if: steps.check_tests.outputs.has_tests == 'true'
         env:
           APP_ENV: local
+          APP_DEBUG: "true"
           DB_HOST: localhost
           DB_PORT: 5432
           DB_USER: healthguide
@@ -109,6 +110,7 @@ jobs:
           REDIS_HOST: localhost
           REDIS_PORT: 6379
           JWT_SECRET_KEY: ci-test-secret-key
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          uv run coverage run -m pytest app/tests -v
+          uv run coverage run -m pytest app/tests -v --tb=short
           uv run coverage report -m
