@@ -14,7 +14,7 @@ def mock_user():
 
 
 @pytest_asyncio.fixture
-async def async_client(mock_user) -> AsyncGenerator[AsyncClient, None]:
+async def async_client(mock_user) -> AsyncGenerator[AsyncClient]:
     mock_redis = AsyncMock()
     mock_redis.get = AsyncMock(return_value=None)
     mock_redis.set = AsyncMock()
