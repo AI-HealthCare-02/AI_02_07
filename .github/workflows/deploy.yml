@@ -23,7 +23,8 @@ jobs:
 
             # ── 1. 프로젝트 디렉토리로 이동 및 최신 코드 pull ──
             cd ~/healthguide
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
 
             # ── 2. prod.env 파일 생성 (Secrets → 파일) ──
             mkdir -p backend/envs
@@ -37,3 +38,4 @@ jobs:
 
             # ── 4. 미사용 이미지/캐시 정리 ──
             docker system prune -f
+            echo "Deploy completed at $(date)"
