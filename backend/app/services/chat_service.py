@@ -24,7 +24,10 @@ from app.dtos.chat_dto import (
     ChatRoomMessagesDataDTO,
 )
 from app.models.chat import ChatMessage, ChatRoom
-from app.models.user import User, UserAllergy, UserDisease, UserLifestyle
+from app.models.user import User
+from app.models.user_allergy import UserAllergy
+from app.models.user_disease import UserDisease
+from app.models.user_lifestyle import UserLifestyle
 from app.repositories.chat_repository import ChatRepository
 
 logger = logging.getLogger(__name__)
