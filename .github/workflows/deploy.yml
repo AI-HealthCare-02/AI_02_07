@@ -38,3 +38,4 @@ jobs:
 
             # ── 4. 미사용 이미지/캐시 정리 ──
             docker system prune -f
+            echo "Deploy completed at $(date)"
