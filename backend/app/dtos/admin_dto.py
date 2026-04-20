@@ -1,16 +1,14 @@
 # app/dtos/admin_dto.py
 
-from datetime import datetime
-from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
 # ── 공통 응답 래퍼 (명세서 형식) ──
 class AdminResponse(BaseModel):
     status: int
     message: str
-    data: Optional[dict] = None
+    data: dict | None = None
 
 
 # ── Auth ──
@@ -95,7 +93,7 @@ class FilterModelConfigDTO(BaseModel):
     apiModel: str
     temperature: float
     maxTokens: int
-    note: Optional[str] = None
+    note: str | None = None
 
 
 class SystemSettingsDTO(BaseModel):
@@ -129,6 +127,6 @@ class LLMTestRequestDTO(BaseModel):
 
 class LLMTestResultDTO(BaseModel):
     success: bool
-    responseTime: Optional[int] = None
-    testResponse: Optional[str] = None
-    errorMessage: Optional[str] = None
+    responseTime: int | None = None
+    testResponse: str | None = None
+    errorMessage: str | None = None

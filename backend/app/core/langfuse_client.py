@@ -15,6 +15,7 @@ def init_langfuse() -> None:
     """
     try:
         from app.core.config import get_settings
+
         s = get_settings()
         if not (s.LANGFUSE_TRACING and s.LANGFUSE_PUBLIC_KEY and s.LANGFUSE_SECRET_KEY):
             logger.info("[Langfuse] tracing disabled")
@@ -26,6 +27,7 @@ def init_langfuse() -> None:
 
         # get_client()를 한 번 호출해 내부 싱글턴 초기화
         from langfuse import get_client
+
         get_client()
         logger.info("[Langfuse] tracing enabled, host=%s", s.LANGFUSE_BASE_URL)
     except Exception as e:

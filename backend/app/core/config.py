@@ -29,10 +29,7 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        return (
-            f"asyncpg://{self.DB_USER}:{self.DB_PASSWORD}"
-            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
-        )
+        return f"asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
     # ── Redis ──
     REDIS_HOST: str = "localhost"
@@ -82,11 +79,11 @@ class Settings(BaseSettings):
     # ── 카카오 알림톡 (✅ 신규) ──────────────────
     # 솔라피(https://solapi.com) 경유 발송 기준
     # 다른 솔루션사 사용 시 kakao_notification.py 수정
-    KAKAO_API_KEY: str = ""                      # 솔라피 API Key
-    KAKAO_API_SECRET: str = ""                   # 솔라피 API Secret
-    KAKAO_SENDER_KEY: str = ""                   # 카카오 채널 발신 프로필 키
-    KAKAO_CHANNEL_ID: str = ""                   # 카카오 채널 ID (@ 포함, 예: @healthguide)
-    KAKAO_TEMPLATE_ID_REMINDER: str = ""         # 복약 알림 템플릿 ID
+    KAKAO_API_KEY: str = ""  # 솔라피 API Key
+    KAKAO_API_SECRET: str = ""  # 솔라피 API Secret
+    KAKAO_SENDER_KEY: str = ""  # 카카오 채널 발신 프로필 키
+    KAKAO_CHANNEL_ID: str = ""  # 카카오 채널 ID (@ 포함, 예: @healthguide)
+    KAKAO_TEMPLATE_ID_REMINDER: str = ""  # 복약 알림 템플릿 ID
 
     # ── Langfuse ──
     LANGFUSE_PUBLIC_KEY: str = ""
@@ -112,7 +109,7 @@ class Settings(BaseSettings):
     )
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()
 

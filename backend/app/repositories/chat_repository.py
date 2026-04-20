@@ -4,7 +4,6 @@ from app.models.chat import ChatBookmark, ChatMessage, ChatRoom
 
 
 class ChatRepository:
-
     # ── 세션 ──────────────────────────────────
 
     async def create_room(self, user_id: int) -> ChatRoom:
@@ -50,18 +49,16 @@ class ChatRepository:
     async def get_message(self, message_id: int) -> ChatMessage | None:
         return await ChatMessage.get_or_none(message_id=message_id)
 
-    async def list_messages(
-        self, room_id: int, page: int, size: int
-    ) -> tuple[int, list[ChatMessage]]:
+    async def list_messages(self, room_id: int, page: int, size: int) -> tuple[int, list[ChatMessage]]:
         qs = ChatMessage.filter(room_id=room_id)
         total = await qs.count()
         items = await qs.order_by("message_id").offset((page - 1) * size).limit(size)
         return total, items
 
     async def get_bookmarked_message_ids(self, room_id: int) -> set[int]:
-        bookmarks = await ChatBookmark.filter(answer_message_id__in=(
-            await ChatMessage.filter(room_id=room_id).values_list("message_id", flat=True)
-        ))
+        bookmarks = await ChatBookmark.filter(
+            answer_message_id__in=(await ChatMessage.filter(room_id=room_id).values_list("message_id", flat=True))
+        )
         ids: set[int] = set()
         for b in bookmarks:
             if b.question_message_id:

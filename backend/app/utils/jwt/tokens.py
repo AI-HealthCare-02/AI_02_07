@@ -65,9 +65,7 @@ class Token:
         """
         return self._token_backend.encode(self.payload)
 
-    def set_exp(
-        self, from_time: datetime | None = None, lifetime: timedelta | None = None
-    ) -> None:
+    def set_exp(self, from_time: datetime | None = None, lifetime: timedelta | None = None) -> None:
         if from_time is None:
             from_time = self.current_time
 

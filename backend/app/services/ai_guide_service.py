@@ -121,7 +121,7 @@ class AiGuideService:
 
         prompt = f"""
 아래는 공공 의약품 데이터베이스(e약은요)에서 가져온 공식 약품 정보입니다.
-환자 정보: 나이 {patient_age}세, 성별 {'남성' if patient_gender == 'GD_MALE' else '여성'}, 진단명 {diagnosis_name}
+환자 정보: 나이 {patient_age}세, 성별 {"남성" if patient_gender == "GD_MALE" else "여성"}, 진단명 {diagnosis_name}
 
 [약품 정보]
 {drug_data_text}
@@ -135,7 +135,10 @@ class AiGuideService:
         response = await self._openai.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요."},
+                {
+                    "role": "system",
+                    "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요.",
+                },
                 {"role": "user", "content": prompt},
             ],
             max_tokens=1500,
@@ -178,7 +181,7 @@ class AiGuideService:
 
         prompt = f"""
 아래는 공공 의약품 데이터베이스(e약은요)의 공식 약품 상호작용·부작용 정보입니다.
-환자 정보: 나이 {patient_age}세, 성별 {'남성' if patient_gender == 'GD_MALE' else '여성'}, 진단명 {diagnosis_name}
+환자 정보: 나이 {patient_age}세, 성별 {"남성" if patient_gender == "GD_MALE" else "여성"}, 진단명 {diagnosis_name}
 
 [약품 상호작용·부작용 정보]
 {interaction_text}
@@ -192,7 +195,10 @@ class AiGuideService:
         response = await self._openai.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요."},
+                {
+                    "role": "system",
+                    "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요.",
+                },
                 {"role": "user", "content": prompt},
             ],
             max_tokens=1500,
@@ -278,15 +284,12 @@ class AiGuideService:
             dur_text = ""
             drug_dur = [item for item in r.dur_items]
             if drug_dur:
-                dur_lines = [
-                    f"  - [{item.dur_type}] {item.prohbt_content} / 비고: {item.remark}"
-                    for item in drug_dur
-                ]
+                dur_lines = [f"  - [{item.dur_type}] {item.prohbt_content} / 비고: {item.remark}" for item in drug_dur]
                 dur_text = "DUR 금기 정보:\n" + "\n".join(dur_lines)
 
             prompt = f"""
 아래는 공공 의약품 데이터베이스(e약은요·DUR)에서 가져온 공식 약품 정보입니다.
-환자 정보: 나이 {patient_age}세, 성별 {'남성' if patient_gender == 'GD_MALE' else '여성'}, 진단명 {diagnosis_name}
+환자 정보: 나이 {patient_age}세, 성별 {"남성" if patient_gender == "GD_MALE" else "여성"}, 진단명 {diagnosis_name}
 
 [약품명] {d.item_name}
 효능·효과: {d.efcy_qesitm}

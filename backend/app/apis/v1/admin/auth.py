@@ -1,6 +1,6 @@
 # app/apis/v1/admin/auth.py
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.dtos.admin_dto import AdminLoginRequestDTO
