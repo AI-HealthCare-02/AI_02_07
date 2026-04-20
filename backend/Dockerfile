@@ -24,6 +24,7 @@ WORKDIR /code
 
 COPY --from=builder /code/.venv /code/.venv
 COPY app/ /code/app/
+COPY ai_worker/ /code/ai_worker/
 COPY scripts/sql/ /code/scripts/sql/
 
 RUN chown -R appuser:appuser /code
