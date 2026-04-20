@@ -1,6 +1,5 @@
 # app/apis/v1/admin/users.py
 
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
@@ -15,7 +14,7 @@ router = APIRouter()
 async def list_users(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    keyword: Optional[str] = Query(None),
+    keyword: str | None = Query(None),
     status: str = Query("ALL"),
     admin: AdminUser = Depends(get_current_admin),
 ):

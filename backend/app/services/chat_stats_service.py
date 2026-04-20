@@ -2,7 +2,6 @@
 # 모델별 채팅 통계 조회 (관리자용)
 
 from datetime import datetime
-from typing import Optional
 
 from tortoise import connections
 
@@ -37,23 +36,19 @@ async def _has_column(conn, table: str, column: str) -> bool:
     return result
 
 
-def _calc_cost(
-    model: str | None, prompt: int | None, completion: int | None
-) -> float | None:
+def _calc_cost(model: str | None, prompt: int | None, completion: int | None) -> float | None:
     if prompt is None or completion is None:
         return None
     inp_price, out_price = _MODEL_PRICING.get(model or "", _DEFAULT_PRICING)
-    return round(
-        (prompt / 1_000_000 * inp_price) + (completion / 1_000_000 * out_price), 8
-    )
+    return round((prompt / 1_000_000 * inp_price) + (completion / 1_000_000 * out_price), 8)
 
 
 def _build_conditions(
-    room_id: Optional[int],
-    model_name: Optional[str],
-    filter_result: Optional[str],
-    start_date: Optional[str],
-    end_date: Optional[str],
+    room_id: int | None,
+    model_name: str | None,
+    filter_result: str | None,
+    start_date: str | None,
+    end_date: str | None,
     has_model_col: bool = True,
 ) -> tuple[list[str], list]:
     conditions = [
@@ -91,11 +86,7 @@ def _build_conditions(
 def _row_to_dict(r: dict) -> dict:
     prompt = r.get("prompt_tokens")
     completion = r.get("completion_tokens")
-    total = (
-        ((prompt or 0) + (completion or 0))
-        if (prompt is not None or completion is not None)
-        else None
-    )
+    total = ((prompt or 0) + (completion or 0)) if (prompt is not None or completion is not None) else None
     cost = _calc_cost(r.get("model_name"), prompt, completion)
     created = r.get("created_at")
     return {
@@ -110,11 +101,7 @@ def _row_to_dict(r: dict) -> dict:
         "cost_usd": cost,
         "latency_ms": r.get("latency_ms"),
         "filter_result": r.get("filter_result"),
-        "created_at": (
-            created.isoformat()
-            if isinstance(created, datetime)
-            else str(created) if created else None
-        ),
+        "created_at": (created.isoformat() if isinstance(created, datetime) else str(created) if created else None),
     }
 
 
@@ -178,24 +165,20 @@ def _build_all_query(where: str, model_col: str) -> str:
 async def get_stats(
     page: int,
     size: int,
-    room_id: Optional[int] = None,
-    model_name: Optional[str] = None,
-    filter_result: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    room_id: int | None = None,
+    model_name: str | None = None,
+    filter_result: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> dict:
     conn = connections.get("default")
     has_model_col = await _has_column(conn, "chat_messages", "model_name")
     model_col = "a.model_name," if has_model_col else "NULL AS model_name,"
 
-    conditions, params = _build_conditions(
-        room_id, model_name, filter_result, start_date, end_date, has_model_col
-    )
+    conditions, params = _build_conditions(room_id, model_name, filter_result, start_date, end_date, has_model_col)
     where = "WHERE " + " AND ".join(conditions)
 
-    count_rows = await conn.execute_query_dict(
-        f"SELECT COUNT(*) AS cnt FROM chat_messages a {where}", params
-    )
+    count_rows = await conn.execute_query_dict(f"SELECT COUNT(*) AS cnt FROM chat_messages a {where}", params)
     total = int(count_rows[0]["cnt"])
 
     offset = (page - 1) * size
@@ -211,19 +194,17 @@ async def get_stats(
 
 
 async def get_all_stats(
-    room_id: Optional[int] = None,
-    model_name: Optional[str] = None,
-    filter_result: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    room_id: int | None = None,
+    model_name: str | None = None,
+    filter_result: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> list[dict]:
     conn = connections.get("default")
     has_model_col = await _has_column(conn, "chat_messages", "model_name")
     model_col = "a.model_name," if has_model_col else "NULL AS model_name,"
 
-    conditions, params = _build_conditions(
-        room_id, model_name, filter_result, start_date, end_date, has_model_col
-    )
+    conditions, params = _build_conditions(room_id, model_name, filter_result, start_date, end_date, has_model_col)
     where = "WHERE " + " AND ".join(conditions)
 
     sql = _build_all_query(where, model_col)

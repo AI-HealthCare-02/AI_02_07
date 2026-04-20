@@ -32,6 +32,7 @@ MAX_PDF_SIZE = 20 * 1024 * 1024
 # 의료 문서 분석 + DB 저장
 # ============================================================
 
+
 @router.post(
     "/analyze",
     response_model=ResponseDTO[dict],
@@ -122,6 +123,7 @@ async def analyze_document(
 # 분석 결과 목록 조회
 # ============================================================
 
+
 @router.get(
     "/results",
     response_model=ResponseDTO[dict],
@@ -144,6 +146,7 @@ async def list_analysis_results(
 # ============================================================
 # 분석 결과 단건 조회
 # ============================================================
+
 
 @router.get(
     "/results/{doc_result_id}",
@@ -189,6 +192,7 @@ async def get_analysis_result(
 # ============================================================
 # 분석 결과 삭제
 # ============================================================
+
 
 @router.delete(
     "/results/{doc_result_id}",

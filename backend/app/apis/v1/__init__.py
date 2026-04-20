@@ -5,19 +5,19 @@
 
 from fastapi import APIRouter
 
+# ── 관리자 라우터 ──
+from app.apis.v1.admin.auth import router as admin_auth_router
+from app.apis.v1.admin.dashboard import router as admin_dashboard_router
+from app.apis.v1.admin.system import router as admin_system_router
+from app.apis.v1.admin.users import router as admin_users_router
+
 # ── 공통 라우터 ──
 from app.apis.v1.auth import router as auth_router
 from app.apis.v1.chat import router as chat_router
 from app.apis.v1.common_code import router as common_code_router
+from app.apis.v1.medical_doc import router as medical_doc_router
 from app.apis.v1.user import router as user_router
 from app.core.config import get_settings
-from app.apis.v1.medical_doc import router as medical_doc_router
-
-# ── 관리자 라우터 ──
-from app.apis.v1.admin.auth import router as admin_auth_router
-from app.apis.v1.admin.dashboard import router as admin_dashboard_router
-from app.apis.v1.admin.users import router as admin_users_router
-from app.apis.v1.admin.system import router as admin_system_router
 
 # v1 API 라우터
 api_v1_router = APIRouter(prefix="/api/v1")
@@ -33,13 +33,12 @@ api_v1_router.include_router(chat_router, prefix="/chat", tags=["AI 챗봇"])
 
 
 # ── 의료 문서 분석 ──
-api_v1_router.include_router(
-    medical_doc_router, prefix="/medical-doc", tags=["의료 문서 분석"]
-)
+api_v1_router.include_router(medical_doc_router, prefix="/medical-doc", tags=["의료 문서 분석"])
 
 
 # ── 건강 가이드 ──
 from app.apis.v1.guide import router as guide_router
+
 api_v1_router.include_router(guide_router, tags=["건강 가이드"])
 
 # ── 관리자 ──

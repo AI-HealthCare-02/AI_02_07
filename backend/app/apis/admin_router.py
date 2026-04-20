@@ -6,9 +6,9 @@ from fastapi import APIRouter
 from app.apis.v1.admin.auth import router as admin_auth_router
 from app.apis.v1.admin.chat_stats import router as admin_chat_stats_router
 from app.apis.v1.admin.dashboard import router as admin_dashboard_router
+from app.apis.v1.admin.errors import router as admin_errors_router
 from app.apis.v1.admin.system import router as admin_system_router
 from app.apis.v1.admin.users import router as admin_users_router
-from app.apis.v1.admin.errors import router as admin_errors_router
 
 admin_router = APIRouter(prefix="/api/admin")
 

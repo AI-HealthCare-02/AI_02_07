@@ -48,9 +48,7 @@ class GuideRepository:
         return total, guides
 
     async def get_guide_by_id(self, guide_id: int, user_id: int) -> Guide | None:
-        return await Guide.filter(
-            guide_id=guide_id, user_id=user_id, is_deleted=False
-        ).first()
+        return await Guide.filter(guide_id=guide_id, user_id=user_id, is_deleted=False).first()
 
     async def create_guide(self, user_id: int, data: dict) -> Guide:
         return await Guide.create(user_id=user_id, **data)
@@ -92,9 +90,7 @@ class GuideRepository:
     # ──────────────────────────────────────────
     # GuideAiResult
     # ──────────────────────────────────────────
-    async def get_latest_ai_results(
-        self, guide_id: int, result_type: str | None = None
-    ) -> list[GuideAiResult]:
+    async def get_latest_ai_results(self, guide_id: int, result_type: str | None = None) -> list[GuideAiResult]:
         """result_type별 최신 버전만 반환"""
         qs = GuideAiResult.filter(guide_id=guide_id)
         if result_type:
@@ -110,13 +106,9 @@ class GuideRepository:
                 latest.append(r)
         return latest
 
-    async def create_ai_result(
-        self, guide_id: int, result_type: str, content: dict, status: str
-    ) -> GuideAiResult:
+    async def create_ai_result(self, guide_id: int, result_type: str, content: dict, status: str) -> GuideAiResult:
         # 버전 증가
-        latest = await GuideAiResult.filter(
-            guide_id=guide_id, result_type=result_type
-        ).order_by("-version").first()
+        latest = await GuideAiResult.filter(guide_id=guide_id, result_type=result_type).order_by("-version").first()
         version = (latest.version + 1) if latest else 1
 
         return await GuideAiResult.create(
@@ -133,9 +125,7 @@ class GuideRepository:
     async def get_med_checks_by_date(self, guide_id: int, check_date: date) -> list[GuideMedCheck]:
         return await GuideMedCheck.filter(guide_id=guide_id, check_date=check_date)
 
-    async def get_med_checks_by_period(
-        self, guide_id: int, start: date, end: date
-    ) -> list[GuideMedCheck]:
+    async def get_med_checks_by_period(self, guide_id: int, start: date, end: date) -> list[GuideMedCheck]:
         return await GuideMedCheck.filter(
             guide_id=guide_id,
             check_date__gte=start,
@@ -146,9 +136,7 @@ class GuideRepository:
         return await GuideMedCheck.filter(check_id=check_id, guide_id=guide_id).first()
 
     async def check_duplicate(self, guide_medication_id: int, check_date: date) -> bool:
-        return await GuideMedCheck.filter(
-            guide_medication_id=guide_medication_id, check_date=check_date
-        ).exists()
+        return await GuideMedCheck.filter(guide_medication_id=guide_medication_id, check_date=check_date).exists()
 
     async def create_med_check(
         self, guide_id: int, guide_medication_id: int, check_date: date, taken_at: datetime
