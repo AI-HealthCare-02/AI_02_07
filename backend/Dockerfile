@@ -12,23 +12,26 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /build
 
 COPY pyproject.toml uv.lock ./
-
-# 가상환경을 /code/.venv 에 직접 생성 (shebang 수정 불필요)
 RUN UV_PROJECT_ENVIRONMENT=/code/.venv uv sync --group app --no-dev --frozen --no-cache
 
 # ── Stage 2: 런타임 이미지 ──
 FROM python:3.13-slim AS runtime
 
+# 비root 유저 생성
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
 WORKDIR /code
 
 COPY --from=builder /code/.venv /code/.venv
-
-# SQL 초기화 스크립트만 복사 (CI 스크립트 제외)
 COPY app/ /code/app/
 COPY scripts/sql/ /code/scripts/sql/
 
+RUN chown -R appuser:appuser /code
+
 ENV PATH="/code/.venv/bin:$PATH"
 ENV PYTHONPATH="/code"
+
+USER appuser
 
 EXPOSE 8000
 
