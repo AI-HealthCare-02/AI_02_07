@@ -2,8 +2,8 @@
 
 from pydantic import BaseModel, Field
 
-
 # ── 세션 ──────────────────────────────────────
+
 
 class ChatRoomCreateResponseDTO(BaseModel):
     roomId: int
@@ -25,6 +25,7 @@ class ChatRoomListDataDTO(BaseModel):
 
 # ── 메시지 ────────────────────────────────────
 
+
 class ChatMessageItemDTO(BaseModel):
     messageId: int
     senderTypeCode: str
@@ -43,12 +44,14 @@ class ChatRoomMessagesDataDTO(BaseModel):
 
 # ── 전송 ──────────────────────────────────────
 
+
 class ChatSendRequestDTO(BaseModel):
     sessionId: int = Field(..., description="대화 세션 roomId")
     message: str = Field(..., min_length=1, max_length=2000)
 
 
 # ── 북마크 ────────────────────────────────────
+
 
 class BookmarkResponseDTO(BaseModel):
     bookmarkId: int

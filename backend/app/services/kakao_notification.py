@@ -19,7 +19,6 @@
 import hashlib
 import hmac
 import logging
-import time
 import uuid
 from datetime import datetime, timezone
 
@@ -101,9 +100,7 @@ class KakaoAlimtalkClient:
     ) -> bool:
         """솔라피 API를 통한 알림톡 발송."""
         if not self._api_key or not self._sender_key:
-            logger.error(
-                "카카오 알림톡 설정 누락 — KAKAO_API_KEY 또는 KAKAO_SENDER_KEY가 비어있습니다."
-            )
+            logger.error("카카오 알림톡 설정 누락 — KAKAO_API_KEY 또는 KAKAO_SENDER_KEY가 비어있습니다.")
             return False
 
         headers = self._build_auth_headers()
@@ -172,10 +169,7 @@ class KakaoAlimtalkClient:
 
         return {
             "Authorization": (
-                f'HMAC-SHA256 apiKey={self._api_key}, '
-                f'date={date_str}, '
-                f'salt={salt}, '
-                f'signature={signature}'
+                f"HMAC-SHA256 apiKey={self._api_key}, date={date_str}, salt={salt}, signature={signature}"
             ),
             "Content-Type": "application/json",
         }

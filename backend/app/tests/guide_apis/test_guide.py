@@ -52,7 +52,9 @@ class TestGuideCreate:
         with patch("app.apis.v1.guide.get_current_user", return_value=mock_user):
             with patch("app.services.guide_service.GuideRepository") as mock_repo_cls:
                 mock_repo = mock_repo_cls.return_value
-                mock_guide = MagicMock(guide_id=1, title="본태성 고혈압 가이드", guide_status="GS_ACTIVE", input_method="IM_MANUAL")
+                mock_guide = MagicMock(
+                    guide_id=1, title="본태성 고혈압 가이드", guide_status="GS_ACTIVE", input_method="IM_MANUAL"
+                )
                 mock_repo.create_guide = AsyncMock(return_value=mock_guide)
                 mock_repo.create_medications = AsyncMock(return_value=[])
                 mock_repo.replace_conditions = AsyncMock()
@@ -154,6 +156,7 @@ class TestMedCheck:
 
     async def test_delete_med_check_not_today_400(self, async_client: AsyncClient, mock_user):
         from datetime import timedelta
+
         with patch("app.apis.v1.guide.get_current_user", return_value=mock_user):
             with patch("app.services.guide_service.GuideRepository") as mock_repo_cls:
                 mock_repo = mock_repo_cls.return_value

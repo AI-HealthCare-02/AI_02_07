@@ -58,9 +58,7 @@ async def _async_send_due_reminders() -> dict:
         modules={"models": ["app.models.guide", "app.models.user"]},
     )
 
-    now_kst = datetime.now(timezone.utc).astimezone(
-        __import__("zoneinfo").ZoneInfo("Asia/Seoul")
-    )
+    now_kst = datetime.now(timezone.utc).astimezone(__import__("zoneinfo").ZoneInfo("Asia/Seoul"))
     current_hhmm = now_kst.strftime("%H:%M")
     weekday = now_kst.weekday()  # 0=월, 6=일
 
@@ -145,6 +143,7 @@ async def _dispatch(reminder, now_kst: datetime) -> None:
 
     if tasks:
         import asyncio
+
         await asyncio.gather(*tasks, return_exceptions=True)
 
 

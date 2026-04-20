@@ -34,17 +34,14 @@ MANUAL_DRUG_MAP: dict[str, str] = {
     "타이레놀이알서방정": "아세트아미노펜",
     "acetaminophen": "아세트아미노펜",
     "paracetamol": "아세트아미노펜",
-
     # 이부프로펜 계열
     "애드빌": "이부프로펜",
     "부루펜": "이부프로펜",
     "ibuprofen": "이부프로펜",
-
     # 아스피린
     "아스피린프로텍트": "아스피린",
     "아스피린장용정": "아스피린",
     "aspirin": "아스피린",
-
     # 항생제
     "아목시실린": "아목시실린",
     "amoxicillin": "아목시실린",
@@ -53,7 +50,6 @@ MANUAL_DRUG_MAP: dict[str, str] = {
     "augmentin": "아목시실린/클라불란산",
     "세팔렉신": "세팔렉신",
     "cephalexin": "세팔렉신",
-
     # 위장약
     "오메프라졸": "오메프라졸",
     "omeprazole": "오메프라졸",
@@ -61,7 +57,6 @@ MANUAL_DRUG_MAP: dict[str, str] = {
     "pantoprazole": "판토프라졸",
     "란소프라졸": "란소프라졸",
     "lansoprazole": "란소프라졸",
-
     # 혈압약
     "암로디핀": "암로디핀",
     "amlodipine": "암로디핀",
@@ -69,19 +64,16 @@ MANUAL_DRUG_MAP: dict[str, str] = {
     "losartan": "로사르탄",
     "발사르탄": "발사르탄",
     "valsartan": "발사르탄",
-
     # 당뇨약
     "메트포르민": "메트포르민",
     "metformin": "메트포르민",
     "글리메피리드": "글리메피리드",
     "glimepiride": "글리메피리드",
-
     # 고지혈증
     "아토르바스타틴": "아토르바스타틴",
     "atorvastatin": "아토르바스타틴",
     "로수바스타틴": "로수바스타틴",
     "rosuvastatin": "로수바스타틴",
-
     # 항히스타민
     "세티리진": "세티리진",
     "cetirizine": "세티리진",
@@ -89,7 +81,6 @@ MANUAL_DRUG_MAP: dict[str, str] = {
     "loratadine": "로라타딘",
     "펙소페나딘": "펙소페나딘",
     "fexofenadine": "펙소페나딘",
-
     # 진통소염제
     "나프록센": "나프록센",
     "naproxen": "나프록센",
@@ -116,9 +107,9 @@ def normalize_drug_name(name: str) -> str:
     처방전 약품명을 API 검색에 적합하게 정규화.
     예) '아세트아미노펜정 500mg (타이레놀)' → '아세트아미노펜정'
     """
-    name = _BRACKET_PATTERN.sub("", name)   # 괄호 제거
-    name = _DOSE_PATTERN.sub("", name)       # 용량 표기 제거
-    name = _SPACE_PATTERN.sub(" ", name)     # 중복 공백 정리
+    name = _BRACKET_PATTERN.sub("", name)  # 괄호 제거
+    name = _DOSE_PATTERN.sub("", name)  # 용량 표기 제거
+    name = _SPACE_PATTERN.sub(" ", name)  # 중복 공백 정리
     return name.strip()
 
 
@@ -163,6 +154,7 @@ def resolve_drug_name(original: str) -> list[str]:
 @dataclass
 class DrugInfo:
     """e약은요 응답 파싱 결과"""
+
     item_name: str
     efcy_qesitm: str = ""
     use_method_qesitm: str = ""
@@ -176,8 +168,9 @@ class DrugInfo:
 @dataclass
 class DurItem:
     """DUR API 파싱 결과"""
+
     item_name: str
-    dur_type: str           # COMBINATION | AGE | PREGNANCY
+    dur_type: str  # COMBINATION | AGE | PREGNANCY
     prohbt_content: str = ""
     remark: str = ""
 
@@ -185,11 +178,12 @@ class DurItem:
 @dataclass
 class DrugApiResult:
     """약품명별 API 조회 결과"""
+
     medication_name: str
     drug_info: DrugInfo | None = None
     dur_items: list[DurItem] = field(default_factory=list)
     matched: bool = False
-    matched_name: str | None = None     # ✅ 실제 매칭된 API 검색어 기록
+    matched_name: str | None = None  # ✅ 실제 매칭된 API 검색어 기록
     warning: str | None = None
 
 

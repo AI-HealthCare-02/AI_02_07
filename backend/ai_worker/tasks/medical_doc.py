@@ -13,7 +13,6 @@ import json
 
 import httpx
 
-
 from ai_worker.core.config import get_worker_settings
 from ai_worker.core.logger import setup_logger
 
@@ -37,6 +36,7 @@ def get_openai_client() -> AsyncOpenAI:
 # ── 이미지 전처리 ──────────────────────────
 def preprocess_image(image_bytes: bytes, rotate: int = 0) -> bytes:
     from PIL import Image, ImageOps
+
     img = Image.open(io.BytesIO(image_bytes))
     try:
         img = ImageOps.exif_transpose(img)

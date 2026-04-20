@@ -32,20 +32,17 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="Asia/Seoul",
     enable_utc=True,
-
     # 큐 라우팅
     task_routes={
         "app.tasks.reminder_task.send_due_reminders": {"queue": "reminder_queue"},
     },
-
     # Beat 스케줄: 매분 실행 → 해당 분 알림 대상 필터링
     beat_schedule={
         "check-reminders-every-minute": {
             "task": "app.tasks.reminder_task.send_due_reminders",
-            "schedule": crontab(minute="*"),   # 매분
+            "schedule": crontab(minute="*"),  # 매분
         },
     },
-
     # 재시도 설정
     task_acks_late=True,
     task_reject_on_worker_lost=True,

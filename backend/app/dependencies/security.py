@@ -1,5 +1,7 @@
-from app.models.user import User
 from fastapi import HTTPException
+
+from app.models.user import User
+
 
 async def get_current_user() -> User:
     user = await User.filter(is_suspended=False).first()
