@@ -93,6 +93,15 @@ async def analyze_document(
             image_bytes_list=image_bytes_list,
             document_type=document_type,
         )
+
+        # 비의료 문서 감지 시 400 에러 반환
+        if result.get("error") == "non_medical_document":
+            await medical_doc_service.fail_analysis_job(job, result["message"])
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["message"],
+            )
+
         processing_time = time.time() - start_time
         ocr_raw_text = result.get("raw_summary", "")
 
@@ -107,6 +116,8 @@ async def analyze_document(
         result["doc_result_id"] = saved_result.doc_result_id
         result["processing_time"] = round(processing_time, 2)
 
+    except HTTPException:
+        raise
     except Exception as e:
         await medical_doc_service.fail_analysis_job(job, str(e))
         logger.error(f"의료 문서 분석 실패: {e}", exc_info=True)
