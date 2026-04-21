@@ -11,8 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from tortoise.contrib.fastapi import register_tortoise
 
-from app.apis.v1 import api_v1_router
 from app.apis.admin_router import admin_router
+from app.apis.v1 import api_v1_router
 from app.core.config import get_settings
 from app.core.redis import close_redis, init_redis
 from app.db.databases import MODELS
@@ -212,9 +212,7 @@ async def _seed_tester_account() -> None:
 
     existing = await User.get_or_none(email=settings.DEV_TESTER_EMAIL)
     if existing:
-        logger.info(
-            f"  ✅ 테스터 계정 이미 존재: user_id={existing.user_id}, email={existing.email}"
-        )
+        logger.info(f"  ✅ 테스터 계정 이미 존재: user_id={existing.user_id}, email={existing.email}")
         return
 
     tester = await User.create(
@@ -225,9 +223,7 @@ async def _seed_tester_account() -> None:
         provider_code="LOCAL",
         provider_id=None,
     )
-    logger.info(
-        f"  🧪 테스터 계정 생성 완료: user_id={tester.user_id}, email={tester.email}"
-    )
+    logger.info(f"  🧪 테스터 계정 생성 완료: user_id={tester.user_id}, email={tester.email}")
 
 
 # ── 앱 인스턴스 생성 ──

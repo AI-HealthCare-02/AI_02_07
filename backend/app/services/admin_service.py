@@ -7,7 +7,6 @@ from datetime import UTC, date, datetime, timedelta
 import bcrypt
 from fastapi import HTTPException, status
 from tortoise.expressions import Q
-from tortoise.functions import Count
 
 from app.core.redis import get_redis
 from app.core.security import create_access_token
@@ -130,29 +129,19 @@ async def get_dashboard_summary() -> DashboardSummaryDTO:
     total_users = await User.filter(deleted_at=None).count()
 
     # 오늘 활성 사용자: last_active_at 기준
-    today_active_users = await User.filter(
-        deleted_at=None, last_active_at__gte=today_start
-    ).count()
+    today_active_users = await User.filter(deleted_at=None, last_active_at__gte=today_start).count()
 
     # 오늘 의료문서 사용률 (오늘 분석 요청 건수)
     from app.models.medical_doc import DocAnalysisJob
 
-    ocr_usage_count = await DocAnalysisJob.filter(
-        created_at__gte=today_start, is_deleted=False
-    ).count()
+    ocr_usage_count = await DocAnalysisJob.filter(created_at__gte=today_start, is_deleted=False).count()
 
     # 오늘 챗봇 문의 (USER 메시지 기준)
-    today_chat_count = await ChatMessage.filter(
-        created_at__gte=today_start, sender_type_code="USER"
-    ).count()
+    today_chat_count = await ChatMessage.filter(created_at__gte=today_start, sender_type_code="USER").count()
 
     # 오늘 필터 차단
-    domain_blocked = await ChatMessage.filter(
-        created_at__gte=today_start, filter_result="DOMAIN"
-    ).count()
-    emergency_blocked = await ChatMessage.filter(
-        created_at__gte=today_start, filter_result="EMERGENCY"
-    ).count()
+    domain_blocked = await ChatMessage.filter(created_at__gte=today_start, filter_result="DOMAIN").count()
+    emergency_blocked = await ChatMessage.filter(created_at__gte=today_start, filter_result="EMERGENCY").count()
 
     return DashboardSummaryDTO(
         totalUsers=total_users,
@@ -234,10 +223,10 @@ def _fmt_key(label_date: object, period: str) -> str:
     """
     s = str(label_date)  # datetime.date → "YYYY-MM-DD"
     if period == "MONTHLY":
-        return s[:7]   # "2026-04-01" → "2026-04"
+        return s[:7]  # "2026-04-01" → "2026-04"
     if period == "YEARLY":
-        return s[:4]   # "2026-01-01" → "2026"
-    return s           # DAILY: "2026-04-13" 그대로
+        return s[:4]  # "2026-01-01" → "2026"
+    return s  # DAILY: "2026-04-13" 그대로
 
 
 async def _chart_signup(period, start, end, labels) -> list[ChartDatasetDTO]:
@@ -314,8 +303,8 @@ async def _chart_filter(period, start, end, labels) -> list[ChartDatasetDTO]:
         """,
         [start, end + timedelta(days=1)],
     )
-    domain_map    = {_fmt_key(r["label"], period): int(r["domain"])    for r in rows}
-    emergency_map  = {_fmt_key(r["label"], period): int(r["emergency"]) for r in rows}
+    domain_map = {_fmt_key(r["label"], period): int(r["domain"]) for r in rows}
+    emergency_map = {_fmt_key(r["label"], period): int(r["emergency"]) for r in rows}
     return [
         ChartDatasetDTO(label="도메인 차단", data=[domain_map.get(lbl, 0) for lbl in labels]),
         ChartDatasetDTO(label="응급 차단", data=[emergency_map.get(lbl, 0) for lbl in labels]),
@@ -334,9 +323,7 @@ _PROVIDER_NAME_MAP = {
 }
 
 
-async def get_admin_user_list(
-    page: int, size: int, keyword: str | None, status_filter: str
-) -> AdminUserListDTO:
+async def get_admin_user_list(page: int, size: int, keyword: str | None, status_filter: str) -> AdminUserListDTO:
     qs = User.filter(deleted_at=None)
 
     if keyword:

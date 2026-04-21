@@ -67,8 +67,8 @@ def log_confidence_warnings(analysis_result: dict, job_id: int) -> None:
         if med_confidence < CONFIDENCE_THRESHOLD:
             logger.warning(
                 f"[confidence 경고] 약품 신뢰도 낮음: "
-                f"[{i+1}번째] medication_name={medication_name}, "
-                f"[{i+1}번] medication_name={medication_name}, "
+                f"[{i + 1}번째] medication_name={medication_name}, "
+                f"[{i + 1}번] medication_name={medication_name}, "
                 f"confidence={med_confidence} (job_id={job_id})"
             )
 
@@ -76,10 +76,10 @@ def log_confidence_warnings(analysis_result: dict, job_id: int) -> None:
         if med.get("timing") is None:
             logger.warning(
                 f"[confidence 경고] 복약안내 누락: "
-                f"[{i+1}번째] medication_name={medication_name}, "
+                f"[{i + 1}번째] medication_name={medication_name}, "
                 f"timing=null (job_id={job_id})"
                 f"[confidence 경고] 복용법 미확인: "
-                f"[{i+1}번] medication_name={medication_name}, "
+                f"[{i + 1}번] medication_name={medication_name}, "
                 f"instructions=null (job_id={job_id})"
             )
 
@@ -91,7 +91,7 @@ def log_confidence_warnings(analysis_result: dict, job_id: int) -> None:
         if item_confidence < CONFIDENCE_THRESHOLD:
             logger.warning(
                 f"[confidence 경고] 검사항목 신뢰도 낮음: "
-                f"[{i+1}번째] item_name={item_name}, "
+                f"[{i + 1}번째] item_name={item_name}, "
                 f"confidence={item_confidence} (job_id={job_id})"
             )
 
@@ -164,10 +164,16 @@ async def get_analysis_results(
         is_deleted=False,
     ).count()
 
-    results = await DocAnalysisResult.filter(
-        user=user,
-        is_deleted=False,
-    ).prefetch_related("job").order_by("-created_at").offset(offset).limit(page_size)
+    results = (
+        await DocAnalysisResult.filter(
+            user=user,
+            is_deleted=False,
+        )
+        .prefetch_related("job")
+        .order_by("-created_at")
+        .offset(offset)
+        .limit(page_size)
+    )
 
     return {
         "total": total,

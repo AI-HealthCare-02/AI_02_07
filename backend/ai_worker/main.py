@@ -60,6 +60,7 @@ async def run_worker() -> None:
     # Langfuse 환경변수 세팅 (langfuse.openai drop-in이 자동 인식)
     try:
         import os
+
         if settings.LANGFUSE_TRACING and settings.LANGFUSE_PUBLIC_KEY:
             os.environ.setdefault("LANGFUSE_PUBLIC_KEY", settings.LANGFUSE_PUBLIC_KEY)
             os.environ.setdefault("LANGFUSE_SECRET_KEY", settings.LANGFUSE_SECRET_KEY)

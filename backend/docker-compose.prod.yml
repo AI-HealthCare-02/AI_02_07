@@ -1,9 +1,7 @@
 # docker-compose.prod.yml
 # ──────────────────────────────────────────────
 # EC2 t3.medium 프로덕션 배포용 (vCPU 2, RAM 4GB, Disk 30GB)
-# - worker 3개로 동시 요청 처리
-# - 메모리/로그 제한 설정 필수
-# docker compose -f docker-compose.prod.yml up -d
+# docker compose -f docker-compose.prod.yml up -d --build
 # ──────────────────────────────────────────────
 
 services:
@@ -12,12 +10,11 @@ services:
     image: postgres:16-alpine
     container_name: healthguide-db
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${DB_USER:-healthguide}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME:-healthguide_db}
+    env_file: envs/.prod.env
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "0.0.0.0:5432:5432"
     networks:
       - ws
     deploy:
@@ -60,13 +57,34 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ── FastAPI 서버 (worker 3개, ~600MB) ──
+  # ── DB 마이그레이션 (배포 시 1회 실행 후 종료) ──
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: envs/.prod.env
+    command: ["python", "-m", "app.services.db_init_service"]
+    networks:
+      - ws
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ── FastAPI 서버 (uvicorn worker 2개, ~600MB) ──
   app:
-    image: ${DOCKER_USER}/${DOCKER_REPOSITORY}:app-${APP_VERSION}
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: healthguide-app
     restart: unless-stopped
     env_file: envs/.prod.env
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "3"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
     networks:
       - ws
     deploy:
@@ -78,15 +96,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     logging:
       driver: json-file
       options:
-        max-size: "20m"
-        max-file: "5"
+        max-size: "10m"
+        max-file: "3"
 
-  # ── AI Worker (worker 2개, ~400MB) ──
+  # ── AI Worker (concurrency 2, ~400MB) ──
   ai_worker:
-    image: ${DOCKER_USER}/${DOCKER_REPOSITORY}:worker-${AI_WORKER_VERSION}
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     container_name: healthguide-worker
     restart: unless-stopped
     env_file: envs/.prod.env
@@ -103,21 +125,22 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "20m"
-        max-file: "5"
+        max-size: "10m"
+        max-file: "3"
 
   # ── Nginx (~64MB) ──
   nginx:
-    image: nginx:1.27-alpine
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
     container_name: healthguide-nginx
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/prod_http.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
-      - certbot_www:/var/www/certbot:ro
+      - certbot_www:/var/www/certbot
     networks:
       - ws
     deploy:

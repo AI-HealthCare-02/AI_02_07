@@ -50,7 +50,7 @@ class GuideService:
         total, guides = await self._repo.get_guides_by_user(user_id, period, status, page, size)
 
         today = date.today()
-        week_ago = today - timedelta(days=6)   # 오늘 포함 최근 7일
+        week_ago = today - timedelta(days=6)  # 오늘 포함 최근 7일
 
         items: list[GuideListItem] = []
         for g in guides:
@@ -68,9 +68,7 @@ class GuideService:
             # 최근 7일 복약 이행률
             weekly_rate: float | None = None
             if med_count_val > 0:
-                week_checks = await self._repo.get_med_checks_by_period(
-                    g.guide_id, week_ago, today
-                )
+                week_checks = await self._repo.get_med_checks_by_period(g.guide_id, week_ago, today)
                 days_elapsed = (today - max(week_ago, g.med_start_date)).days + 1
                 if days_elapsed > 0:
                     possible = days_elapsed * med_count_val
@@ -100,9 +98,7 @@ class GuideService:
     # 가이드 생성 (직접 입력)
     # ──────────────────────────────────────────
     async def create_guide(self, user_id: int, req: GuideCreateRequest) -> GuideCreateResponse:
-        title = req.title or (
-            f"{req.diagnosis_name} 가이드" if req.diagnosis_name else "건강 가이드"
-        )
+        title = req.title or (f"{req.diagnosis_name} 가이드" if req.diagnosis_name else "건강 가이드")
 
         guide = await self._repo.create_guide(
             user_id=user_id,
@@ -188,9 +184,21 @@ class GuideService:
         await self._get_guide_or_404(guide_id, user_id)
         conditions = await self._repo.get_conditions(guide_id)
 
-        diseases = [ConditionItem(condition_id=c.condition_id, name=c.name) for c in conditions if c.condition_type == "CT_DISEASE"]
-        current_meds = [ConditionItem(condition_id=c.condition_id, name=c.name) for c in conditions if c.condition_type == "CT_CURRENT_MED"]
-        allergies = [ConditionItem(condition_id=c.condition_id, name=c.name) for c in conditions if c.condition_type == "CT_ALLERGY"]
+        diseases = [
+            ConditionItem(condition_id=c.condition_id, name=c.name)
+            for c in conditions
+            if c.condition_type == "CT_DISEASE"
+        ]
+        current_meds = [
+            ConditionItem(condition_id=c.condition_id, name=c.name)
+            for c in conditions
+            if c.condition_type == "CT_CURRENT_MED"
+        ]
+        allergies = [
+            ConditionItem(condition_id=c.condition_id, name=c.name)
+            for c in conditions
+            if c.condition_type == "CT_ALLERGY"
+        ]
 
         return ConditionsResponse(diseases=diseases, current_meds=current_meds, allergies=allergies)
 
@@ -203,9 +211,7 @@ class GuideService:
     # ──────────────────────────────────────────
     # AI 가이드 생성
     # ──────────────────────────────────────────
-    async def generate_ai_guide(
-        self, guide_id: int, user_id: int, req: AiGenerateRequest
-    ) -> AiGenerateResponse:
+    async def generate_ai_guide(self, guide_id: int, user_id: int, req: AiGenerateRequest) -> AiGenerateResponse:
         guide = await self._get_guide_or_404(guide_id, user_id)
         meds = await self._repo.get_medications(guide_id)
         if not meds:
@@ -238,9 +244,7 @@ class GuideService:
             results=saved_results,
         )
 
-    async def get_ai_results(
-        self, guide_id: int, user_id: int, result_type: str | None
-    ) -> list[AiResultDetailItem]:
+    async def get_ai_results(self, guide_id: int, user_id: int, result_type: str | None) -> list[AiResultDetailItem]:
         await self._get_guide_or_404(guide_id, user_id)
         results = await self._repo.get_latest_ai_results(guide_id, result_type)
         return [
@@ -258,9 +262,7 @@ class GuideService:
     # ──────────────────────────────────────────
     # 복약 체크
     # ──────────────────────────────────────────
-    async def get_med_check(
-        self, guide_id: int, user_id: int, check_date: date | None
-    ) -> MedCheckResponse:
+    async def get_med_check(self, guide_id: int, user_id: int, check_date: date | None) -> MedCheckResponse:
         guide = await self._get_guide_or_404(guide_id, user_id)
         target_date = check_date or date.today()
         meds = await self._repo.get_medications(guide_id)
@@ -293,9 +295,7 @@ class GuideService:
             items=items,
         )
 
-    async def create_med_check(
-        self, guide_id: int, user_id: int, req: MedCheckCreateRequest
-    ) -> MedCheckCreateResponse:
+    async def create_med_check(self, guide_id: int, user_id: int, req: MedCheckCreateRequest) -> MedCheckCreateResponse:
         await self._get_guide_or_404(guide_id, user_id)
 
         if await self._repo.check_duplicate(req.guide_medication_id, req.check_date):
@@ -353,9 +353,7 @@ class GuideService:
             for r in reminders
         ]
 
-    async def create_reminder(
-        self, guide_id: int, user_id: int, req: ReminderCreateRequest
-    ) -> ReminderSimpleResponse:
+    async def create_reminder(self, guide_id: int, user_id: int, req: ReminderCreateRequest) -> ReminderSimpleResponse:
         await self._get_guide_or_404(guide_id, user_id)
 
         reminder = await self._repo.create_reminder(
@@ -445,9 +443,7 @@ class GuideService:
     # ──────────────────────────────────────────
     # AI 가이드 생성 진행 상태 조회
     # ──────────────────────────────────────────
-    async def get_ai_generate_status(
-        self, guide_id: int, user_id: int
-    ) -> AiGenerateStatusResponse:
+    async def get_ai_generate_status(self, guide_id: int, user_id: int) -> AiGenerateStatusResponse:
         await self._get_guide_or_404(guide_id, user_id)
         results = await self._repo.get_latest_ai_results(guide_id)
 
@@ -471,9 +467,7 @@ class GuideService:
     # ──────────────────────────────────────────
     # 문서 분석 결과로 가이드 생성 (승원 파트 연동)
     # ──────────────────────────────────────────
-    async def create_guide_from_doc(
-        self, user_id: int, req: GuideCreateFromDocRequest
-    ) -> GuideCreateResponse:
+    async def create_guide_from_doc(self, user_id: int, req: GuideCreateFromDocRequest) -> GuideCreateResponse:
         """
         의료 문서 분석 결과(doc_result_id)를 읽어 가이드 + 약물 정보를 자동 생성.
         약봉투는 diagnosis_name이 null일 수 있으므로 병원명으로 title 대체.
@@ -511,8 +505,7 @@ class GuideService:
                 visit_date = None
 
         title = req.title or (
-            f"{diagnosis_name} 가이드" if diagnosis_name
-            else f"{hospital_name or '의료 문서'} 복약 가이드"
+            f"{diagnosis_name} 가이드" if diagnosis_name else f"{hospital_name or '의료 문서'} 복약 가이드"
         )
 
         guide = await self._repo.create_guide(

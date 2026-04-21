@@ -12,7 +12,7 @@ class Guide(Model):
     guide_id = fields.IntField(pk=True)
     user = fields.ForeignKeyField("models.User", related_name="guides", on_delete=fields.CASCADE)
     title = fields.CharField(max_length=200)
-    diagnosis_name = fields.CharField(max_length=200, null=True)   # 약봉투 분석 시 null 허용
+    diagnosis_name = fields.CharField(max_length=200, null=True)  # 약봉투 분석 시 null 허용
     hospital_name = fields.CharField(max_length=200, null=True)
     visit_date = fields.DateField(null=True)
     med_start_date = fields.DateField()
@@ -35,10 +35,10 @@ class GuideMedication(Model):
     medication_id = fields.IntField(pk=True)
     guide = fields.ForeignKeyField("models.Guide", related_name="medications", on_delete=fields.CASCADE)
     medication_name = fields.CharField(max_length=200)
-    dosage = fields.CharField(max_length=100, null=True)         # 1회 용량
-    frequency = fields.CharField(max_length=50, null=True)       # 복용 횟수
-    timing = fields.CharField(max_length=200, null=True)         # 식전/식후 (복수 선택 시 쉼표 구분)
-    duration_days = fields.IntField(null=True)                   # 투약 기간(일)
+    dosage = fields.CharField(max_length=100, null=True)  # 1회 용량
+    frequency = fields.CharField(max_length=50, null=True)  # 복용 횟수
+    timing = fields.CharField(max_length=200, null=True)  # 식전/식후 (복수 선택 시 쉼표 구분)
+    duration_days = fields.IntField(null=True)  # 투약 기간(일)
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
@@ -113,9 +113,9 @@ class GuideReminder(Model):
 
     reminder_id = fields.IntField(pk=True)
     guide = fields.ForeignKeyField("models.Guide", related_name="reminders", on_delete=fields.CASCADE)
-    reminder_time = fields.TimeField()                           # HH:MM:SS
+    reminder_time = fields.TimeField()  # HH:MM:SS
     repeat_type = fields.CharField(max_length=20, default="RPT_DAILY")
-    custom_days = fields.JSONField(null=True)                    # RPT_CUSTOM일 때 요일 목록
+    custom_days = fields.JSONField(null=True)  # RPT_CUSTOM일 때 요일 목록
     is_browser_noti = fields.BooleanField(default=False)
     is_email_noti = fields.BooleanField(default=False)
     is_active = fields.BooleanField(default=True)

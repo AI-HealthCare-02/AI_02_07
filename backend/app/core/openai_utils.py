@@ -12,7 +12,7 @@ except ImportError:
 __all__ = ["AsyncOpenAI", "build_create_kwargs"]
 
 _COMPLETION_TOKENS_PREFIXES = ("o1", "o3", "gpt-5")
-_NO_TEMPERATURE_PREFIXES    = ("o1", "o3", "gpt-5")
+_NO_TEMPERATURE_PREFIXES = ("o1", "o3", "gpt-5")
 
 
 def build_create_kwargs(
