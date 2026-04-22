@@ -5,9 +5,9 @@
 # ──────────────────────────────────────────────
 
 services:
-  # ── PostgreSQL (~400MB) ──
+  # ── PostgreSQL + pgvector (~512MB) ──
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: healthguide-db
     restart: unless-stopped
     env_file: envs/.prod.env
@@ -20,7 +20,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 768m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-healthguide}"]
       interval: 10s

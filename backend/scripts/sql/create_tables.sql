@@ -7,6 +7,12 @@
 -- =============================================================
 
 -- ============================================================
+-- 0-0. extensions
+-- ============================================================
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- ============================================================
 -- 0. 공통 코드 체계
 -- ============================================================
 CREATE TABLE IF NOT EXISTS common_group_code (
@@ -746,6 +752,35 @@ COMMENT ON COLUMN pill_analysis_history.storage_method IS '보관 방법';
 CREATE INDEX IF NOT EXISTS idx_pill_analysis_user ON pill_analysis_history (user_id);
 CREATE INDEX IF NOT EXISTS idx_pill_analysis_file ON pill_analysis_history (file_id);
 
+
+-- ============================================================
+-- 25. 약품 RAG 임베딩
+-- ============================================================
+CREATE TABLE IF NOT EXISTS drug_embeddings (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    item_seq     VARCHAR(20)  NOT NULL,            -- 약품 고유코드
+    item_name    VARCHAR(500) NOT NULL,            -- 약품명
+    etc_otc_code VARCHAR(50),                      -- 전문/일반 구분
+    chunk_type   VARCHAR(20)  NOT NULL,            -- 'efficacy' | 'caution' | 'ingredient'
+    chunk_text   TEXT         NOT NULL,            -- 임베딩 원문
+    embedding    vector(1536),                     -- text-embedding-3-small
+    metadata     JSONB,                            -- 원본 전체 데이터
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+    UNIQUE (item_seq, chunk_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_drug_emb_item_seq
+    ON drug_embeddings (item_seq);
+
+-- pg_trgm 인덱스: 약품명 유사도 검색 (오타 허용)
+CREATE INDEX IF NOT EXISTS idx_drug_name_trgm
+    ON drug_embeddings USING gin (item_name gin_trgm_ops);
+
+-- IVFFlat 인덱스: 임베딩 데이터가 충분히 쌓인 후 생성 (embed_drugs.py 실행 후)
+-- CREATE INDEX idx_drug_emb_ivfflat
+--     ON drug_embeddings USING ivfflat (embedding vector_cosine_ops)
+--     WITH (lists = 100);
 
 -- ============================================================
 -- 완료 메시지
