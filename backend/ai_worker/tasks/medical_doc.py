@@ -1,11 +1,10 @@
 # ai_worker/tasks/medical_doc.py
-# ──────────────────────────────────────────────
-# 의료 문서 분석 작업 핸들러 — 이승원 담당
+# ──────────────────────────────────────────
+# 의료 문서 분석 작업 핸들러 – 이승원 담당
 #
 # 이미지/PDF 업로드 → Clova OCR → GPT-4o-mini 구조화 → 결과 반환
 # Langfuse 모니터링 통합 (황보수호)
 # ──────────────────────────────────────────
-
 
 import base64
 import io
@@ -57,6 +56,62 @@ def preprocess_image(image_bytes: bytes, rotate: int = 0) -> bytes:
 def image_to_base64(image_bytes: bytes) -> str:
     """이미지 바이트를 base64 문자열로 변환"""
     return base64.b64encode(image_bytes).decode("utf-8")
+
+
+# ── 비의료 문서 감지 ──────────────────────
+async def validate_medical_document(client: AsyncOpenAI, image_bytes: bytes) -> dict:
+    """
+    이미지가 의료 문서인지 검증
+    - 처방전 / 진료기록 / 약봉투 → 통과
+    - 얼굴사진 / 풍경 / 영수증 등 → 거부
+
+    Returns:
+        {"is_valid": True} or {"is_valid": False, "reason": "거부 사유"}
+    """
+    image_base64 = image_to_base64(preprocess_image(image_bytes))
+
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        max_tokens=100,
+        name="validate_medical_doc",  # Langfuse 추적용
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{image_base64}",
+                            "detail": "low",  # 비용 절감
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": """이 이미지가 의료 문서인지 판단해줘.
+의료 문서란: 처방전, 진료기록, 약봉투, 검사결과지 등.
+의료 문서가 아닌 것: 얼굴사진, 풍경사진, 음식사진, 일반 영수증, 명함, 신분증 등.
+
+반드시 아래 JSON만 출력하고 다른 말은 하지 마.
+{"is_valid": true} 또는 {"is_valid": false, "reason": "거부 사유 한 문장"}""",
+                    },
+                ],
+            }
+        ],
+    )
+
+    raw = response.choices[0].message.content.strip()
+    try:
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        return json.loads(raw)
+    except Exception:
+        # 파싱 실패 시 통과 처리 (오탐 방지)
+        logger.warning(f"의료 문서 검증 파싱 실패, 통과 처리: {raw}")
+        return {"is_valid": True}
 
 
 # ── 클로바 OCR ─────────────────────────────
@@ -304,10 +359,24 @@ async def analyze_medical_document(
 
     Returns:
         분석 결과 JSON dict
+        비의료 문서인 경우: {"error": "non_medical_document", "message": "..."}
     """
     client = get_openai_client()
-    all_texts = []
 
+    # ── Step 1. 비의료 문서 감지 (첫 번째 이미지 기준으로 검증) ──
+    logger.info("비의료 문서 감지 검증 시작...")
+    validation = await validate_medical_document(client, image_bytes_list[0])
+    if not validation.get("is_valid", True):
+        logger.warning(f"비의료 문서 감지: {validation.get('reason')}")
+        return {
+            "error": "non_medical_document",
+            "message": "의료 문서가 아닌 이미지가 업로드되었습니다. 처방전, 진료기록, 약봉투 이미지를 업로드해주세요.",
+            "overall_confidence": 0.0,
+        }
+    logger.info("의료 문서 검증 통과")
+
+    # ── Step 2. OCR 텍스트 추출 ──
+    all_texts = []
     for i, image_bytes in enumerate(image_bytes_list):
         logger.info(f"[{i + 1}/{len(image_bytes_list)}] 이미지 처리 중...")
         text = await extract_text_with_auto_rotate(image_bytes)
@@ -322,5 +391,6 @@ async def analyze_medical_document(
     combined_text = "\n\n".join(all_texts)
     logger.info(f"전체 추출 텍스트 길이: {len(combined_text)}자")
 
+    # ── Step 3. GPT 구조화 분석 ──
     result = await analyze_with_gpt(client, combined_text, document_type)
     return result

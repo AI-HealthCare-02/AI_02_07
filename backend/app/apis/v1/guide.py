@@ -10,6 +10,7 @@ from app.dtos.guide_dto import (
     AiResultDetailItem,
     ConditionsPutRequest,
     ConditionsResponse,
+    GuideCreateFromDocRequest,  # ✅ 추가 — 승원 파트 연동용 DTO
     GuideCreateRequest,
     GuideCreateResponse,
     GuideDetailResponse,
@@ -60,6 +61,23 @@ async def create_guide(
     svc: GuideService = Depends(get_service),
 ) -> GuideCreateResponse:
     return await svc.create_guide(current_user.user_id, req)
+
+
+# ✅ 추가 — 승원 파트(의료문서 분석) 결과로 가이드 자동 생성하는 엔드포인트
+# 흐름: 사용자가 처방전 업로드 → 승원 파트 분석 → doc_result_id 반환
+#       → 프론트에서 이 API 호출 → 가이드 자동 생성
+@router.post(
+    "/from-doc",
+    response_model=GuideCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="문서 분석 결과로 가이드 자동 생성 (승원 파트 연동)",
+)
+async def create_guide_from_doc(
+    req: GuideCreateFromDocRequest,
+    current_user: User = Depends(get_current_user),
+    svc: GuideService = Depends(get_service),
+) -> GuideCreateResponse:
+    return await svc.create_guide_from_doc(current_user.user_id, req)
 
 
 @router.get("/{guide_id}", response_model=GuideDetailResponse, summary="가이드 상세 조회")
