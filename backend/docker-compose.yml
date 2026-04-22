@@ -7,9 +7,9 @@
 # ──────────────────────────────────────────────
 
 services:
-  # ── PostgreSQL ──
+  # ── PostgreSQL + pgvector ──
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: healthguide-db
     restart: unless-stopped
     environment:

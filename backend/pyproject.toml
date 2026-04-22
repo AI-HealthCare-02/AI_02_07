@@ -18,6 +18,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "tzdata>=2024.1",  # Windows 타임존 데이터 (Linux/Mac에는 시스템 제공)
     "langfuse>=4.2.0",
+    "asyncpg>=0.30",   # embed_drugs.py 스크립트용 (app 그룹과 공유)
 ]
 
 # ── 의존성 그룹: uv sync --group <name> 으로 선택 설치 ──
@@ -29,6 +30,7 @@ app = [
     "tortoise-orm[asyncpg]>=0.24",
     "aerich>=0.8",             # Tortoise ORM 마이그레이션
     "asyncpg>=0.30",
+    "pgvector>=0.3.0",          # pgvector Python 클라이언트
     "sse-starlette>=2.2",      # Server-Sent Events
     "python-multipart>=0.0.18",# 파일 업로드
     "python-jose[cryptography]>=3.3",  # JWT

@@ -41,6 +41,11 @@ from app.apis.v1.guide import router as guide_router
 
 api_v1_router.include_router(guide_router, tags=["건강 가이드"])
 
+# ── RAG ──
+from app.apis.v1.rag import router as rag_router
+
+api_v1_router.include_router(rag_router, prefix="/admin/rag", tags=["관리자 RAG"])
+
 # ── 관리자 ──
 _admin_prefix = "/admin"
 api_v1_router.include_router(admin_auth_router, prefix=f"{_admin_prefix}/auth", tags=["관리자 인증"])
