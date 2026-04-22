@@ -52,7 +52,9 @@ async def list_guides(
     return await svc.list_guides(current_user.user_id, period, status_filter, page, size)
 
 
-@router.post("", response_model=GuideCreateResponse, status_code=status.HTTP_201_CREATED, summary="가이드 직접 입력 생성")
+@router.post(
+    "", response_model=GuideCreateResponse, status_code=status.HTTP_201_CREATED, summary="가이드 직접 입력 생성"
+)
 async def create_guide(
     req: GuideCreateRequest,
     current_user: User = Depends(get_current_user),
@@ -165,7 +167,9 @@ async def generate_ai_guide(
 )
 async def get_ai_results(
     guide_id: int,
-    result_type: str | None = Query(None, description="RT_MEDICATION | RT_LIFESTYLE | RT_CAUTION | RT_DRUG_DETAIL (명시적 요청 시에만 생성)"),
+    result_type: str | None = Query(
+        None, description="RT_MEDICATION | RT_LIFESTYLE | RT_CAUTION | RT_DRUG_DETAIL (명시적 요청 시에만 생성)"
+    ),
     current_user: User = Depends(get_current_user),
     svc: GuideService = Depends(get_service),
 ) -> list[AiResultDetailItem]:

@@ -225,7 +225,6 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
 
 --- 추출된 텍스트 ---
 {extracted_text}""",
-
         "진료기록": f"""아래는 진료기록에서 OCR로 추출한 텍스트야.
 이 텍스트를 분석해서 JSON 형식으로 구조화해줘.
 
@@ -254,7 +253,6 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str) -> str:
 
 --- 추출된 텍스트 ---
 {extracted_text}""",
-
         "약봉투": f"""아래는 약봉투에서 OCR로 추출한 텍스트야.
 이 텍스트를 분석해서 JSON 형식으로 구조화해줘.
 
