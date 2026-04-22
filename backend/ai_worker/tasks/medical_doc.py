@@ -34,6 +34,7 @@ def get_openai_client() -> AsyncOpenAI:
 
 # ── 이미지 전처리 ──────────────────────────
 def preprocess_image(image_bytes: bytes, rotate: int = 0) -> bytes:
+    
     from PIL import Image, ImageOps
 
     img = Image.open(io.BytesIO(image_bytes))
