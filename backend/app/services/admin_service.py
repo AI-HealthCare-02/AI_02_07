@@ -230,18 +230,16 @@ def _fmt_key(label_date: object, period: str) -> str:
 
 
 async def _chart_signup(period, start, end, labels) -> list[ChartDatasetDTO]:
-    from tortoise import connections
+    from tortoise.expressions import RawSQL
+    from tortoise.functions import Count
 
-    conn = connections.get("default")
     trunc = _trunc_expr(period)
-    rows = await conn.execute_query_dict(
-        f"""
-        SELECT DATE_TRUNC('{trunc}', created_at)::date AS label, COUNT(*) AS cnt
-        FROM users
-        WHERE created_at >= $1 AND created_at < $2 AND deleted_at IS NULL
-        GROUP BY 1 ORDER BY 1
-        """,
-        [start, end + timedelta(days=1)],
+    rows = (
+        await User.filter(created_at__gte=start, created_at__lt=end + timedelta(days=1), deleted_at=None)
+        .annotate(label=RawSQL(f"DATE_TRUNC('{trunc}', created_at)::date"), cnt=Count("user_id"))
+        .group_by("label")
+        .order_by("label")
+        .values("label", "cnt")
     )
     data_map = {_fmt_key(r["label"], period): int(r["cnt"]) for r in rows}
     data = [data_map.get(lbl, 0) for lbl in labels]
@@ -249,18 +247,18 @@ async def _chart_signup(period, start, end, labels) -> list[ChartDatasetDTO]:
 
 
 async def _chart_ocr(period, start, end, labels) -> list[ChartDatasetDTO]:
-    from tortoise import connections
+    from tortoise.expressions import RawSQL
+    from tortoise.functions import Count
 
-    conn = connections.get("default")
+    from app.models.medical_doc import DocAnalysisJob
+
     trunc = _trunc_expr(period)
-    rows = await conn.execute_query_dict(
-        f"""
-        SELECT DATE_TRUNC('{trunc}', created_at)::date AS label, COUNT(*) AS cnt
-        FROM doc_analysis_job
-        WHERE created_at >= $1 AND created_at < $2 AND is_deleted = FALSE
-        GROUP BY 1 ORDER BY 1
-        """,
-        [start, end + timedelta(days=1)],
+    rows = (
+        await DocAnalysisJob.filter(created_at__gte=start, created_at__lt=end + timedelta(days=1), is_deleted=False)
+        .annotate(label=RawSQL(f"DATE_TRUNC('{trunc}', created_at)::date"), cnt=Count("job_id"))
+        .group_by("label")
+        .order_by("label")
+        .values("label", "cnt")
     )
     data_map = {_fmt_key(r["label"], period): int(r["cnt"]) for r in rows}
     data = [data_map.get(lbl, 0) for lbl in labels]
@@ -268,18 +266,18 @@ async def _chart_ocr(period, start, end, labels) -> list[ChartDatasetDTO]:
 
 
 async def _chart_chat(period, start, end, labels) -> list[ChartDatasetDTO]:
-    from tortoise import connections
+    from tortoise.expressions import RawSQL
+    from tortoise.functions import Count
 
-    conn = connections.get("default")
     trunc = _trunc_expr(period)
-    rows = await conn.execute_query_dict(
-        f"""
-        SELECT DATE_TRUNC('{trunc}', created_at)::date AS label, COUNT(*) AS cnt
-        FROM chat_messages
-        WHERE created_at >= $1 AND created_at < $2 AND sender_type_code = 'USER'
-        GROUP BY 1 ORDER BY 1
-        """,
-        [start, end + timedelta(days=1)],
+    rows = (
+        await ChatMessage.filter(
+            created_at__gte=start, created_at__lt=end + timedelta(days=1), sender_type_code="USER"
+        )
+        .annotate(label=RawSQL(f"DATE_TRUNC('{trunc}', created_at)::date"), cnt=Count("message_id"))
+        .group_by("label")
+        .order_by("label")
+        .values("label", "cnt")
     )
     data_map = {_fmt_key(r["label"], period): int(r["cnt"]) for r in rows}
     data = [data_map.get(lbl, 0) for lbl in labels]
@@ -287,24 +285,32 @@ async def _chart_chat(period, start, end, labels) -> list[ChartDatasetDTO]:
 
 
 async def _chart_filter(period, start, end, labels) -> list[ChartDatasetDTO]:
-    from tortoise import connections
+    from tortoise.expressions import RawSQL
+    from tortoise.functions import Count
 
-    conn = connections.get("default")
     trunc = _trunc_expr(period)
-    rows = await conn.execute_query_dict(
-        f"""
-        SELECT DATE_TRUNC('{trunc}', created_at)::date AS label,
-               COUNT(*) FILTER (WHERE filter_result = 'DOMAIN') AS domain,
-               COUNT(*) FILTER (WHERE filter_result = 'EMERGENCY') AS emergency
-        FROM chat_messages
-        WHERE created_at >= $1 AND created_at < $2
-          AND filter_result IN ('DOMAIN', 'EMERGENCY')
-        GROUP BY 1 ORDER BY 1
-        """,
-        [start, end + timedelta(days=1)],
+    base_qs = ChatMessage.filter(
+        created_at__gte=start,
+        created_at__lt=end + timedelta(days=1),
+        filter_result__in=["DOMAIN", "EMERGENCY"],
+    ).annotate(label=RawSQL(f"DATE_TRUNC('{trunc}', created_at)::date"))
+
+    domain_rows = (
+        await base_qs.filter(filter_result="DOMAIN")
+        .annotate(cnt=Count("message_id"))
+        .group_by("label")
+        .order_by("label")
+        .values("label", "cnt")
     )
-    domain_map = {_fmt_key(r["label"], period): int(r["domain"]) for r in rows}
-    emergency_map = {_fmt_key(r["label"], period): int(r["emergency"]) for r in rows}
+    emergency_rows = (
+        await base_qs.filter(filter_result="EMERGENCY")
+        .annotate(cnt=Count("message_id"))
+        .group_by("label")
+        .order_by("label")
+        .values("label", "cnt")
+    )
+    domain_map = {_fmt_key(r["label"], period): int(r["cnt"]) for r in domain_rows}
+    emergency_map = {_fmt_key(r["label"], period): int(r["cnt"]) for r in emergency_rows}
     return [
         ChartDatasetDTO(label="도메인 차단", data=[domain_map.get(lbl, 0) for lbl in labels]),
         ChartDatasetDTO(label="응급 차단", data=[emergency_map.get(lbl, 0) for lbl in labels]),

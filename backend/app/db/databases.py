@@ -33,6 +33,8 @@ MODELS: list[str] = [
     "app.models.medical_doc",
     # ── 건강 가이드 (한지수) ──
     "app.models.guide",
+    # ── 알약 분석 (안은지) ──
+    "app.models.pill_analysis",
 ]
 
 # Aerich 마이그레이션 도구와 Tortoise ORM이 공유하는 설정
