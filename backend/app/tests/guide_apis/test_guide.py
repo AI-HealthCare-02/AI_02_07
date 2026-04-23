@@ -53,7 +53,7 @@ class TestGuideCreate:
             with patch("app.services.guide_service.GuideRepository") as mock_repo_cls:
                 mock_repo = mock_repo_cls.return_value
                 mock_guide = MagicMock(
-                    guide_id=1, title="본태성 고혈압 가이드", guide_status="GS_ACTIVE", input_method="IM_MANUAL"
+                    guide_id=1, title="본태성 고혈압 가이드", guide_status_code="ACTIVE", input_method_code="MANUAL"
                 )
                 mock_repo.create_guide = AsyncMock(return_value=mock_guide)
                 mock_repo.create_medications = AsyncMock(return_value=[])
@@ -63,7 +63,7 @@ class TestGuideCreate:
                 assert resp.status_code == status.HTTP_201_CREATED
                 data = resp.json()
                 assert data["guide_id"] == 1
-                assert data["guide_status"] == "GS_ACTIVE"
+                assert data["guide_status"] == "ACTIVE"
 
     async def test_create_guide_missing_medication(self, async_client: AsyncClient, mock_user, guide_payload):
         payload = {**guide_payload, "medications": []}

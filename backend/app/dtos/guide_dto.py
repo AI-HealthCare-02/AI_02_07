@@ -98,7 +98,7 @@ class GuideDetailResponse(BaseModel):
     guide_id: int
     title: str
     hospital_name: str | None
-    diagnosis_name: str
+    diagnosis_name: str | None
     med_start_date: date
     med_end_date: date | None
     guide_status: str
