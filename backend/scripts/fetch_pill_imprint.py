@@ -48,6 +48,8 @@ OUTPUT_FILE = Path(__file__).parent.parent / "drug_json" / "imprint_data.jsonl"
 
 
 def get_api_key() -> str:
+    from urllib.parse import unquote
+
     key = os.getenv("PUBLIC_DATA_API_KEY", "")
     if not key:
         # .prod.env 또는 .local.env에서 직접 읽기 시도
@@ -67,7 +69,8 @@ def get_api_key() -> str:
                 break
     if not key:
         raise ValueError("PUBLIC_DATA_API_KEY 환경변수가 설정되지 않았습니다.")
-    return key
+    # URL 인코딩된 키는 디코딩 (이중 인코딩 방지)
+    return unquote(key)
 
 
 def parse_item(raw: dict) -> dict | None:
