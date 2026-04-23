@@ -133,15 +133,15 @@ async def analyze_pill(
 
     # ── 환경별 분기: 로컬은 직접 처리, 프로덕션은 Worker 큐 ──
     if settings.APP_ENV != "production":
+        import asyncpg
+        from openai import AsyncOpenAI
+
         from ai_worker.tasks.pill_analysis import (
             extract_pill_features,
             fetch_drug_info_from_db,
             find_drug_by_imprint,
             preprocess_image,
         )
-
-        import asyncpg
-        from openai import AsyncOpenAI
 
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         image_b64_list = [preprocess_image(front_bytes), preprocess_image(back_bytes)]
@@ -156,7 +156,8 @@ async def analyze_pill(
             if not features.get("is_pill", True):
                 product_name = "알약 이미지가 아닙니다"
                 analysis = await PillAnalysisHistory.create(
-                    user=current_user, file=uploaded,
+                    user=current_user,
+                    file=uploaded,
                     product_name=product_name,
                     gpt_model_version=settings.OPENAI_MODEL,
                 )
@@ -173,7 +174,8 @@ async def analyze_pill(
                 parts = [v for v in [features.get("print_front"), features.get("print_back")] if v]
                 product_name = f"각인: {', '.join(parts)} (DB 미매칭)" if parts else "식별 불가"
                 analysis = await PillAnalysisHistory.create(
-                    user=current_user, file=uploaded,
+                    user=current_user,
+                    file=uploaded,
                     product_name=product_name,
                     gpt_model_version=settings.OPENAI_MODEL,
                 )

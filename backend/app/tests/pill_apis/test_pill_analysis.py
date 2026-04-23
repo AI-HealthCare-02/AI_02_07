@@ -11,12 +11,11 @@
 """
 
 import io
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from PIL import Image
 from starlette import status
-
 
 # ── 테스트용 이미지 생성 헬퍼 ─────────────────────────────────
 
@@ -40,8 +39,9 @@ def make_upload_file(data: bytes, filename: str = "pill.jpg", content_type: str 
 class TestPreprocessImage:
     def test_resize_large_image(self):
         """2000px 이미지가 1024px 이하로 리사이즈되는지 확인."""
-        from ai_worker.tasks.pill_analysis import preprocess_image
         import base64
+
+        from ai_worker.tasks.pill_analysis import preprocess_image
 
         img_bytes = make_image_bytes(2000, 1500)
         b64 = preprocess_image(img_bytes)
@@ -52,8 +52,9 @@ class TestPreprocessImage:
 
     def test_small_image_not_upscaled(self):
         """작은 이미지(500px)는 확대되지 않는지 확인."""
-        from ai_worker.tasks.pill_analysis import preprocess_image
         import base64
+
+        from ai_worker.tasks.pill_analysis import preprocess_image
 
         img_bytes = make_image_bytes(500, 400)
         b64 = preprocess_image(img_bytes)
@@ -64,8 +65,9 @@ class TestPreprocessImage:
 
     def test_output_is_jpeg(self):
         """출력 포맷이 JPEG인지 확인."""
-        from ai_worker.tasks.pill_analysis import preprocess_image
         import base64
+
+        from ai_worker.tasks.pill_analysis import preprocess_image
 
         img_bytes = make_image_bytes(800, 600, fmt="PNG")
         b64 = preprocess_image(img_bytes)
@@ -76,8 +78,9 @@ class TestPreprocessImage:
 
     def test_aspect_ratio_preserved(self):
         """리사이즈 후 비율이 유지되는지 확인."""
-        from ai_worker.tasks.pill_analysis import preprocess_image
         import base64
+
+        from ai_worker.tasks.pill_analysis import preprocess_image
 
         img_bytes = make_image_bytes(2000, 1000)  # 2:1 비율
         b64 = preprocess_image(img_bytes)
@@ -97,13 +100,13 @@ class TestPreprocessImage:
 
     def test_returns_valid_base64(self):
         """반환값이 유효한 Base64 문자열인지 확인."""
-        from ai_worker.tasks.pill_analysis import preprocess_image
         import base64
+
+        from ai_worker.tasks.pill_analysis import preprocess_image
 
         img_bytes = make_image_bytes(800, 600)
         b64 = preprocess_image(img_bytes)
 
-        # Base64 디코딩 가능한지 확인
         decoded = base64.b64decode(b64)
         assert len(decoded) > 0
 
@@ -117,23 +120,42 @@ class TestPillAnalyzeEndpoint:
 
     async def test_analyze_success(self, client, test_user, auth_headers):
         """정상 이미지 2장 업로드 시 분석 성공."""
-        mock_task_result = {
-            "status": "completed",
-            "result": {
-                "analysis_id": 1,
-                "product_name": "타이레놀정500mg",
-                "efficacy": "해열, 진통",
-                "gpt_model_version": "gpt-4o-mini",
-            },
+        mock_features = {
+            "is_pill": True,
+            "print_front": "IH AL",
+            "print_back": None,
+            "color": "하양",
+            "shape": "장방형",
+        }
+        mock_matched_drug = {
+            "item_seq": "199500630",
+            "item_name": "타이레놀정500mg",
+            "similarity": 0.85,
+        }
+        mock_db_info = {
+            "efficacy": "해열, 진통",
+            "ingredient": "아세트아미노펜",
         }
 
         with (
             patch("app.apis.v1.pill_analysis.upload_file", new_callable=AsyncMock),
-            patch("app.apis.v1.pill_analysis.enqueue_task", new_callable=AsyncMock, return_value="task:abc123"),
-            patch(
-                "app.apis.v1.pill_analysis.wait_for_task_result", new_callable=AsyncMock, return_value=mock_task_result
-            ),
             patch("app.apis.v1.pill_analysis.get_current_user", return_value=test_user),
+            patch(
+                "ai_worker.tasks.pill_analysis.extract_pill_features",
+                new_callable=AsyncMock,
+                return_value=mock_features,
+            ),
+            patch(
+                "ai_worker.tasks.pill_analysis.find_drug_by_imprint",
+                new_callable=AsyncMock,
+                return_value=mock_matched_drug,
+            ),
+            patch(
+                "ai_worker.tasks.pill_analysis.fetch_drug_info_from_db",
+                new_callable=AsyncMock,
+                return_value=mock_db_info,
+            ),
+            patch("asyncpg.connect", new_callable=AsyncMock),
         ):
             front = make_image_bytes(800, 600)
             back = make_image_bytes(800, 600)
@@ -182,17 +204,30 @@ class TestPillAnalyzeEndpoint:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    async def test_analyze_worker_failure(self, client, test_user, auth_headers):
-        """워커 실패 시 500 반환."""
+    async def test_analyze_imprint_not_matched(self, client, test_user, auth_headers):
+        """imprint 매칭 실패 시 각인 정보만 반환."""
+        mock_features = {
+            "is_pill": True,
+            "print_front": "UNKNOWN",
+            "print_back": None,
+            "color": "하양",
+            "shape": "원형",
+        }
+
         with (
             patch("app.apis.v1.pill_analysis.upload_file", new_callable=AsyncMock),
-            patch("app.apis.v1.pill_analysis.enqueue_task", new_callable=AsyncMock, return_value="task:fail"),
-            patch(
-                "app.apis.v1.pill_analysis.wait_for_task_result",
-                new_callable=AsyncMock,
-                return_value={"status": "failed"},
-            ),
             patch("app.apis.v1.pill_analysis.get_current_user", return_value=test_user),
+            patch(
+                "ai_worker.tasks.pill_analysis.extract_pill_features",
+                new_callable=AsyncMock,
+                return_value=mock_features,
+            ),
+            patch(
+                "ai_worker.tasks.pill_analysis.find_drug_by_imprint",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("asyncpg.connect", new_callable=AsyncMock),
         ):
             front = make_image_bytes()
             back = make_image_bytes()
@@ -206,7 +241,10 @@ class TestPillAnalyzeEndpoint:
                 headers=auth_headers,
             )
 
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert "UNKNOWN" in data["data"]["product_name"] or "식별 불가" in data["data"]["product_name"]
 
     async def test_analyze_unauthorized(self, client):
         """인증 없이 요청 시 401."""
@@ -230,22 +268,24 @@ class TestPillAnalysisListEndpoint:
 
     async def _create_history(self, user_id: int, product_name: str = "테스트약") -> int:
         """테스트용 분석 이력 직접 DB 삽입."""
+        import uuid
+
         from tortoise import Tortoise
 
         conn = Tortoise.get_connection("default")
+        unique_key = f"pill/test/{uuid.uuid4().hex}.jpg"
 
-        # uploaded_file 먼저 생성
         file_rows = await conn.execute_query_dict(
             """
             INSERT INTO uploaded_file (
                 user_id, original_name, stored_name, s3_bucket, s3_key, s3_url,
                 content_type, file_size, file_extension,
                 file_category_grp, file_category_code
-            ) VALUES ($1,'test.jpg','test.jpg','bucket','key','http://url',
+            ) VALUES ($1,'test.jpg','test.jpg','bucket',$2,'http://url',
                       'image/jpeg',1024,'.jpg','FILE_CATEGORY','PILL_IMG')
             RETURNING file_id
             """,
-            [user_id],
+            [user_id, unique_key],
         )
         file_id = file_rows[0]["file_id"]
 
@@ -313,19 +353,22 @@ class TestPillAnalysisDetailEndpoint:
     """GET /api/v1/pill-analysis/{id}"""
 
     async def _create_history(self, user_id: int) -> int:
+        import uuid
+
         from tortoise import Tortoise
 
         conn = Tortoise.get_connection("default")
+        unique_key = f"pill/detail/{uuid.uuid4().hex}.jpg"
         file_rows = await conn.execute_query_dict(
             """
             INSERT INTO uploaded_file (
                 user_id, original_name, stored_name, s3_bucket, s3_key, s3_url,
                 content_type, file_size, file_extension,
                 file_category_grp, file_category_code
-            ) VALUES ($1,'t.jpg','t.jpg','b','k','http://u','image/jpeg',1,'.jpg','FILE_CATEGORY','PILL_IMG')
+            ) VALUES ($1,'t.jpg','t.jpg','b',$2,'http://u','image/jpeg',1,'.jpg','FILE_CATEGORY','PILL_IMG')
             RETURNING file_id
             """,
-            [user_id],
+            [user_id, unique_key],
         )
         file_id = file_rows[0]["file_id"]
         rows = await conn.execute_query_dict(
@@ -366,6 +409,7 @@ class TestPillAnalysisDetailEndpoint:
 
     async def test_detail_other_user_forbidden(self, client, test_user, auth_headers):
         """다른 사용자의 분석 결과 조회 시 404 (소유권 보호)."""
+        from app.main import app
         from app.models.user import User
 
         other_user = await User.create(
@@ -377,11 +421,17 @@ class TestPillAnalysisDetailEndpoint:
         )
         analysis_id = await self._create_history(other_user.user_id)
 
-        with patch("app.apis.v1.pill_analysis.get_current_user", return_value=test_user):
+        # FastAPI dependency override로 test_user 고정
+        from app.dependencies.security import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: test_user
+        try:
             response = await client.get(
                 f"/api/v1/pill-analysis/{analysis_id}",
                 headers=auth_headers,
             )
+        finally:
+            app.dependency_overrides.clear()
 
         await other_user.delete()
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -392,19 +442,22 @@ class TestPillAnalysisDeleteEndpoint:
     """DELETE /api/v1/pill-analysis/{id}"""
 
     async def _create_history(self, user_id: int) -> tuple[int, int]:
+        import uuid
+
         from tortoise import Tortoise
 
         conn = Tortoise.get_connection("default")
+        unique_key = f"pill/del/{uuid.uuid4().hex}.jpg"
         file_rows = await conn.execute_query_dict(
             """
             INSERT INTO uploaded_file (
                 user_id, original_name, stored_name, s3_bucket, s3_key, s3_url,
                 content_type, file_size, file_extension,
                 file_category_grp, file_category_code
-            ) VALUES ($1,'d.jpg','d.jpg','b','pill/del.jpg','http://u','image/jpeg',1,'.jpg','FILE_CATEGORY','PILL_IMG')
+            ) VALUES ($1,'d.jpg','d.jpg','b',$2,'http://u','image/jpeg',1,'.jpg','FILE_CATEGORY','PILL_IMG')
             RETURNING file_id
             """,
-            [user_id],
+            [user_id, unique_key],
         )
         file_id = file_rows[0]["file_id"]
         rows = await conn.execute_query_dict(
