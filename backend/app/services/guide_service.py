@@ -1,5 +1,7 @@
 import calendar
+import json
 from datetime import date, datetime, timedelta, timezone
+import logging
 
 from fastapi import HTTPException, status
 
@@ -35,6 +37,31 @@ from app.dtos.guide_dto import (
 from app.repositories.guide_repository import GuideRepository
 from app.services.ai_guide_service import AiGuideService
 
+logger = logging.getLogger(__name__)
+
+# ── timing 한글 → DB 코드 변환 매핑 ──
+TIMING_MAP = {
+    "식후": "AFTER_MEAL",
+    "식전": "BEFORE_MEAL",
+    "식사 중": "WITH_MEAL",
+    "식사중": "WITH_MEAL",
+    "취침 전": "BEFORE_SLEEP",
+    "취침전": "BEFORE_SLEEP",
+    "아침": "MORNING",
+    "필요 시": "AS_NEEDED",
+    "필요시": "AS_NEEDED",
+}
+
+# ✅ 추가: ai_guide_service RT_ 코드 → DB common_code 코드 변환 매핑
+RESULT_TYPE_MAP = {
+    "RT_MEDICATION": "SUMMARY",
+    "RT_LIFESTYLE": "LIFESTYLE_TIP",
+    "RT_CAUTION": "SIDE_EFFECT",
+    "RT_DRUG_DETAIL": "EMERGENCY_SIGN",
+}
+# ✅ 추가: DB 코드 → RT_ 코드 역방향 매핑 (응답 시 사용)
+RESULT_TYPE_REVERSE_MAP = {v: k for k, v in RESULT_TYPE_MAP.items()}
+
 
 class GuideService:
     def __init__(self) -> None:
@@ -50,7 +77,7 @@ class GuideService:
         total, guides = await self._repo.get_guides_by_user(user_id, period, status, page, size)
 
         today = date.today()
-        week_ago = today - timedelta(days=6)  # 오늘 포함 최근 7일
+        week_ago = today - timedelta(days=6)
 
         items: list[GuideListItem] = []
         for g in guides:
@@ -58,14 +85,12 @@ class GuideService:
             med_count_val = len(meds)
 
             d_day: int | None = None
-            if g.med_end_date and g.guide_status == "GS_ACTIVE":
+            if g.med_end_date and g.guide_status_code == "ACTIVE":
                 d_day = (g.med_end_date - today).days
 
-            # 오늘 복약 진행 현황
             today_checks = await self._repo.get_med_checks_by_date(g.guide_id, today)
             today_done = sum(1 for c in today_checks if c.is_taken)
 
-            # 최근 7일 복약 이행률
             weekly_rate: float | None = None
             if med_count_val > 0:
                 week_checks = await self._repo.get_med_checks_by_period(g.guide_id, week_ago, today)
@@ -84,8 +109,8 @@ class GuideService:
                     med_end_date=g.med_end_date,
                     d_day=d_day,
                     medication_count=med_count_val,
-                    guide_status=g.guide_status,
-                    input_method=g.input_method,
+                    guide_status=g.guide_status_code,
+                    input_method=g.input_method_code,
                     hospital_name=g.hospital_name,
                     weekly_compliance_rate=weekly_rate,
                     today_progress_done=today_done,
@@ -110,9 +135,9 @@ class GuideService:
                 "med_start_date": req.med_start_date,
                 "med_end_date": req.med_end_date,
                 "patient_age": req.patient_age,
-                "patient_gender": req.patient_gender,
-                "guide_status": "GS_ACTIVE",
-                "input_method": "IM_MANUAL",
+                "patient_gender_code": req.patient_gender,
+                "guide_status_code": "ACTIVE",
+                "input_method_code": "MANUAL",
             },
         )
 
@@ -126,8 +151,8 @@ class GuideService:
         return GuideCreateResponse(
             guide_id=guide.guide_id,
             title=guide.title,
-            guide_status=guide.guide_status,
-            input_method=guide.input_method,
+            guide_status=guide.guide_status_code,
+            input_method=guide.input_method_code,
         )
 
     # ──────────────────────────────────────────
@@ -144,15 +169,15 @@ class GuideService:
             diagnosis_name=guide.diagnosis_name,
             med_start_date=guide.med_start_date,
             med_end_date=guide.med_end_date,
-            guide_status=guide.guide_status,
-            input_method=guide.input_method,
+            guide_status=guide.guide_status_code,
+            input_method=guide.input_method_code,
             medications=[
                 MedicationDetailItem(
-                    guide_medication_id=m.medication_id,
+                    guide_medication_id=m.guide_medication_id,
                     medication_name=m.medication_name,
                     dosage=m.dosage,
                     frequency=m.frequency,
-                    timing=m.timing,
+                    timing=m.timing_code,
                     duration_days=m.duration_days,
                 )
                 for m in meds
@@ -167,7 +192,11 @@ class GuideService:
         guide = await self._get_guide_or_404(guide_id, user_id)
         update_data = req.model_dump(exclude_none=True)
         guide = await self._repo.update_guide(guide, update_data)
-        return GuidePatchResponse(guide_id=guide.guide_id, title=guide.title, guide_status=guide.guide_status)
+        return GuidePatchResponse(
+            guide_id=guide.guide_id,
+            title=guide.title,
+            guide_status=guide.guide_status_code,
+        )
 
     # ──────────────────────────────────────────
     # 가이드 삭제 (소프트)
@@ -222,21 +251,28 @@ class GuideService:
             guide_id=guide_id,
             medications=med_dicts,
             patient_age=guide.patient_age,
-            patient_gender=guide.patient_gender,
+            patient_gender=guide.patient_gender_code,
             diagnosis_name=guide.diagnosis_name,
             result_types=req.result_types,
         )
 
-        # 결과 저장
         saved_results = []
         for r in result["results"]:
+            # ✅ 수정: RT_ 코드 → DB 코드 변환 후 저장
+            db_result_type = RESULT_TYPE_MAP.get(r["result_type"], r["result_type"])
             saved = await self._repo.create_ai_result(
                 guide_id=guide_id,
-                result_type=r["result_type"],
+                result_type=db_result_type,
                 content=r["content"],
-                status=r["status"],
+                status=r.get("status", "COMPLETED"),
             )
-            saved_results.append({"ai_result_id": saved.ai_result_id, **r})
+            saved_results.append({
+                "ai_result_id": saved.ai_result_id,
+                # ✅ 수정: 응답 시 RT_ 코드로 역변환
+                "result_type": RESULT_TYPE_REVERSE_MAP.get(saved.result_type_code, saved.result_type_code),
+                "content": json.loads(saved.content) if saved.content else {},
+                "status": "COMPLETED",
+            })
 
         return AiGenerateResponse(
             completed=result["completed"],
@@ -246,13 +282,16 @@ class GuideService:
 
     async def get_ai_results(self, guide_id: int, user_id: int, result_type: str | None) -> list[AiResultDetailItem]:
         await self._get_guide_or_404(guide_id, user_id)
-        results = await self._repo.get_latest_ai_results(guide_id, result_type)
+        # ✅ 수정: 조회 시 RT_ 코드 → DB 코드 변환
+        db_result_type = RESULT_TYPE_MAP.get(result_type, result_type) if result_type else None
+        results = await self._repo.get_latest_ai_results(guide_id, db_result_type)
         return [
             AiResultDetailItem(
                 ai_result_id=r.ai_result_id,
-                result_type=r.result_type,
-                content=r.content,
-                status=r.status,
+                # ✅ 수정: DB 코드 → RT_ 코드 역변환
+                result_type=RESULT_TYPE_REVERSE_MAP.get(r.result_type_code, r.result_type_code),
+                content=json.loads(r.content) if r.content else {},
+                status="COMPLETED" if r.is_latest else "OLD",
                 version=r.version,
                 created_at=r.created_at,
             )
@@ -276,13 +315,13 @@ class GuideService:
 
         items: list[MedCheckItem] = []
         for m in meds:
-            c = check_map.get(m.medication_id)
+            c = check_map.get(m.guide_medication_id)
             items.append(
                 MedCheckItem(
                     check_id=c.check_id if c else None,
-                    guide_medication_id=m.medication_id,
+                    guide_medication_id=m.guide_medication_id,
                     medication_name=m.medication_name,
-                    timing=m.timing,
+                    timing=m.timing_code,
                     is_taken=bool(c and c.is_taken),
                     taken_at=c.taken_at if c else None,
                 )
@@ -334,28 +373,26 @@ class GuideService:
         return MessageResponse(message="복약 기록이 취소되었습니다.")
 
     # ──────────────────────────────────────────
-    # 복약 알림 (설정 저장만, 실제 발송 스케줄러 미포함)
-    # 가이드당 여러 알림 카드 지원 (다중 구조)
+    # 복약 알림
     # ──────────────────────────────────────────
-    async def get_reminders(self, guide_id: int, user_id: int) -> list[ReminderResponse]:
+    async def get_reminder(self, guide_id: int, user_id: int) -> ReminderResponse:
         await self._get_guide_or_404(guide_id, user_id)
         reminders = await self._repo.get_reminders(guide_id)
-        return [
-            ReminderResponse(
-                reminder_id=r.reminder_id,
-                reminder_time=r.reminder_time,
-                repeat_type=r.repeat_type,
-                custom_days=r.custom_days,
-                is_browser_noti=r.is_browser_noti,
-                is_email_noti=r.is_email_noti,
-                is_active=r.is_active,
-            )
-            for r in reminders
-        ]
+        if not reminders:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="등록된 알림이 없습니다.")
+        r = reminders[0]
+        return ReminderResponse(
+            reminder_id=r.reminder_id,
+            reminder_time=r.reminder_time,
+            repeat_type=r.repeat_type,
+            custom_days=r.custom_days,
+            is_browser_noti=r.is_browser_noti,
+            is_email_noti=r.is_email_noti,
+            is_active=r.is_active,
+        )
 
     async def create_reminder(self, guide_id: int, user_id: int, req: ReminderCreateRequest) -> ReminderSimpleResponse:
         await self._get_guide_or_404(guide_id, user_id)
-
         reminder = await self._repo.create_reminder(
             guide_id=guide_id,
             data={
@@ -373,28 +410,24 @@ class GuideService:
             is_active=reminder.is_active,
         )
 
-    async def patch_reminder(
-        self, guide_id: int, reminder_id: int, user_id: int, req: ReminderPatchRequest
-    ) -> ReminderSimpleResponse:
+    async def patch_reminder(self, guide_id: int, user_id: int, req: ReminderPatchRequest) -> ReminderSimpleResponse:
         await self._get_guide_or_404(guide_id, user_id)
-        reminder = await self._repo.get_reminder_by_id(reminder_id, guide_id)
-        if not reminder:
+        reminders = await self._repo.get_reminders(guide_id)
+        if not reminders:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="등록된 알림이 없습니다.")
-
-        reminder = await self._repo.update_reminder(reminder, req.model_dump(exclude_none=True))
+        reminder = await self._repo.update_reminder(reminders[0], req.model_dump(exclude_none=True))
         return ReminderSimpleResponse(
             reminder_id=reminder.reminder_id,
             reminder_time=reminder.reminder_time,
             is_active=reminder.is_active,
         )
 
-    async def delete_reminder(self, guide_id: int, reminder_id: int, user_id: int) -> MessageResponse:
+    async def delete_reminder(self, guide_id: int, user_id: int) -> MessageResponse:
         await self._get_guide_or_404(guide_id, user_id)
-        reminder = await self._repo.get_reminder_by_id(reminder_id, guide_id)
-        if not reminder:
+        reminders = await self._repo.get_reminders(guide_id)
+        if not reminders:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="등록된 알림이 없습니다.")
-
-        await self._repo.delete_reminder(reminder)
+        await self._repo.delete_reminder(reminders[0])
         return MessageResponse(message="알림이 삭제되었습니다.")
 
     # ──────────────────────────────────────────
@@ -412,11 +445,9 @@ class GuideService:
         month_end = date(year, month, last_day)
         today = date.today()
 
-        # 해당 월 전체 복약 기록 조회 (미래 날짜 제외)
         fetch_end = min(month_end, today)
         checks_raw = await self._repo.get_med_checks_by_period(guide_id, month_start, fetch_end)
 
-        # 날짜별 그룹화
         checks_by_date: dict[date, list] = {}
         for c in checks_raw:
             checks_by_date.setdefault(c.check_date, []).append(c)
@@ -425,18 +456,18 @@ class GuideService:
         for day in range(1, last_day + 1):
             d = date(year, month, day)
             if d > today or d < guide.med_start_date:
-                status = "future"
+                day_status = "future"
             elif d not in checks_by_date:
-                status = "missed"
+                day_status = "missed"
             else:
                 taken = sum(1 for c in checks_by_date[d] if c.is_taken)
                 if total_meds == 0 or taken == 0:
-                    status = "missed"
+                    day_status = "missed"
                 elif taken >= total_meds:
-                    status = "done"
+                    day_status = "done"
                 else:
-                    status = "partial"
-            days.append(MedCheckDayItem(date=d, status=status))
+                    day_status = "partial"
+            days.append(MedCheckDayItem(date=d, status=day_status))
 
         return MedCheckMonthlyResponse(year=year, month=month, days=days)
 
@@ -450,14 +481,16 @@ class GuideService:
         if not results:
             return AiGenerateStatusResponse(status="pending", completed_types=[])
 
-        completed_types = [r.result_type for r in results if r.status == "COMPLETED"]
-        has_failed = any(r.status == "FAILED" for r in results)
+        completed_types = [
+            # ✅ 수정: DB 코드 → RT_ 코드로 역변환하여 반환
+            RESULT_TYPE_REVERSE_MAP.get(r.result_type_code, r.result_type_code)
+            for r in results if r.is_latest
+        ]
 
-        # RT_MEDICATION, RT_LIFESTYLE, RT_CAUTION 3종 완료 시 done
-        required = {"RT_MEDICATION", "RT_LIFESTYLE", "RT_CAUTION"}
-        if has_failed:
-            overall = "failed"
-        elif required.issubset(set(completed_types)):
+        # ✅ 수정: DB 코드 기준으로 완료 여부 판단
+        db_required = {"SUMMARY", "LIFESTYLE_TIP", "SIDE_EFFECT"}
+        db_completed = {r.result_type_code for r in results if r.is_latest}
+        if db_required.issubset(db_completed):
             overall = "done"
         else:
             overall = "processing"
@@ -472,14 +505,14 @@ class GuideService:
         의료 문서 분석 결과(doc_result_id)를 읽어 가이드 + 약물 정보를 자동 생성.
         약봉투는 diagnosis_name이 null일 수 있으므로 병원명으로 title 대체.
         """
-        # 승원 파트 모델 임포트 (의존성 분리)
         from app.models.medical_doc import DocAnalysisResult
 
         result = await DocAnalysisResult.get_or_none(
             doc_result_id=req.doc_result_id,
-            user_id=user_id,
+            user__user_id=user_id,
             is_deleted=False,
         )
+        logger.info(f"조회 결과: doc_result_id={req.doc_result_id}, user_id={user_id}, result={result}")
         if not result:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -517,8 +550,8 @@ class GuideService:
                 "visit_date": visit_date,
                 "med_start_date": req.med_start_date,
                 "med_end_date": req.med_end_date,
-                "guide_status": "GS_ACTIVE",
-                "input_method": "IM_DOCUMENT",
+                "guide_status_code": "ACTIVE",
+                "input_method_code": "OCR",
             },
         )
 
@@ -527,7 +560,7 @@ class GuideService:
                 "medication_name": m.get("medication_name", ""),
                 "dosage": m.get("dosage"),
                 "frequency": m.get("frequency"),
-                "timing": m.get("timing"),
+                "timing_code": TIMING_MAP.get(m.get("timing", ""), None),
                 "duration_days": m.get("duration_days"),
             }
             for m in medications_raw
@@ -539,8 +572,8 @@ class GuideService:
         return GuideCreateResponse(
             guide_id=guide.guide_id,
             title=guide.title,
-            guide_status=guide.guide_status,
-            input_method=guide.input_method,
+            guide_status=guide.guide_status_code,
+            input_method=guide.input_method_code,
         )
 
     # ──────────────────────────────────────────
