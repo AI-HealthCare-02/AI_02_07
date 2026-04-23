@@ -12,7 +12,6 @@ import io
 import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from PIL import Image
 from pydantic import BaseModel
 from tortoise import Tortoise
 
@@ -65,7 +64,7 @@ def validate_image(file: UploadFile) -> None:
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"지원하지 않는 이미지 형식입니다. (지원: JPEG, PNG, WEBP, HEIC)",
+            detail="지원하지 않는 이미지 형식입니다. (지원: JPEG, PNG, WEBP, HEIC)",
         )
 
 
@@ -105,7 +104,7 @@ async def analyze_pill(
 
     # S3 업로드
     s3_keys = []
-    for i, (img_bytes, original_name) in enumerate([
+    for _i, (img_bytes, original_name) in enumerate([
         (front_bytes, front_image.filename or "front.jpg"),
         (back_bytes, back_image.filename or "back.jpg"),
     ]):

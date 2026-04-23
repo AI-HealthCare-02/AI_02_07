@@ -10,7 +10,6 @@
 import base64
 import io
 import json
-import logging
 
 import asyncpg
 from openai import AsyncOpenAI
@@ -72,8 +71,9 @@ async def get_rag_context(query: str) -> str:
     실패 시 빈 문자열 반환 (분석은 계속 진행).
     """
     try:
-        from app.services.rag_service import get_rag_service
         from tortoise import Tortoise
+
+        from app.services.rag_service import get_rag_service
 
         if not Tortoise._inited:
             await Tortoise.init(
