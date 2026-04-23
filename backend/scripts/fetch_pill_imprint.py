@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-API_BASE = "https://apis.data.go.kr/1471000/MdcinGrnIdntfcInfoService01"
-ENDPOINT = "getMdcinGrnIdntfcInfoList01"
+API_BASE = "https://apis.data.go.kr/1471000/MdcinGrnIdntfcInfoService03"
+ENDPOINT = "getMdcinGrnIdntfcInfoList03"
 PAGE_SIZE = 100
 REQUEST_DELAY = 0.3
 OUTPUT_FILE = Path(__file__).parent.parent / "drug_json" / "imprint_data.jsonl"
