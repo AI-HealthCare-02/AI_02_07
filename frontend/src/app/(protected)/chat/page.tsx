@@ -261,6 +261,7 @@ export default function ChatPage() {
         };
         setRooms((prev) => [newRoom, ...prev]);
         setActiveRoomId(roomId);
+        activeRoomIdRef.current = roomId;
       } catch {
         return;
       }
