@@ -48,6 +48,7 @@ def preprocess_image(image_bytes: bytes) -> str:
 
     try:
         from PIL import ImageOps
+
         img = ImageOps.exif_transpose(img)
     except Exception:
         pass
@@ -86,17 +87,21 @@ async def extract_pill_features(
     """
     image_contents = []
     for i, b64 in enumerate(image_b64_list):
-        image_contents.append({
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:image/jpeg;base64,{b64}",
-                "detail": "low",  # 고정 85 토큰/장
-            },
-        })
-        image_contents.append({
-            "type": "text",
-            "text": f"위 이미지는 알약의 {'앞면' if i == 0 else '뒷면'}입니다.",
-        })
+        image_contents.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{b64}",
+                    "detail": "low",  # 고정 85 토큰/장
+                },
+            }
+        )
+        image_contents.append(
+            {
+                "type": "text",
+                "text": f"위 이미지는 알약의 {'앞면' if i == 0 else '뒷면'}입니다.",
+            }
+        )
 
     prompt = """알약 이미지를 보고 아래 JSON만 출력하세요. 다른 말은 하지 마세요.
 
@@ -188,13 +193,17 @@ async def find_drug_by_imprint(
         if similarity < IMPRINT_SIMILARITY_THRESHOLD:
             logger.info(
                 "imprint 매칭 실패 - 유사도 낮음 (%.3f < %.1f): %s",
-                similarity, IMPRINT_SIMILARITY_THRESHOLD, query,
+                similarity,
+                IMPRINT_SIMILARITY_THRESHOLD,
+                query,
             )
             return None
 
         logger.info(
             "imprint 매칭 성공: '%s' → '%s' (유사도: %.3f)",
-            query, best["item_name"], similarity,
+            query,
+            best["item_name"],
+            similarity,
         )
         return {
             "item_seq": best["item_seq"],
@@ -266,7 +275,8 @@ async def save_analysis_result(
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
         RETURNING analysis_id
         """,
-        user_id, file_id,
+        user_id,
+        file_id,
         result.get("product_name"),
         result.get("active_ingredients"),
         result.get("efficacy"),
@@ -346,7 +356,7 @@ async def process_pill_analysis(task_data: dict) -> dict:
             "product_name": matched_drug["item_name"],
             "active_ingredients": db_info.get("ingredient"),
             "efficacy": db_info.get("efficacy"),
-            "usage_method": None,       # 허가정보에 없는 필드
+            "usage_method": None,  # 허가정보에 없는 필드
             "warning": None,
             "caution": db_info.get("caution"),
             "interactions": None,

@@ -271,9 +271,7 @@ async def _chart_chat(period, start, end, labels) -> list[ChartDatasetDTO]:
 
     trunc = _trunc_expr(period)
     rows = (
-        await ChatMessage.filter(
-            created_at__gte=start, created_at__lt=end + timedelta(days=1), sender_type_code="USER"
-        )
+        await ChatMessage.filter(created_at__gte=start, created_at__lt=end + timedelta(days=1), sender_type_code="USER")
         .annotate(label=RawSQL(f"DATE_TRUNC('{trunc}', created_at)::date"), cnt=Count("message_id"))
         .group_by("label")
         .order_by("label")

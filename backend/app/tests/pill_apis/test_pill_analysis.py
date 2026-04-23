@@ -248,16 +248,27 @@ class TestPillAnalyzeEndpoint:
 
     async def test_analyze_unauthorized(self, client):
         """인증 없이 요청 시 401."""
-        front = make_image_bytes()
-        back = make_image_bytes()
+        from fastapi import HTTPException
 
-        response = await client.post(
-            "/api/v1/pill-analysis/analyze",
-            files={
-                "front_image": make_upload_file(front),
-                "back_image": make_upload_file(back),
-            },
-        )
+        from app.dependencies.security import get_current_user
+        from app.main import app
+
+        async def raise_401():
+            raise HTTPException(status_code=401)
+
+        app.dependency_overrides[get_current_user] = raise_401
+        try:
+            front = make_image_bytes()
+            back = make_image_bytes()
+            response = await client.post(
+                "/api/v1/pill-analysis/analyze",
+                files={
+                    "front_image": make_upload_file(front),
+                    "back_image": make_upload_file(back),
+                },
+            )
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -344,7 +355,20 @@ class TestPillAnalysisListEndpoint:
 
     async def test_list_unauthorized(self, client):
         """인증 없이 목록 조회 시 401."""
-        response = await client.get("/api/v1/pill-analysis")
+        from fastapi import HTTPException
+
+        from app.dependencies.security import get_current_user
+        from app.main import app
+
+        async def raise_401():
+            raise HTTPException(status_code=401)
+
+        app.dependency_overrides[get_current_user] = raise_401
+        try:
+            response = await client.get("/api/v1/pill-analysis")
+        finally:
+            app.dependency_overrides.clear()
+
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
@@ -502,5 +526,18 @@ class TestPillAnalysisDeleteEndpoint:
 
     async def test_delete_unauthorized(self, client):
         """인증 없이 삭제 시 401."""
-        response = await client.delete("/api/v1/pill-analysis/1")
+        from fastapi import HTTPException
+
+        from app.dependencies.security import get_current_user
+        from app.main import app
+
+        async def raise_401():
+            raise HTTPException(status_code=401)
+
+        app.dependency_overrides[get_current_user] = raise_401
+        try:
+            response = await client.delete("/api/v1/pill-analysis/1")
+        finally:
+            app.dependency_overrides.clear()
+
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
