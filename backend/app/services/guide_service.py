@@ -1,7 +1,7 @@
 import calendar
 import json
-from datetime import date, datetime, timedelta, timezone
 import logging
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 
@@ -560,7 +560,7 @@ class GuideService:
                 "medication_name": m.get("medication_name", ""),
                 "dosage": m.get("dosage"),
                 "frequency": m.get("frequency"),
-                "timing_code": TIMING_MAP.get(m.get("timing", ""), None),
+                "timing_code": TIMING_MAP.get(m.get("timing", "")),
                 "duration_days": m.get("duration_days"),
             }
             for m in medications_raw
