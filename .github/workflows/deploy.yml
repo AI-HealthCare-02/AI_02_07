@@ -25,6 +25,7 @@ jobs:
             set -e
 
             cd ~/healthguide
+
             git fetch origin main
             git reset --hard origin/main
 
@@ -32,6 +33,7 @@ jobs:
             printf '%s' "$PROD_ENV" > backend/envs/.prod.env
 
             cd backend
+            docker compose -f docker-compose.prod.yml down --remove-orphans || true
             docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
 
             docker system prune -f
