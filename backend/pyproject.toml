@@ -33,6 +33,7 @@ app = [
     "pgvector>=0.3.0",          # pgvector Python 클라이언트
     "sse-starlette>=2.2",      # Server-Sent Events
     "python-multipart>=0.0.18",# 파일 업로드
+    "Pillow>=11.1",             # 이미지 유효성 검사 (알약 분석 API)
     "python-jose[cryptography]>=3.3",  # JWT
     "passlib[bcrypt]>=1.7",    # 비밀번호 해싱
     "httpx>=0.28",             # 외부 API 호출 (OAuth 등)
