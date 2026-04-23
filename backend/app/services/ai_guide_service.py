@@ -98,13 +98,17 @@ class AiGuideService:
         diagnosis_name: str,
     ) -> dict[str, Any]:
         if result_type == "RT_MEDICATION":
-            return await self._gen_medication(rag_chunks_by_name, med_names, patient_age, patient_gender, diagnosis_name)
+            return await self._gen_medication(
+                rag_chunks_by_name, med_names, patient_age, patient_gender, diagnosis_name
+            )
         if result_type == "RT_LIFESTYLE":
             return await self._gen_lifestyle(rag_chunks_by_name, med_names, patient_age, patient_gender, diagnosis_name)
         if result_type == "RT_CAUTION":
             return await self._gen_caution(rag_chunks_by_name, med_names)
         if result_type == "RT_DRUG_DETAIL":
-            return await self._gen_drug_detail(rag_chunks_by_name, med_names, patient_age, patient_gender, diagnosis_name)
+            return await self._gen_drug_detail(
+                rag_chunks_by_name, med_names, patient_age, patient_gender, diagnosis_name
+            )
         raise ValueError(f"지원하지 않는 result_type: {result_type}")
 
     # ──────────────────────────────────────────
@@ -145,7 +149,8 @@ class AiGuideService:
 
         warnings: list[str] = []
         no_data_meds = [
-            name for name in med_names
+            name
+            for name in med_names
             if not rag_chunks_by_name.get(name, {}).get("efficacy")
             and not rag_chunks_by_name.get(name, {}).get("caution")
         ]
@@ -170,7 +175,10 @@ class AiGuideService:
         response = await self._openai.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요."},
+                {
+                    "role": "system",
+                    "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요.",
+                },
                 {"role": "user", "content": prompt},
             ],
             max_tokens=1500,
@@ -201,10 +209,7 @@ class AiGuideService:
         drug_context = self._build_drug_context(rag_chunks_by_name, med_names, ["caution"])
 
         warnings: list[str] = []
-        no_data_meds = [
-            name for name in med_names
-            if not rag_chunks_by_name.get(name, {}).get("caution")
-        ]
+        no_data_meds = [name for name in med_names if not rag_chunks_by_name.get(name, {}).get("caution")]
         for name in no_data_meds:
             warnings.append(f"'{name}' — 약품 DB 정보를 찾을 수 없습니다.")
 
@@ -226,7 +231,10 @@ class AiGuideService:
         response = await self._openai.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요."},
+                {
+                    "role": "system",
+                    "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요.",
+                },
                 {"role": "user", "content": prompt},
             ],
             max_tokens=1500,
@@ -260,11 +268,13 @@ class AiGuideService:
                 warnings.append(f"'{name}' — 약품 DB 정보를 찾을 수 없습니다.")
                 continue
             for chunk in chunks:
-                caution_list.append({
-                    "medication_name": name,
-                    "caution_text": chunk.chunk_text,
-                    "similarity": round(chunk.similarity, 3),
-                })
+                caution_list.append(
+                    {
+                        "medication_name": name,
+                        "caution_text": chunk.chunk_text,
+                        "similarity": round(chunk.similarity, 3),
+                    }
+                )
 
         return {
             "source": "약품 DB (RAG)",
@@ -290,11 +300,7 @@ class AiGuideService:
 
         for name in med_names:
             chunks = rag_chunks_by_name.get(name, {})
-            all_chunks = (
-                chunks.get("efficacy", []) +
-                chunks.get("caution", []) +
-                chunks.get("ingredient", [])
-            )
+            all_chunks = chunks.get("efficacy", []) + chunks.get("caution", []) + chunks.get("ingredient", [])
 
             if not all_chunks:
                 warnings.append(f"'{name}' — 약품 DB 정보를 찾을 수 없습니다.")
@@ -328,7 +334,10 @@ class AiGuideService:
                 response = await self._openai.chat.completions.create(
                     model=settings.OPENAI_MODEL,
                     messages=[
-                        {"role": "system", "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 반드시 제공된 공식 데이터만 사용하고, 없는 내용은 추측하지 마세요."},
+                        {
+                            "role": "system",
+                            "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 반드시 제공된 공식 데이터만 사용하고, 없는 내용은 추측하지 마세요.",
+                        },
                         {"role": "user", "content": prompt},
                     ],
                     max_tokens=2000,

@@ -266,13 +266,15 @@ class GuideService:
                 content=r["content"],
                 status=r.get("status", "COMPLETED"),
             )
-            saved_results.append({
-                "ai_result_id": saved.ai_result_id,
-                # ✅ 수정: 응답 시 RT_ 코드로 역변환
-                "result_type": RESULT_TYPE_REVERSE_MAP.get(saved.result_type_code, saved.result_type_code),
-                "content": json.loads(saved.content) if saved.content else {},
-                "status": "COMPLETED",
-            })
+            saved_results.append(
+                {
+                    "ai_result_id": saved.ai_result_id,
+                    # ✅ 수정: 응답 시 RT_ 코드로 역변환
+                    "result_type": RESULT_TYPE_REVERSE_MAP.get(saved.result_type_code, saved.result_type_code),
+                    "content": json.loads(saved.content) if saved.content else {},
+                    "status": "COMPLETED",
+                }
+            )
 
         return AiGenerateResponse(
             completed=result["completed"],
@@ -484,7 +486,8 @@ class GuideService:
         completed_types = [
             # ✅ 수정: DB 코드 → RT_ 코드로 역변환하여 반환
             RESULT_TYPE_REVERSE_MAP.get(r.result_type_code, r.result_type_code)
-            for r in results if r.is_latest
+            for r in results
+            if r.is_latest
         ]
 
         # ✅ 수정: DB 코드 기준으로 완료 여부 판단

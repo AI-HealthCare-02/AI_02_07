@@ -96,9 +96,7 @@ class GuideRepository:
             qs = qs.filter(result_type_code=result_type)
         return await qs.order_by("-created_at")
 
-    async def create_ai_result(
-        self, guide_id: int, result_type: str, content: dict, status: str
-    ) -> GuideAiResult:
+    async def create_ai_result(self, guide_id: int, result_type: str, content: dict, status: str) -> GuideAiResult:
         # ✅ 수정: 기존 is_latest=True 결과를 False로 변경 후 새 결과 저장
         await GuideAiResult.filter(
             guide_id=guide_id,
@@ -107,9 +105,9 @@ class GuideRepository:
         ).update(is_latest=False)
 
         # 버전 증가
-        latest = await GuideAiResult.filter(
-            guide_id=guide_id, result_type_code=result_type
-        ).order_by("-version").first()
+        latest = (
+            await GuideAiResult.filter(guide_id=guide_id, result_type_code=result_type).order_by("-version").first()
+        )
         version = (latest.version + 1) if latest else 1
 
         # ✅ 수정: content dict → JSON 문자열로 저장, status 제거
@@ -138,9 +136,7 @@ class GuideRepository:
         return await GuideMedCheck.filter(check_id=check_id, guide_id=guide_id).first()
 
     async def check_duplicate(self, guide_medication_id: int, check_date: date) -> bool:
-        return await GuideMedCheck.filter(
-            guide_medication_id=guide_medication_id, check_date=check_date
-        ).exists()
+        return await GuideMedCheck.filter(guide_medication_id=guide_medication_id, check_date=check_date).exists()
 
     async def create_med_check(
         self, guide_id: int, guide_medication_id: int, check_date: date, taken_at: datetime
