@@ -8,6 +8,7 @@ import logging
 from ai_worker.core.config import get_worker_settings
 from ai_worker.core.redis_client import close_worker_redis, get_worker_redis
 from ai_worker.tasks.chat_filter import process_chat_filter
+from ai_worker.tasks.pill_analysis import process_pill_analysis
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 TASK_HANDLERS = {
     "chat_filter": process_chat_filter,
+    "pill_analysis": process_pill_analysis,
 }
 
 

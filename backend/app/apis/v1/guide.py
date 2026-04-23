@@ -2,7 +2,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.dependencies.security import get_current_user
+from app.core.dependencies import get_current_user
 from app.dtos.guide_dto import (
     AiGenerateRequest,
     AiGenerateResponse,

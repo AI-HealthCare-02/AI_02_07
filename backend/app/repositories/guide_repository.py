@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime, timedelta
 
 from app.models.guide import (
@@ -22,19 +23,15 @@ class GuideRepository:
         page: int,
         size: int,
     ) -> tuple[int, list[Guide]]:
-        qs = Guide.filter(user_id=user_id, is_deleted=False)
+        qs = Guide.filter(user_id=user_id)
 
         if status:
-            qs = qs.filter(guide_status=status)
+            qs = qs.filter(guide_status_code=status)
 
         if period == "1M":
-            # ✅ 수정: replace(month=N) 방식은 3월 31일 → 2월 31일 등
-            #          존재하지 않는 날짜에서 ValueError 발생
-            #          timedelta(days=30) 으로 대체
             cutoff = date.today() - timedelta(days=30)
             qs = qs.filter(created_at__date__gte=cutoff)
         elif period == "3M":
-            # day=1 고정이라 말일 문제 없음 — 그대로 유지
             m = date.today().month
             y = date.today().year
             if m <= 3:
@@ -48,7 +45,7 @@ class GuideRepository:
         return total, guides
 
     async def get_guide_by_id(self, guide_id: int, user_id: int) -> Guide | None:
-        return await Guide.filter(guide_id=guide_id, user_id=user_id, is_deleted=False).first()
+        return await Guide.filter(guide_id=guide_id, user_id=user_id).first()
 
     async def create_guide(self, user_id: int, data: dict) -> Guide:
         return await Guide.create(user_id=user_id, **data)
@@ -60,7 +57,8 @@ class GuideRepository:
         return guide
 
     async def soft_delete_guide(self, guide: Guide) -> None:
-        guide.is_deleted = True
+        # ✅ 수정: is_deleted 없으므로 guide_status_code를 EXPIRED로 변경
+        guide.guide_status_code = "EXPIRED"
         await guide.save()
 
     # ──────────────────────────────────────────
@@ -91,32 +89,34 @@ class GuideRepository:
     # GuideAiResult
     # ──────────────────────────────────────────
     async def get_latest_ai_results(self, guide_id: int, result_type: str | None = None) -> list[GuideAiResult]:
-        """result_type별 최신 버전만 반환"""
-        qs = GuideAiResult.filter(guide_id=guide_id)
+        """result_type_code별 최신 버전만 반환"""
+        # ✅ 수정: is_latest=True 필터로 최신 결과만 조회
+        qs = GuideAiResult.filter(guide_id=guide_id, is_latest=True)
         if result_type:
-            qs = qs.filter(result_type=result_type)
-
-        # ✅ 수정: 동일 version일 때 created_at 내림차순으로 tiebreak 추가
-        all_results = await qs.order_by("-version", "-created_at")
-        seen: set[str] = set()
-        latest: list[GuideAiResult] = []
-        for r in all_results:
-            if r.result_type not in seen:
-                seen.add(r.result_type)
-                latest.append(r)
-        return latest
+            qs = qs.filter(result_type_code=result_type)
+        return await qs.order_by("-created_at")
 
     async def create_ai_result(self, guide_id: int, result_type: str, content: dict, status: str) -> GuideAiResult:
+        # ✅ 수정: 기존 is_latest=True 결과를 False로 변경 후 새 결과 저장
+        await GuideAiResult.filter(
+            guide_id=guide_id,
+            result_type_code=result_type,
+            is_latest=True,
+        ).update(is_latest=False)
+
         # 버전 증가
-        latest = await GuideAiResult.filter(guide_id=guide_id, result_type=result_type).order_by("-version").first()
+        latest = (
+            await GuideAiResult.filter(guide_id=guide_id, result_type_code=result_type).order_by("-version").first()
+        )
         version = (latest.version + 1) if latest else 1
 
+        # ✅ 수정: content dict → JSON 문자열로 저장, status 제거
         return await GuideAiResult.create(
             guide_id=guide_id,
-            result_type=result_type,
-            content=content,
-            status=status,
+            result_type_code=result_type,
+            content=json.dumps(content, ensure_ascii=False),
             version=version,
+            is_latest=True,
         )
 
     # ──────────────────────────────────────────
@@ -153,7 +153,7 @@ class GuideRepository:
         await med_check.delete()
 
     # ──────────────────────────────────────────
-    # GuideReminder (가이드당 다중 알림 지원)
+    # GuideReminder
     # ──────────────────────────────────────────
     async def get_reminders(self, guide_id: int) -> list[GuideReminder]:
         return await GuideReminder.filter(guide_id=guide_id).order_by("reminder_time")
