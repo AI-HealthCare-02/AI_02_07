@@ -57,16 +57,11 @@ async def list_errors(
 @router.get("/types")
 async def list_error_types(admin: AdminUser = Depends(get_current_admin)):
     """발생한 오류 타입 목록 조회 (필터용)"""
-    from tortoise import connections
-
-    conn = connections.get("default")
-    rows = await conn.execute_query_dict(
-        "SELECT DISTINCT error_type FROM system_error_logs WHERE error_type IS NOT NULL ORDER BY error_type"
-    )
+    types = await SystemErrorLog.filter(error_type__not_isnull=True).distinct().values_list("error_type", flat=True)
     return {
         "status": 200,
         "message": "조회 성공",
-        "data": [r["error_type"] for r in rows],
+        "data": sorted(types),
     }
 
 

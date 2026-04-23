@@ -13,11 +13,11 @@ import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
-from tortoise import Tortoise
 
 from app.core.s3 import delete_file, generate_s3_key, upload_file
 from app.dependencies.security import get_current_user
 from app.dtos.common_dto import PaginatedResponseDTO, PaginationDTO, ResponseDTO
+from app.models.pill_analysis import PillAnalysisHistory, UploadedFile
 from app.models.user import User
 from app.services.task_queue import TaskType, enqueue_task, wait_for_task_result
 
@@ -96,88 +96,134 @@ async def analyze_pill(
     - 이미지 용량: 각 5MB 이하
     - 분석 결과는 pill_analysis_history에 저장됩니다.
     """
-    # 유효성 검사
+    from app.core.config import get_settings
+
+    settings = get_settings()
+
     validate_image(front_image)
     validate_image(back_image)
 
     front_bytes = await read_and_validate_size(front_image)
     back_bytes = await read_and_validate_size(back_image)
 
-    user_id = current_user.user_id
-
     # S3 업로드
     s3_keys = []
-    for _i, (img_bytes, original_name) in enumerate(
-        [
-            (front_bytes, front_image.filename or "front.jpg"),
-            (back_bytes, back_image.filename or "back.jpg"),
-        ]
-    ):
-        s3_key = generate_s3_key("pill-images", original_name, user_id=user_id)
-        await upload_file(
-            io.BytesIO(img_bytes),
-            s3_key,
-            content_type="image/jpeg",
-        )
+    for img_bytes, original_name in [
+        (front_bytes, front_image.filename or "front.jpg"),
+        (back_bytes, back_image.filename or "back.jpg"),
+    ]:
+        s3_key = generate_s3_key("pill-images", original_name, user_id=current_user.user_id)
+        await upload_file(io.BytesIO(img_bytes), s3_key, content_type="image/jpeg")
         s3_keys.append(s3_key)
 
-    # uploaded_file 테이블에 저장
-    conn = Tortoise.get_connection("default")
-    settings_row = await conn.execute_query_dict(
-        "SELECT AWS_S3_BUCKET_NAME FROM pg_settings LIMIT 0"  # dummy
+    # uploaded_file ORM 저장
+    uploaded = await UploadedFile.create(
+        user=current_user,
+        original_name=front_image.filename or "front.jpg",
+        stored_name=s3_keys[0].split("/")[-1],
+        s3_bucket=settings.AWS_S3_BUCKET_NAME,
+        s3_key=s3_keys[0],
+        s3_url=f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}.amazonaws.com/{s3_keys[0]}",
+        content_type="image/jpeg",
+        file_size=len(front_bytes),
+        file_extension=".jpg",
+        file_category_grp="FILE_CATEGORY",
+        file_category_code="IMG_PILL",
     )
 
-    from app.core.config import get_settings
+    # ── 환경별 분기: 로컬은 직접 처리, 프로덕션은 Worker 큐 ──
+    if settings.APP_ENV != "production":
+        import asyncpg
+        from openai import AsyncOpenAI
 
-    settings = get_settings()
+        from ai_worker.tasks.pill_analysis import (
+            extract_pill_features,
+            fetch_drug_info_from_db,
+            find_drug_by_imprint,
+            preprocess_image,
+        )
 
-    file_row = await conn.execute_query_dict(
-        """
-        INSERT INTO uploaded_file (
-            user_id, original_name, stored_name, s3_bucket, s3_key, s3_url,
-            content_type, file_size, file_extension,
-            file_category_grp, file_category_code
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'FILE_CATEGORY','PILL_IMG')
-        RETURNING file_id
-        """,
-        [
-            user_id,
-            front_image.filename or "front.jpg",
-            s3_keys[0].split("/")[-1],
-            settings.AWS_S3_BUCKET_NAME,
-            s3_keys[0],
-            f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}.amazonaws.com/{s3_keys[0]}",
-            "image/jpeg",
-            len(front_bytes),
-            ".jpg",
-        ],
-    )
-    file_id = file_row[0]["file_id"]
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        image_b64_list = [preprocess_image(front_bytes), preprocess_image(back_bytes)]
+        db_url = settings.database_url.replace("asyncpg://", "postgresql://")
+        db_conn = await asyncpg.connect(db_url)
 
-    # 워커 태스크 큐에 등록
+        try:
+            # 1단계: GPT Vision - 각인/색상/모양만 추출
+            features = await extract_pill_features(client, image_b64_list, settings.OPENAI_MODEL)
+            logger.info("1단계 완료: %s", features)
+
+            if not features.get("is_pill", True):
+                product_name = "알약 이미지가 아닙니다"
+                analysis = await PillAnalysisHistory.create(
+                    user=current_user,
+                    file=uploaded,
+                    product_name=product_name,
+                    gpt_model_version=settings.OPENAI_MODEL,
+                )
+                return ResponseDTO(
+                    success=True,
+                    message="알약 이미지가 아닙니다.",
+                    data={"analysis_id": analysis.analysis_id, "product_name": product_name},
+                )
+
+            # 2단계: imprint RAG - 약품 특정
+            matched_drug = await find_drug_by_imprint(db_conn, client, features)
+
+            if matched_drug is None:
+                parts = [v for v in [features.get("print_front"), features.get("print_back")] if v]
+                product_name = f"각인: {', '.join(parts)} (DB 미매칭)" if parts else "식별 불가"
+                analysis = await PillAnalysisHistory.create(
+                    user=current_user,
+                    file=uploaded,
+                    product_name=product_name,
+                    gpt_model_version=settings.OPENAI_MODEL,
+                )
+                return ResponseDTO(
+                    success=True,
+                    message="알약 분석이 완료되었습니다.",
+                    data={"analysis_id": analysis.analysis_id, "product_name": product_name},
+                )
+
+            # 3단계: 허가정보 DB 직접 조회 (GPT 재호출 없음)
+            db_info = await fetch_drug_info_from_db(db_conn, matched_drug["item_seq"])
+
+        finally:
+            await db_conn.close()
+
+        analysis = await PillAnalysisHistory.create(
+            user=current_user,
+            file=uploaded,
+            product_name=matched_drug["item_name"],
+            active_ingredients=db_info.get("ingredient"),
+            efficacy=db_info.get("efficacy"),
+            caution=db_info.get("caution"),
+            gpt_model_version=settings.OPENAI_MODEL,
+        )
+
+        return ResponseDTO(
+            success=True,
+            message="알약 분석이 완료되었습니다.",
+            data={"analysis_id": analysis.analysis_id, "product_name": analysis.product_name},
+        )
+
+    # 프로덕션: Worker 태스크 큐에 등록 후 결과 대기
     task_id = await enqueue_task(
         task_type=TaskType.PILL_ANALYSIS,
-        payload={
-            "user_id": user_id,
-            "file_id": file_id,
-            "s3_keys": s3_keys,
-        },
-        user_id=user_id,
+        payload={"user_id": current_user.user_id, "file_id": uploaded.file_id, "s3_keys": s3_keys},
+        user_id=current_user.user_id,
     )
 
-    # 결과 대기 (최대 60초)
-    task_result = await wait_for_task_result(task_id, timeout=60)
+    task_result = await wait_for_task_result(task_id, timeout=120)
 
     if not task_result or task_result.get("status") == "failed":
         raise HTTPException(status_code=500, detail="알약 분석에 실패했습니다.")
 
     result = task_result.get("result", {})
-    analysis_id = result.get("analysis_id")
-
     return ResponseDTO(
         success=True,
         message="알약 분석이 완료되었습니다.",
-        data={"analysis_id": analysis_id, "product_name": result.get("product_name")},
+        data={"analysis_id": result.get("analysis_id"), "product_name": result.get("product_name")},
     )
 
 
@@ -189,40 +235,28 @@ async def list_pill_analyses(
     current_user: User = Depends(get_current_user),
 ) -> PaginatedResponseDTO:
     """사용자의 알약 분석 이력을 조회합니다."""
-    user_id = current_user.user_id
-    offset = (page - 1) * size
-
-    conn = Tortoise.get_connection("default")
-
-    where = "WHERE user_id = $1"
-    params: list = [user_id]
+    qs = PillAnalysisHistory.filter(user=current_user)
 
     if search:
-        params.append(f"%{search}%")
-        where += f" AND product_name ILIKE ${len(params)}"
+        qs = qs.filter(product_name__icontains=search)
 
-    total_row = await conn.execute_query_dict(f"SELECT COUNT(*) AS cnt FROM pill_analysis_history {where}", params)
-    total = total_row[0]["cnt"]
+    total = await qs.count()
+    rows = await qs.offset((page - 1) * size).limit(size)
 
-    params += [size, offset]
-    rows = await conn.execute_query_dict(
-        f"""
-        SELECT analysis_id, product_name, efficacy,
-               to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at
-        FROM pill_analysis_history
-        {where}
-        ORDER BY created_at DESC
-        LIMIT ${len(params) - 1} OFFSET ${len(params)}
-        """,
-        params,
-    )
-
-    total_pages = (total + size - 1) // size
+    total_pages = max((total + size - 1) // size, 1)
 
     return PaginatedResponseDTO(
         success=True,
         message="조회 성공",
-        data=rows,
+        data=[
+            {
+                "analysis_id": r.analysis_id,
+                "product_name": r.product_name,
+                "efficacy": r.efficacy,
+                "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            for r in rows
+        ],
         pagination=PaginationDTO(page=page, size=size, total=total, total_pages=total_pages),
     )
 
@@ -233,23 +267,29 @@ async def get_pill_analysis(
     current_user: User = Depends(get_current_user),
 ) -> ResponseDTO:
     """알약 분석 상세 정보를 조회합니다."""
-    conn = Tortoise.get_connection("default")
-    rows = await conn.execute_query_dict(
-        """
-        SELECT analysis_id, product_name, active_ingredients, efficacy,
-               usage_method, warning, caution, interactions,
-               side_effects, storage_method, gpt_model_version,
-               to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at
-        FROM pill_analysis_history
-        WHERE analysis_id = $1 AND user_id = $2
-        """,
-        [analysis_id, current_user.user_id],
-    )
+    row = await PillAnalysisHistory.get_or_none(analysis_id=analysis_id, user=current_user)
 
-    if not rows:
+    if row is None:
         raise HTTPException(status_code=404, detail="분석 결과를 찾을 수 없습니다.")
 
-    return ResponseDTO(success=True, message="조회 성공", data=rows[0])
+    return ResponseDTO(
+        success=True,
+        message="조회 성공",
+        data={
+            "analysis_id": row.analysis_id,
+            "product_name": row.product_name,
+            "active_ingredients": row.active_ingredients,
+            "efficacy": row.efficacy,
+            "usage_method": row.usage_method,
+            "warning": row.warning,
+            "caution": row.caution,
+            "interactions": row.interactions,
+            "side_effects": row.side_effects,
+            "storage_method": row.storage_method,
+            "gpt_model_version": row.gpt_model_version,
+            "created_at": row.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        },
+    )
 
 
 @router.delete("/{analysis_id}", summary="알약 분석 삭제")
@@ -258,24 +298,17 @@ async def delete_pill_analysis(
     current_user: User = Depends(get_current_user),
 ) -> ResponseDTO:
     """알약 분석 이력을 삭제합니다."""
-    conn = Tortoise.get_connection("default")
+    row = await PillAnalysisHistory.get_or_none(analysis_id=analysis_id, user=current_user)
 
-    # 소유권 확인 + file_id 조회
-    rows = await conn.execute_query_dict(
-        "SELECT file_id FROM pill_analysis_history WHERE analysis_id = $1 AND user_id = $2",
-        [analysis_id, current_user.user_id],
-    )
-    if not rows:
+    if row is None:
         raise HTTPException(status_code=404, detail="분석 결과를 찾을 수 없습니다.")
 
-    file_id = rows[0]["file_id"]
+    # S3 파일 삭제
+    uploaded = await UploadedFile.get_or_none(file_id=row.file_id)
+    if uploaded:
+        await delete_file(uploaded.s3_key)
+        await uploaded.delete()
 
-    # S3 키 조회 후 삭제
-    file_rows = await conn.execute_query_dict("SELECT s3_key FROM uploaded_file WHERE file_id = $1", [file_id])
-    if file_rows:
-        await delete_file(file_rows[0]["s3_key"])
-
-    # DB 삭제 (CASCADE로 pill_analysis_history도 삭제)
-    await conn.execute_query("DELETE FROM pill_analysis_history WHERE analysis_id = $1", [analysis_id])
+    await row.delete()
 
     return ResponseDTO(success=True, message="삭제되었습니다.")
