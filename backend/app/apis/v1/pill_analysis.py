@@ -30,6 +30,7 @@ ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
 
 # ── DTO ───────────────────────────────────────
 
+
 class PillAnalysisResult(BaseModel):
     analysis_id: int
     product_name: str | None
@@ -60,6 +61,7 @@ class PillAnalysisSummary(BaseModel):
 
 # ── 이미지 유효성 검사 ─────────────────────────
 
+
 def validate_image(file: UploadFile) -> None:
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
@@ -79,6 +81,7 @@ async def read_and_validate_size(file: UploadFile) -> bytes:
 
 
 # ── 엔드포인트 ────────────────────────────────
+
 
 @router.post("/analyze", summary="알약 이미지 분석")
 async def analyze_pill(
@@ -104,10 +107,12 @@ async def analyze_pill(
 
     # S3 업로드
     s3_keys = []
-    for _i, (img_bytes, original_name) in enumerate([
-        (front_bytes, front_image.filename or "front.jpg"),
-        (back_bytes, back_image.filename or "back.jpg"),
-    ]):
+    for _i, (img_bytes, original_name) in enumerate(
+        [
+            (front_bytes, front_image.filename or "front.jpg"),
+            (back_bytes, back_image.filename or "back.jpg"),
+        ]
+    ):
         s3_key = generate_s3_key("pill-images", original_name, user_id=user_id)
         await upload_file(
             io.BytesIO(img_bytes),
@@ -123,6 +128,7 @@ async def analyze_pill(
     )
 
     from app.core.config import get_settings
+
     settings = get_settings()
 
     file_row = await conn.execute_query_dict(
@@ -195,9 +201,7 @@ async def list_pill_analyses(
         params.append(f"%{search}%")
         where += f" AND product_name ILIKE ${len(params)}"
 
-    total_row = await conn.execute_query_dict(
-        f"SELECT COUNT(*) AS cnt FROM pill_analysis_history {where}", params
-    )
+    total_row = await conn.execute_query_dict(f"SELECT COUNT(*) AS cnt FROM pill_analysis_history {where}", params)
     total = total_row[0]["cnt"]
 
     params += [size, offset]
@@ -219,9 +223,7 @@ async def list_pill_analyses(
         success=True,
         message="조회 성공",
         data=rows,
-        pagination=PaginationDTO(
-            page=page, size=size, total=total, total_pages=total_pages
-        ),
+        pagination=PaginationDTO(page=page, size=size, total=total, total_pages=total_pages),
     )
 
 
@@ -269,15 +271,11 @@ async def delete_pill_analysis(
     file_id = rows[0]["file_id"]
 
     # S3 키 조회 후 삭제
-    file_rows = await conn.execute_query_dict(
-        "SELECT s3_key FROM uploaded_file WHERE file_id = $1", [file_id]
-    )
+    file_rows = await conn.execute_query_dict("SELECT s3_key FROM uploaded_file WHERE file_id = $1", [file_id])
     if file_rows:
         await delete_file(file_rows[0]["s3_key"])
 
     # DB 삭제 (CASCADE로 pill_analysis_history도 삭제)
-    await conn.execute_query(
-        "DELETE FROM pill_analysis_history WHERE analysis_id = $1", [analysis_id]
-    )
+    await conn.execute_query("DELETE FROM pill_analysis_history WHERE analysis_id = $1", [analysis_id])
 
     return ResponseDTO(success=True, message="삭제되었습니다.")

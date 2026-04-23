@@ -23,7 +23,7 @@ logger = setup_logger("task.pill_analysis")
 settings = get_worker_settings()
 
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
-TARGET_SIZE = 1024                 # 최대 1024px (최소 768px 유지)
+TARGET_SIZE = 1024  # 최대 1024px (최소 768px 유지)
 
 
 # ── 이미지 전처리 ──────────────────────────────
@@ -42,6 +42,7 @@ def preprocess_image(image_bytes: bytes) -> str:
     # EXIF 회전 보정
     try:
         from PIL import ImageOps
+
         img = ImageOps.exif_transpose(img)
     except Exception:
         pass
@@ -97,9 +98,7 @@ async def get_rag_context(query: str) -> str:
 # ── ai_settings 조회 ───────────────────────────
 async def get_ai_model(conn: asyncpg.Connection) -> str:
     """ai_settings 테이블에서 활성화된 모델명 조회."""
-    row = await conn.fetchrow(
-        "SELECT api_model FROM ai_settings WHERE is_active = TRUE LIMIT 1"
-    )
+    row = await conn.fetchrow("SELECT api_model FROM ai_settings WHERE is_active = TRUE LIMIT 1")
     return row["api_model"] if row else "gpt-4o-mini"
 
 
@@ -116,17 +115,21 @@ async def analyze_pill_images(
     # 이미지 콘텐츠 구성
     image_contents = []
     for i, b64 in enumerate(image_b64_list):
-        image_contents.append({
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:image/jpeg;base64,{b64}",
-                "detail": "high",
-            },
-        })
-        image_contents.append({
-            "type": "text",
-            "text": f"위 이미지는 알약의 {'앞면' if i == 0 else '뒷면'}입니다.",
-        })
+        image_contents.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{b64}",
+                    "detail": "high",
+                },
+            }
+        )
+        image_contents.append(
+            {
+                "type": "text",
+                "text": f"위 이미지는 알약의 {'앞면' if i == 0 else '뒷면'}입니다.",
+            }
+        )
 
     # RAG 컨텍스트 프롬프트 구성
     rag_section = f"\n\n[약품 공식 DB 참고 정보]\n{rag_context}" if rag_context else ""
