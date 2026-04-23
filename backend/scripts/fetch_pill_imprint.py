@@ -50,6 +50,22 @@ OUTPUT_FILE = Path(__file__).parent.parent / "drug_json" / "imprint_data.jsonl"
 def get_api_key() -> str:
     key = os.getenv("PUBLIC_DATA_API_KEY", "")
     if not key:
+        # .prod.env 또는 .local.env에서 직접 읽기 시도
+        env_paths = [
+            Path(__file__).parent.parent / "envs" / ".prod.env",
+            Path(__file__).parent.parent / "envs" / ".local.env",
+        ]
+        for env_path in env_paths:
+            if env_path.exists():
+                with open(env_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("PUBLIC_DATA_API_KEY="):
+                            key = line.split("=", 1)[1].strip()
+                            break
+            if key:
+                break
+    if not key:
         raise ValueError("PUBLIC_DATA_API_KEY 환경변수가 설정되지 않았습니다.")
     return key
 
