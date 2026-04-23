@@ -41,6 +41,11 @@ from app.apis.v1.guide import router as guide_router
 
 api_v1_router.include_router(guide_router, tags=["건강 가이드"])
 
+# ── 알약 분석 ──
+from app.apis.v1.pill_analysis import router as pill_analysis_router
+
+api_v1_router.include_router(pill_analysis_router, prefix="/pill-analysis", tags=["알약 분석"])
+
 # ── RAG ──
 from app.apis.v1.rag import router as rag_router
 

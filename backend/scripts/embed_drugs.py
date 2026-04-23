@@ -115,10 +115,18 @@ def build_chunks(record: dict) -> list[dict]:
 
 
 # ── 임베딩 생성 ────────────────────────────────
+MAX_CHARS = 6000  # 8192 토큰 안전 마진 (한글 기준 약 2~3자/토큰)
+
+
+def truncate_text(text: str) -> str:
+    return text[:MAX_CHARS] if len(text) > MAX_CHARS else text
+
+
 async def embed_texts(client: AsyncOpenAI, texts: list[str]) -> list[list[float]]:
+    truncated = [truncate_text(t) for t in texts]
     response = await client.embeddings.create(
         model=EMBEDDING_MODEL,
-        input=texts,
+        input=truncated,
     )
     return [item.embedding for item in response.data]
 
@@ -200,9 +208,13 @@ async def process_file(
         try:
             embeddings = await embed_texts(client, texts)
         except Exception as e:
-            logger.error("임베딩 실패 (배치 %d): %s", i // BATCH_SIZE, e)
+            logger.error("임베딩 실패 (배치 %d): %s | 5초 후 재시도...", i // BATCH_SIZE, e)
             await asyncio.sleep(5)
-            embeddings = await embed_texts(client, texts)
+            try:
+                embeddings = await embed_texts(client, texts)
+            except Exception as e2:
+                logger.error("임베딩 재시도 실패 (배치 %d): %s | 배치 건너뜀", i // BATCH_SIZE, e2)
+                continue
 
         async with pool.acquire() as conn:
             inserted = await upsert_chunks(conn, batch, embeddings)
@@ -247,14 +259,25 @@ async def main(args: argparse.Namespace) -> None:
     total_chunks = 0
     start = time.time()
 
+    failed_files: list[str] = []
+
     for idx, filepath in enumerate(files, 1):
         logger.info("[%d/%d] 처리 중: %s", idx, len(files), filepath.name)
-        drugs, chunks = await process_file(
-            filepath, pool, client, args.skip_existing, existing_seqs
-        )
-        total_drugs += drugs
-        total_chunks += chunks
-        logger.info("  → 약품 %d개, 청크 %d개 완료", drugs, chunks)
+        try:
+            drugs, chunks = await process_file(
+                filepath, pool, client, args.skip_existing, existing_seqs
+            )
+            total_drugs += drugs
+            total_chunks += chunks
+            logger.info("  → 약품 %d개, 청크 %d개 완료", drugs, chunks)
+        except Exception as e:
+            logger.error("  → 실패: %s | %s", filepath.name, e)
+            failed_files.append(filepath.name)
+            continue
+
+    if failed_files:
+        logger.warning("실패한 파일 %d개: %s", len(failed_files), ", ".join(failed_files))
+        logger.warning("재실행: uv run python scripts/embed_drugs.py --skip-existing --files %s", " ".join(failed_files))
 
     elapsed = time.time() - start
     logger.info(
