@@ -29,8 +29,8 @@ jobs:
             # ── 2. prod.env 파일 생성 (Secrets → 파일) ──
             mkdir -p backend/envs
             cat > backend/envs/.prod.env << 'ENVEOF'
-            ${{ secrets.PROD_ENV }}
-            ENVEOF
+${{ secrets.PROD_ENV }}
+ENVEOF
 
             # ── 3. 빌드 및 컨테이너 재시작 ──
             cd backend
