@@ -57,7 +57,7 @@ async def list_errors(
 @router.get("/types")
 async def list_error_types(admin: AdminUser = Depends(get_current_admin)):
     """발생한 오류 타입 목록 조회 (필터용)"""
-    types = await SystemErrorLog.filter(error_type__not_isnull=True).distinct().values_list("error_type", flat=True)
+    types = await SystemErrorLog.filter(error_type__not_isnull=True).order_by("error_type").distinct().values_list("error_type", flat=True)
     return {
         "status": 200,
         "message": "조회 성공",
