@@ -48,6 +48,7 @@ def preprocess_image(image_bytes: bytes) -> str:
 
     try:
         from PIL import ImageOps
+
         img = ImageOps.exif_transpose(img)
     except Exception:
         pass
@@ -73,7 +74,9 @@ async def extract_pill_features(
 ) -> dict:
     image_contents = []
     for i, b64 in enumerate(image_b64_list):
-        image_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"}})
+        image_contents.append(
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"}}
+        )
         image_contents.append({"type": "text", "text": f"위 이미지는 알약의 {'앞면' if i == 0 else '뒷면'}입니다."})
 
     prompt = """알약 이미지를 보고 아래 JSON만 출력하세요. 다른 말은 하지 마세요.
