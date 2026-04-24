@@ -24,8 +24,12 @@ import io
 import json
 
 import asyncpg
-from openai import AsyncOpenAI
 from PIL import Image
+
+try:
+    from langfuse.openai import AsyncOpenAI
+except ImportError:
+    from openai import AsyncOpenAI  # type: ignore[assignment]
 
 from ai_worker.core.config import get_worker_settings
 from ai_worker.core.logger import setup_logger
@@ -75,7 +79,7 @@ async def extract_pill_features(
     image_contents = []
     for i, b64 in enumerate(image_b64_list):
         image_contents.append(
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"}}
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}}
         )
         image_contents.append({"type": "text", "text": f"위 이미지는 알약의 {'앞면' if i == 0 else '뒷면'}입니다."})
 
