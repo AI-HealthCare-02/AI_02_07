@@ -44,7 +44,7 @@ class TestPreprocessImage:
         from ai_worker.tasks.pill_analysis import preprocess_image
 
         img_bytes = make_image_bytes(2000, 1500)
-        b64 = preprocess_image(img_bytes)
+        b64, _ = preprocess_image(img_bytes)
         decoded = base64.b64decode(b64)
         result_img = Image.open(io.BytesIO(decoded))
 
@@ -57,7 +57,7 @@ class TestPreprocessImage:
         from ai_worker.tasks.pill_analysis import preprocess_image
 
         img_bytes = make_image_bytes(500, 400)
-        b64 = preprocess_image(img_bytes)
+        b64, _ = preprocess_image(img_bytes)
         decoded = base64.b64decode(b64)
         result_img = Image.open(io.BytesIO(decoded))
 
@@ -70,7 +70,7 @@ class TestPreprocessImage:
         from ai_worker.tasks.pill_analysis import preprocess_image
 
         img_bytes = make_image_bytes(800, 600, fmt="PNG")
-        b64 = preprocess_image(img_bytes)
+        b64, _ = preprocess_image(img_bytes)
         decoded = base64.b64decode(b64)
         result_img = Image.open(io.BytesIO(decoded))
 
@@ -83,7 +83,7 @@ class TestPreprocessImage:
         from ai_worker.tasks.pill_analysis import preprocess_image
 
         img_bytes = make_image_bytes(2000, 1000)  # 2:1 비율
-        b64 = preprocess_image(img_bytes)
+        b64, _ = preprocess_image(img_bytes)
         decoded = base64.b64decode(b64)
         result_img = Image.open(io.BytesIO(decoded))
 
@@ -105,7 +105,7 @@ class TestPreprocessImage:
         from ai_worker.tasks.pill_analysis import preprocess_image
 
         img_bytes = make_image_bytes(800, 600)
-        b64 = preprocess_image(img_bytes)
+        b64, _ = preprocess_image(img_bytes)
 
         decoded = base64.b64decode(b64)
         assert len(decoded) > 0
