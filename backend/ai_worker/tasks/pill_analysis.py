@@ -2,28 +2,26 @@
 # ──────────────────────────────────────────────
 # 알약 분석 작업 핸들러 — 안은지 담당
 #
-# [개선된 3단계 흐름]
+# [3단계 흐름]
 #
-# 1단계: GPT Vision (detail:low, 이미지 사용)
-#   → 각인/색상/모양만 추출 (약품정보 생성 안 함)
-#   → 각인 없으면 "알약 식별 불가" 반환
+# 1단계: Clova OCR (각인 텍스트 추출) +
+#        GPT Vision detail:low (색상/모양만 추출)
 #
 # 2단계: imprint RAG (텍스트만, 이미지 없음)
 #   → 각인+색상+모양으로 pgvector 검색
-#   → 매칭 실패 시 GPT 추론 결과만 반환
+#   → 매칭 실패 시 각인 정보만 저장
 #
-# 3단계: 허가정보 DB 직접 조회 (텍스트만, GPT 재호출 없음)
+# 3단계: 허가정보 DB 직접 조회 (GPT 재호출 없음)
 #   → item_seq로 efficacy/caution/ingredient 조회
-#   → 결과 조합 후 저장
-#
-# 토큰: ~270 (1단계만 GPT 사용, 2~3단계는 DB 조회)
 # ──────────────────────────────────────────────
 
 import base64
 import io
 import json
+import uuid
 
 import asyncpg
+import httpx
 from PIL import Image
 
 try:
@@ -40,11 +38,12 @@ settings = get_worker_settings()
 
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 TARGET_SIZE = 1024
-IMPRINT_SIMILARITY_THRESHOLD = 0.5  # imprint 매칭 최소 유사도
+IMPRINT_SIMILARITY_THRESHOLD = 0.45
 
 
 # ── 이미지 전처리 ──────────────────────────────
-def preprocess_image(image_bytes: bytes) -> str:
+def preprocess_image(image_bytes: bytes) -> tuple[str, bytes]:
+    """리사이즈된 이미지의 (base64, bytes) 반환."""
     if len(image_bytes) > MAX_IMAGE_SIZE:
         raise ValueError(f"이미지 용량이 5MB를 초과합니다: {len(image_bytes) / 1024 / 1024:.1f}MB")
 
@@ -65,34 +64,78 @@ def preprocess_image(image_bytes: bytes) -> str:
         ratio = TARGET_SIZE / max(w, h)
         img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
 
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=90)
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    img_bytes = buf.getvalue()
+    return base64.b64encode(img_bytes).decode("utf-8"), img_bytes
 
 
-# ── 1단계: GPT Vision - 각인/색상/모양만 추출 ──
+# ── Clova OCR - 각인 텍스트 추출 ──────────────
+async def extract_imprint_ocr(image_bytes: bytes) -> str | None:
+    """Clova OCR로 이미지에서 텍스트를 추출해 각인 문자열 반환."""
+    if not settings.OCR_INVOKE_URL or not settings.OCR_SECRET_KEY:
+        return None
+
+    payload = {
+        "version": "V2",
+        "requestId": str(uuid.uuid4()),
+        "timestamp": 0,
+        "images": [{"format": "jpg", "name": "pill", "data": base64.b64encode(image_bytes).decode()}],
+    }
+    headers = {"X-OCR-SECRET": settings.OCR_SECRET_KEY, "Content-Type": "application/json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(settings.OCR_INVOKE_URL, json=payload, headers=headers)
+            resp.raise_for_status()
+            fields = resp.json()["images"][0].get("fields", [])
+            texts = [f["inferText"] for f in fields if f.get("inferText")]
+            result = " ".join(texts).strip().upper()
+            logger.info("Clova OCR 결과: %s", result)
+            return result or None
+    except Exception as e:
+        logger.warning("Clova OCR 실패 (무시): %s", e)
+        return None
+
+
+# ── 1단계: GPT Vision - 색상/모양만 추출 ───────
 async def extract_pill_features(
     client: AsyncOpenAI,
     image_b64_list: list[str],
+    ocr_texts: list[str | None],
     model: str,
 ) -> dict:
+    """
+    OCR로 추출한 각인 텍스트를 힌트로 제공하고,
+    GPT Vision은 색상/모양만 판단.
+    """
     image_contents = []
     for i, b64 in enumerate(image_b64_list):
+        face = "앞면" if i == 0 else "뒷면"
+        ocr_hint = f" (OCR 각인: {ocr_texts[i]})" if i < len(ocr_texts) and ocr_texts[i] else ""
         image_contents.append(
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}}
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"}}
         )
-        image_contents.append({"type": "text", "text": f"위 이미지는 알약의 {'앞면' if i == 0 else '뒷면'}입니다."})
+        image_contents.append({"type": "text", "text": f"위 이미지는 알약의 {face}입니다.{ocr_hint}"})
 
-    prompt = """알약 이미지를 보고 아래 JSON만 출력하세요. 다른 말은 하지 마세요.
+    ocr_front = ocr_texts[0] if ocr_texts else None
+    ocr_back = ocr_texts[1] if len(ocr_texts) > 1 else None
 
-이미지가 거꾸로 또는 회전되어 있을 수 있습니다. 각인 문자를 읽을 때 올바른 방향으로 읽으세요.
-{
+    prompt = f"""알약 이미지를 보고 아래 JSON만 출력하세요. 다른 말은 하지 마세요.
+
+각인 문자는 OCR로 이미 추출되었습니다. print_front/print_back은 아래 값을 그대로 사용하세요.
+- 앞면 OCR: {ocr_front or "없음"}
+- 뒷면 OCR: {ocr_back or "없음"}
+
+이미지에서는 색상과 모양만 판단하세요.
+
+{{
   "is_pill": true,
-  "print_front": "앞면 각인 문자 그대로 (없으면 null)",
-  "print_back": "뒷면 각인 문자 그대로 (없으면 null)",
+  "print_front": "앞면 OCR 결과 그대로 (없으면 null)",
+  "print_back": "뒷면 OCR 결과 그대로 (없으면 null)",
   "color": "색상 (예: 하양, 노랑, 분홍)",
   "shape": "모양 (예: 원형, 타원형, 장방형)"
-}
+}}
 
 알약이 아닌 이미지면 is_pill을 false로 설정하세요."""
 
@@ -123,11 +166,6 @@ async def find_drug_by_imprint(
     client: AsyncOpenAI,
     features: dict,
 ) -> dict | None:
-    """
-    각인+색상+모양으로 imprint 청크 벡터 검색.
-    매칭된 약품의 item_seq, item_name 반환.
-    imprint 데이터 없거나 유사도 낮으면 None 반환.
-    """
     parts = []
     if features.get("print_front"):
         parts.append(features["print_front"])
@@ -173,7 +211,7 @@ async def find_drug_by_imprint(
 
         if similarity < IMPRINT_SIMILARITY_THRESHOLD:
             logger.info(
-                "imprint 매칭 실패 - 유사도 낮음 (%.3f < %.1f): %s",
+                "imprint 매칭 실패 - 유사도 낮음 (%.3f < %.2f): %s",
                 similarity,
                 IMPRINT_SIMILARITY_THRESHOLD,
                 query,
@@ -202,17 +240,6 @@ async def fetch_drug_info_from_db(
     conn: asyncpg.Connection,
     item_seq: str,
 ) -> dict:
-    """
-    item_seq로 drug_embeddings에서 허가정보 직접 조회.
-    GPT 재호출 없음.
-
-    반환:
-        {
-            "efficacy": "...",
-            "active_ingredients": "...",
-            "caution": "...",
-        }
-    """
     rows = await conn.fetch(
         """
         SELECT chunk_type, chunk_text
@@ -226,7 +253,6 @@ async def fetch_drug_info_from_db(
     db_info: dict[str, str] = {}
     for r in rows:
         text = r["chunk_text"]
-        # "[약품명] 효능효과: 실제내용" → "실제내용" 추출
         if ": " in text:
             content = text.split(": ", 1)[1].strip()
             db_info[r["chunk_type"]] = content
@@ -288,43 +314,45 @@ async def process_pill_analysis(task_data: dict) -> dict:
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
         # 이미지 다운로드 + 전처리
-        image_b64_list = []
+        image_b64_list: list[str] = []
+        image_bytes_list: list[bytes] = []
         for s3_key in s3_keys[:2]:
-            image_bytes = download_file_from_s3(s3_key)
-            image_b64_list.append(preprocess_image(image_bytes))
+            raw_bytes = download_file_from_s3(s3_key)
+            b64, processed_bytes = preprocess_image(raw_bytes)
+            image_b64_list.append(b64)
+            image_bytes_list.append(processed_bytes)
 
         if not image_b64_list:
             raise ValueError("처리할 이미지가 없습니다.")
 
-        # ── 1단계: GPT Vision - 각인/색상/모양 추출 ──
-        features = await extract_pill_features(client, image_b64_list, model)
+        # ── Clova OCR - 각인 텍스트 추출 ──
+        import asyncio
+
+        ocr_texts: list[str | None] = list(await asyncio.gather(*[extract_imprint_ocr(b) for b in image_bytes_list]))
+        logger.info(
+            "OCR 결과: front=%s, back=%s",
+            ocr_texts[0] if ocr_texts else None,
+            ocr_texts[1] if len(ocr_texts) > 1 else None,
+        )
+
+        # ── 1단계: GPT Vision - 색상/모양 추출 ──
+        features = await extract_pill_features(client, image_b64_list, ocr_texts, model)
         logger.info("1단계 완료: %s", features)
 
-        # 알약이 아닌 이미지 처리
         if not features.get("is_pill", True):
             logger.info("알약 이미지가 아님 → 식별 불가 반환")
-            result = {
-                "product_name": "알약 이미지가 아닙니다",
-                "gpt_model_version": model,
-            }
+            result = {"product_name": "알약 이미지가 아닙니다", "gpt_model_version": model}
             analysis_id = await save_analysis_result(conn, user_id, file_id, result)
             return {"analysis_id": analysis_id, "product_name": result["product_name"], "result": result}
 
-        # ── 2단계: imprint RAG - 약품 특정 ──
+        # ── 2단계: imprint RAG ──
         matched_drug = await find_drug_by_imprint(conn, client, features)
 
         if matched_drug is None:
-            # imprint 매칭 실패 → 각인 정보만 저장
             logger.info("2단계 매칭 실패 → 각인 정보만 저장")
-            product_name = None
-            if features.get("print_front") or features.get("print_back"):
-                parts = [v for v in [features.get("print_front"), features.get("print_back")] if v]
-                product_name = f"각인: {', '.join(parts)} (DB 미매칭)"
-
-            result = {
-                "product_name": product_name or "식별 불가",
-                "gpt_model_version": model,
-            }
+            parts = [v for v in [features.get("print_front"), features.get("print_back")] if v]
+            product_name = f"각인: {', '.join(parts)} (DB 미매칭)" if parts else "식별 불가"
+            result = {"product_name": product_name, "gpt_model_version": model}
             analysis_id = await save_analysis_result(conn, user_id, file_id, result)
             return {"analysis_id": analysis_id, "product_name": result["product_name"], "result": result}
 
@@ -332,12 +360,11 @@ async def process_pill_analysis(task_data: dict) -> dict:
         db_info = await fetch_drug_info_from_db(conn, matched_drug["item_seq"])
         logger.info("3단계 완료: item_seq=%s, 조회 필드=%s", matched_drug["item_seq"], list(db_info.keys()))
 
-        # 결과 조합 (GPT 재호출 없음)
         result = {
             "product_name": matched_drug["item_name"],
             "active_ingredients": db_info.get("ingredient"),
             "efficacy": db_info.get("efficacy"),
-            "usage_method": None,  # 허가정보에 없는 필드
+            "usage_method": None,
             "warning": None,
             "caution": db_info.get("caution"),
             "interactions": None,
@@ -349,11 +376,7 @@ async def process_pill_analysis(task_data: dict) -> dict:
         analysis_id = await save_analysis_result(conn, user_id, file_id, result)
         logger.info("분석 완료: analysis_id=%s, product_name=%s", analysis_id, result["product_name"])
 
-        return {
-            "analysis_id": analysis_id,
-            "product_name": result["product_name"],
-            "result": result,
-        }
+        return {"analysis_id": analysis_id, "product_name": result["product_name"], "result": result}
 
     finally:
         await conn.close()
