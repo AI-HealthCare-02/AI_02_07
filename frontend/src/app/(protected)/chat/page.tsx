@@ -146,7 +146,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 
 export default function ChatPage() {
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, _hasHydrated } = useAuthStore();
 
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<number | null>(null);
@@ -165,8 +165,8 @@ export default function ChatPage() {
   const activeRoomIdRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated) router.replace("/login");
-  }, [isAuthenticated, router]);
+    if (_hasHydrated && !isAuthenticated) router.replace("/login");
+  }, [_hasHydrated, isAuthenticated, router]);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";

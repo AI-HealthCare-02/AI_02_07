@@ -1,18 +1,9 @@
 # app/apis/v1/pill_analysis.py
-# ──────────────────────────────────────────────
-# 알약 분석 API
-#
-# POST   /pill-analysis/analyze     이미지 업로드 + 분석 요청
-# GET    /pill-analysis             목록 조회 (검색)
-# GET    /pill-analysis/{id}        상세 조회
-# DELETE /pill-analysis/{id}        삭제
-# ──────────────────────────────────────────────
-
 import io
 import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.core.s3 import delete_file, generate_s3_key, upload_file
 from app.dependencies.security import get_current_user
@@ -24,14 +15,15 @@ from app.services.task_queue import TaskType, enqueue_task, wait_for_task_result
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_IMAGE_SIZE = 5 * 1024 * 1024
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
 
-
-# ── DTO ───────────────────────────────────────
+UNIDENTIFIED_KEYWORDS = ("식별 불가", "미매칭", "알약 이미지가 아닙니다", "여러 알약", "분석 실패")
 
 
 class PillAnalysisResult(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     analysis_id: int
     product_name: str | None
     active_ingredients: str | None
@@ -45,78 +37,56 @@ class PillAnalysisResult(BaseModel):
     gpt_model_version: str | None
     created_at: str
 
-    class Config:
-        from_attributes = True
-
 
 class PillAnalysisSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     analysis_id: int
     product_name: str | None
     efficacy: str | None
     created_at: str
 
-    class Config:
-        from_attributes = True
-
-
-# ── 이미지 유효성 검사 ─────────────────────────
-
 
 def validate_image(file: UploadFile) -> None:
     if file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail="지원하지 않는 이미지 형식입니다. (지원: JPEG, PNG, WEBP, HEIC)",
-        )
+        raise HTTPException(status_code=400, detail="지원하지 않는 이미지 형식입니다. (지원: JPEG, PNG, WEBP, HEIC)")
 
 
 async def read_and_validate_size(file: UploadFile) -> bytes:
     data = await file.read()
     if len(data) > MAX_IMAGE_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"이미지 용량이 5MB를 초과합니다: {len(data) / 1024 / 1024:.1f}MB",
-        )
+        raise HTTPException(status_code=400, detail=f"이미지 용량이 5MB를 초과합니다: {len(data) / 1024 / 1024:.1f}MB")
     return data
-
-
-# ── 엔드포인트 ────────────────────────────────
 
 
 @router.post("/analyze", summary="알약 이미지 분석")
 async def analyze_pill(
-    front_image: UploadFile = File(..., description="알약 앞면 이미지"),
-    back_image: UploadFile = File(..., description="알약 뒷면 이미지"),
+    front_image: UploadFile = File(..., description="알약 이미지 (앞면 또는 앞뒤 모두 포함)"),
+    back_image: UploadFile | None = File(None, description="알약 뒷면 이미지 (선택)"),
     current_user: User = Depends(get_current_user),
 ) -> ResponseDTO:
-    """
-    알약 앞/뒷면 이미지 2장을 업로드하여 분석합니다.
-
-    - 이미지 포맷: JPEG, PNG, WEBP, HEIC
-    - 이미지 용량: 각 5MB 이하
-    - 분석 결과는 pill_analysis_history에 저장됩니다.
-    """
     from app.core.config import get_settings
 
     settings = get_settings()
 
     validate_image(front_image)
-    validate_image(back_image)
-
     front_bytes = await read_and_validate_size(front_image)
-    back_bytes = await read_and_validate_size(back_image)
+
+    back_bytes: bytes | None = None
+    if back_image and back_image.filename:
+        validate_image(back_image)
+        back_bytes = await read_and_validate_size(back_image)
 
     # S3 업로드
-    s3_keys = []
+    s3_keys: list[str] = []
     for img_bytes, original_name in [
         (front_bytes, front_image.filename or "front.jpg"),
-        (back_bytes, back_image.filename or "back.jpg"),
+        *([(back_bytes, back_image.filename or "back.jpg")] if back_bytes and back_image else []),
     ]:
         s3_key = generate_s3_key("pill-images", original_name, user_id=current_user.user_id)
         await upload_file(io.BytesIO(img_bytes), s3_key, content_type="image/jpeg")
         s3_keys.append(s3_key)
 
-    # uploaded_file ORM 저장
     uploaded = await UploadedFile.create(
         user=current_user,
         original_name=front_image.filename or "front.jpg",
@@ -131,12 +101,12 @@ async def analyze_pill(
         file_category_code="IMG_PILL",
     )
 
-    # ── 환경별 분기: 로컬은 직접 처리, 프로덕션은 Worker 큐 ──
     if settings.APP_ENV != "production":
         import asyncpg
         from openai import AsyncOpenAI
 
         from ai_worker.tasks.pill_analysis import (
+            extract_imprint_ocr,
             extract_pill_features,
             fetch_drug_info_from_db,
             find_drug_by_imprint,
@@ -144,30 +114,46 @@ async def analyze_pill(
         )
 
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        image_b64_list = [preprocess_image(front_bytes), preprocess_image(back_bytes)]
+        image_bytes_pairs = [front_bytes] + ([back_bytes] if back_bytes else [])
+        b64_list, proc_bytes_list = zip(*[preprocess_image(b) for b in image_bytes_pairs], strict=False)
+
+        import asyncio
+
+        ocr_texts: list[str | None] = list(await asyncio.gather(*[extract_imprint_ocr(b) for b in proc_bytes_list]))
+
         db_url = settings.database_url.replace("asyncpg://", "postgresql://")
         db_conn = await asyncpg.connect(db_url)
 
         try:
-            # 1단계: GPT Vision - 각인/색상/모양만 추출
-            features = await extract_pill_features(client, image_b64_list, settings.OPENAI_MODEL)
+            features = await extract_pill_features(client, list(b64_list), ocr_texts, settings.OPENAI_MODEL)
             logger.info("1단계 완료: %s", features)
 
             if not features.get("is_pill", True):
-                product_name = "알약 이미지가 아닙니다"
                 analysis = await PillAnalysisHistory.create(
                     user=current_user,
                     file=uploaded,
-                    product_name=product_name,
+                    product_name="알약 이미지가 아닙니다",
                     gpt_model_version=settings.OPENAI_MODEL,
                 )
                 return ResponseDTO(
                     success=True,
                     message="알약 이미지가 아닙니다.",
-                    data={"analysis_id": analysis.analysis_id, "product_name": product_name},
+                    data={"analysis_id": analysis.analysis_id, "product_name": analysis.product_name},
                 )
 
-            # 2단계: imprint RAG - 약품 특정
+            if features.get("multiple_pills"):
+                analysis = await PillAnalysisHistory.create(
+                    user=current_user,
+                    file=uploaded,
+                    product_name="여러 알약 감지 - 분석 실패",
+                    gpt_model_version=settings.OPENAI_MODEL,
+                )
+                return ResponseDTO(
+                    success=True,
+                    message="여러 알약이 감지되어 분석할 수 없습니다.",
+                    data={"analysis_id": analysis.analysis_id, "product_name": analysis.product_name},
+                )
+
             matched_drug = await find_drug_by_imprint(db_conn, client, features)
 
             if matched_drug is None:
@@ -185,9 +171,7 @@ async def analyze_pill(
                     data={"analysis_id": analysis.analysis_id, "product_name": product_name},
                 )
 
-            # 3단계: 허가정보 DB 직접 조회 (GPT 재호출 없음)
             db_info = await fetch_drug_info_from_db(db_conn, matched_drug["item_seq"])
-
         finally:
             await db_conn.close()
 
@@ -200,14 +184,12 @@ async def analyze_pill(
             caution=db_info.get("caution"),
             gpt_model_version=settings.OPENAI_MODEL,
         )
-
         return ResponseDTO(
             success=True,
             message="알약 분석이 완료되었습니다.",
             data={"analysis_id": analysis.analysis_id, "product_name": analysis.product_name},
         )
 
-    # 프로덕션: Worker 태스크 큐에 등록 후 결과 대기
     task_id = await enqueue_task(
         task_type=TaskType.PILL_ANALYSIS,
         payload={"user_id": current_user.user_id, "file_id": uploaded.file_id, "s3_keys": s3_keys},
@@ -234,15 +216,12 @@ async def list_pill_analyses(
     search: str | None = Query(None, description="제품명 검색"),
     current_user: User = Depends(get_current_user),
 ) -> PaginatedResponseDTO:
-    """사용자의 알약 분석 이력을 조회합니다."""
     qs = PillAnalysisHistory.filter(user=current_user)
-
     if search:
         qs = qs.filter(product_name__icontains=search)
 
     total = await qs.count()
     rows = await qs.offset((page - 1) * size).limit(size)
-
     total_pages = max((total + size - 1) // size, 1)
 
     return PaginatedResponseDTO(
@@ -266,11 +245,22 @@ async def get_pill_analysis(
     analysis_id: int,
     current_user: User = Depends(get_current_user),
 ) -> ResponseDTO:
-    """알약 분석 상세 정보를 조회합니다."""
     row = await PillAnalysisHistory.get_or_none(analysis_id=analysis_id, user=current_user)
-
     if row is None:
         raise HTTPException(status_code=404, detail="분석 결과를 찾을 수 없습니다.")
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    uploaded = await UploadedFile.get_or_none(file_id=row.file_id)
+    image_url = (
+        f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}.amazonaws.com/{uploaded.s3_key}"
+        if uploaded
+        else None
+    )
+
+    product_name = row.product_name or ""
+    is_unidentified = any(kw in product_name for kw in UNIDENTIFIED_KEYWORDS)
 
     return ResponseDTO(
         success=True,
@@ -287,6 +277,8 @@ async def get_pill_analysis(
             "side_effects": row.side_effects,
             "storage_method": row.storage_method,
             "gpt_model_version": row.gpt_model_version,
+            "image_url": image_url,
+            "is_unidentified": is_unidentified,
             "created_at": row.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         },
     )
@@ -297,18 +289,14 @@ async def delete_pill_analysis(
     analysis_id: int,
     current_user: User = Depends(get_current_user),
 ) -> ResponseDTO:
-    """알약 분석 이력을 삭제합니다."""
     row = await PillAnalysisHistory.get_or_none(analysis_id=analysis_id, user=current_user)
-
     if row is None:
         raise HTTPException(status_code=404, detail="분석 결과를 찾을 수 없습니다.")
 
-    # S3 파일 삭제
     uploaded = await UploadedFile.get_or_none(file_id=row.file_id)
     if uploaded:
         await delete_file(uploaded.s3_key)
         await uploaded.delete()
 
     await row.delete()
-
     return ResponseDTO(success=True, message="삭제되었습니다.")

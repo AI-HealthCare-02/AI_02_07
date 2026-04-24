@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/axios";
+import { useAuthStore } from "@/store/auth-store";
 
 // ── 타입 ──────────────────────────────────────────────────
 type Tab = "analyze" | "list";
-type Step = "upload" | "analyzing" | "done" | "failed";
+type Step = "upload" | "analyzing" | "done" | "unidentified" | "failed";
 
 interface PillSummary {
   analysis_id: number;
@@ -85,6 +86,7 @@ function ImageSlotCard({
 // ── 메인 ──────────────────────────────────────────────────
 export default function PillPage() {
   const router = useRouter();
+  const { isAuthenticated, _hasHydrated } = useAuthStore();
   const frontRef = useRef<HTMLInputElement>(null);
   const backRef = useRef<HTMLInputElement>(null);
 
@@ -94,6 +96,7 @@ export default function PillPage() {
   const [back, setBack] = useState<ImageSlot | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [analysisId, setAnalysisId] = useState<number | null>(null);
+  const [unidentifiedReason, setUnidentifiedReason] = useState<string | null>(null);
   const [failReason, setFailReason] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -109,6 +112,10 @@ export default function PillPage() {
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
   };
+
+  useEffect(() => {
+    if (_hasHydrated && !isAuthenticated) router.replace("/login");
+  }, [_hasHydrated, isAuthenticated, router]);
 
   const makeSlot = (file: File, label: "앞면" | "뒷면"): ImageSlot => ({
     file,
@@ -139,14 +146,14 @@ export default function PillPage() {
 
   // ── 분석 시작 ──
   const startAnalysis = async () => {
-    if (!front || !back) return;
+    if (!front) return;
     setStep("analyzing");
     setElapsedSec(0);
     timerRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
 
     const formData = new FormData();
     formData.append("front_image", front.file);
-    formData.append("back_image", back.file);
+    if (back) formData.append("back_image", back.file);
 
     try {
       const { data } = await apiClient.post(
@@ -154,8 +161,16 @@ export default function PillPage() {
         formData,
         { headers: { "Content-Type": "multipart/form-data" } }
       );
-      setAnalysisId(data.data?.analysis_id ?? null);
-      setStep("done");
+      const id = data.data?.analysis_id ?? null;
+      setAnalysisId(id);
+      const name: string = data.data?.product_name ?? "";
+      const unidentifiedKeywords = ["식별 불가", "미매칭", "알약 이미지가 아닙니다", "여러 알약", "분석 실패"];
+      if (unidentifiedKeywords.some((kw) => name.includes(kw))) {
+        setUnidentifiedReason(name);
+        setStep("unidentified");
+      } else {
+        setStep("done");
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "알 수 없는 오류";
       setFailReason(msg);
@@ -171,6 +186,7 @@ export default function PillPage() {
     setBack(null);
     setAnalysisId(null);
     setFailReason(null);
+    setUnidentifiedReason(null);
     setElapsedSec(0);
   };
 
@@ -257,29 +273,23 @@ export default function PillPage() {
           {step === "upload" && (
             <div className="space-y-6">
               <div>
-                <h1 className="text-2xl font-bold text-foreground">
-                  알약 이미지 분석
-                </h1>
+                <h1 className="text-2xl font-bold text-foreground">알약 이미지 분석</h1>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  알약 앞면과 뒷면 이미지를 각각 업로드하면 AI가 약품 정보를
-                  분석합니다.
+                  알약 이미지를 업로드하면 AI가 약품 정보를 분석합니다.<br />
+                  앞뒤가 한 장에 있거나 앞면만 있어도 분석 가능합니다.
                 </p>
               </div>
 
-              {/* 이미지 슬롯 2개 */}
+              {/* 이미지 슬롯 */}
               <div className="grid grid-cols-2 gap-4">
-                <ImageSlotCard
-                  slot={front}
-                  label="앞면"
-                  onSelect={() => frontRef.current?.click()}
-                  onRemove={() => setFront(null)}
-                />
-                <ImageSlotCard
-                  slot={back}
-                  label="뒷면"
-                  onSelect={() => backRef.current?.click()}
-                  onRemove={() => setBack(null)}
-                />
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs font-semibold text-muted-foreground">💊 앞면 <span className="text-red-400">*필수</span></p>
+                  <ImageSlotCard slot={front} label="앞면" onSelect={() => frontRef.current?.click()} onRemove={() => setFront(null)} />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs font-semibold text-muted-foreground">💊 뒷면 <span className="text-muted-foreground/60">(선택)</span></p>
+                  <ImageSlotCard slot={back} label="뒷면" onSelect={() => backRef.current?.click()} onRemove={() => setBack(null)} />
+                </div>
               </div>
 
               <input
@@ -301,9 +311,51 @@ export default function PillPage() {
                 💡 알약의 각인 문자, 색상, 모양이 잘 보이도록 촬영해주세요.
               </p>
 
+              {/* 촬영 가이드 */}
+              <div className="rounded-xl border border-teal-500/20 bg-teal-500/5 p-4">
+                <p className="mb-3 text-xs font-semibold text-teal-400">📸 정확한 분석을 위한 촬영 가이드</p>
+                <div className="space-y-3">
+                  <div className="flex gap-3">
+                    <span className="mt-0.5 shrink-0 text-base">✅</span>
+                    <div>
+                      <p className="text-xs font-medium text-foreground">각인이 선명하게 보이도록</p>
+                      <p className="text-xs text-muted-foreground">알약 표면의 글자·숫자가 또렷하게 찍히도록 가까이서 촬영하세요.</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="mt-0.5 shrink-0 text-base">✅</span>
+                    <div>
+                      <p className="text-xs font-medium text-foreground">밝은 곳에서 촬영</p>
+                      <p className="text-xs text-muted-foreground">자연광이나 밝은 조명 아래에서 그림자 없이 촬영하면 인식률이 높아집니다.</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="mt-0.5 shrink-0 text-base">✅</span>
+                    <div>
+                      <p className="text-xs font-medium text-foreground">한 장에 알약 하나만</p>
+                      <p className="text-xs text-muted-foreground">여러 알약이 함께 찍히면 분석이 실패합니다. 분석할 알약 하나만 촬영하세요.</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="mt-0.5 shrink-0 text-base">✅</span>
+                    <div>
+                      <p className="text-xs font-medium text-foreground">업로드 방법 3가지</p>
+                      <p className="text-xs text-muted-foreground">① 앞면만 업로드 &nbsp;② 앞면 + 뒷면 각각 업로드 (권장) &nbsp;③ 앞뒤가 모두 보이는 사진 1장 업로드</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="mt-0.5 shrink-0 text-base">❌</span>
+                    <div>
+                      <p className="text-xs font-medium text-foreground">이런 이미지는 인식이 어려워요</p>
+                      <p className="text-xs text-muted-foreground">흔들린 사진 · 각인이 가려진 사진 · 너무 어두운 사진 · 알약이 아닌 이미지</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <button
                 onClick={startAnalysis}
-                disabled={!front || !back}
+                disabled={!front}
                 className="w-full rounded-xl bg-teal-600 py-3.5 text-sm font-semibold text-white transition hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 분석 시작하기 →
@@ -369,6 +421,33 @@ export default function PillPage() {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* ── 분석 불가 ── */}
+          {step === "unidentified" && (
+            <div className="space-y-5">
+              <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-6 text-center">
+                <div className="mb-3 text-5xl">🔍</div>
+                <h2 className="text-xl font-bold text-foreground">알약을 식별할 수 없습니다</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {unidentifiedReason ?? "DB에서 일치하는 약품을 찾지 못했습니다."}
+                </p>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+                <p className="mb-2 font-medium text-foreground">💡 식별 실패 시 확인사항</p>
+                <ul className="list-inside list-disc space-y-1 text-xs">
+                  <li>각인 문자가 선명하게 보이도록 촬영해주세요.</li>
+                  <li>한 이미지에 하나의 알약만 촬영해주세요.</li>
+                  <li>앞면과 뒷면을 각각 업로드하면 정확도가 높아집니다.</li>
+                </ul>
+              </div>
+              <button
+                onClick={resetAnalyze}
+                className="w-full rounded-xl bg-teal-600 py-3.5 text-sm font-semibold text-white transition hover:bg-teal-500"
+              >
+                다시 시도하기
+              </button>
             </div>
           )}
 
