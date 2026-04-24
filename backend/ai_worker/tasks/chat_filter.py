@@ -5,7 +5,10 @@
 
 import logging
 
-from openai import AsyncOpenAI
+try:
+    from langfuse.openai import AsyncOpenAI
+except ImportError:
+    from openai import AsyncOpenAI  # type: ignore[assignment]
 
 from ai_worker.core.config import get_worker_settings
 

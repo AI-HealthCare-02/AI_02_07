@@ -39,7 +39,7 @@ settings = get_worker_settings()
 
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 TARGET_SIZE = 1024
-IMPRINT_SIMILARITY_THRESHOLD = 0.45
+IMPRINT_SIMILARITY_THRESHOLD = 0.55
 
 
 # ── 이미지 전처리 ──────────────────────────────
@@ -139,21 +139,39 @@ async def extract_pill_features(
 
     prompt = f"""알약 이미지를 보고 아래 JSON만 출력하세요. 다른 말은 하지 마세요.
 
-각인 문자는 OCR로 이미 추출되었습니다. print_front/print_back은 아래 값을 그대로 사용하세요.
+OCR로 추출한 각인 문자가 있습니다. 아래 순서로 판단하세요.
+
+[업로드 패턴 고려]
+- 일반: 첫 번째 이미지=앞면, 두 번째 이미지=뒷면
+- 앞뒤 반대: 첫 번째가 숫자만이고 두 번째가 영문자면 앞뒤가 바뀌어 업로드된 것
+- 한 이미지에 앞뒤 모두: 한 이미지에 알약 2개(앞면+뒷면)가 함께 찍힌 경우, 이미지에서 직접 앞뒤 각인을 구분하여 추출
+- 여러 알약: 이미지에 서로 다른 알약이 여러 개 있으면 multiple_pills=true로 설정
+
+[1단계] 이미지를 직접 보고 OCR 오인식 교정
+자주 혼동되는 문자 쌍:
+- H ↔ N (예: TYLEHOL → TYLENOL)
+- 0 ↔ O, 1 ↔ I ↔ L, 8 ↔ B, 5 ↔ S, 6 ↔ G
+
+[2단계] 교정된 각인이 실제 약품 각인인지 판별
+- 실제 약품 각인이면 그대로 사용
+- 존재하지 않는 각인이라면 발음/철자가 유사한 실제 약품 각인으로 유추
+  (예: TYLEHOL → TYLENOL, ASPRIN → ASPIRIN)
+
 - 앞면 OCR: {ocr_front or "없음"}
 - 뒷면 OCR: {ocr_back or "없음"}
 
-이미지에서는 색상과 모양만 판단하세요.
+이미지에서 색상과 모양도 판단하세요.
 
 {{
   "is_pill": true,
-  "print_front": "앞면 OCR 결과 그대로 (없으면 null)",
-  "print_back": "뒷면 OCR 결과 그대로 (없으면 null)",
+  "multiple_pills": false,
+  "print_front": "교정+유추된 앞면 각인 (없으면 null)",
+  "print_back": "교정+유추된 뒷면 각인 (없으면 null)",
   "color": "색상 (예: 하양, 노랑, 분홍)",
   "shape": "모양 (예: 원형, 타원형, 장방형)"
 }}
 
-알약이 아닌 이미지면 is_pill을 false로 설정하세요."""
+알약이 아닌 이미지면 is_pill=false, 여러 알약이면 multiple_pills=true로 설정하세요."""
 
     contents = image_contents + [{"type": "text", "text": prompt}]
 
@@ -368,6 +386,12 @@ async def process_pill_analysis(task_data: dict) -> dict:
         if not features.get("is_pill", True):
             logger.info("알약 이미지가 아님 → 식별 불가 반환")
             result = {"product_name": "알약 이미지가 아닙니다", "gpt_model_version": model}
+            analysis_id = await save_analysis_result(conn, user_id, file_id, result)
+            return {"analysis_id": analysis_id, "product_name": result["product_name"], "result": result}
+
+        if features.get("multiple_pills"):
+            logger.info("여러 알약 감지 → 분석 실패 반환")
+            result = {"product_name": "여러 알약 감지 - 분석 실패", "gpt_model_version": model}
             analysis_id = await save_analysis_result(conn, user_id, file_id, result)
             return {"analysis_id": analysis_id, "product_name": result["product_name"], "result": result}
 
