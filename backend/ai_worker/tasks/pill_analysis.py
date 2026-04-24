@@ -15,6 +15,7 @@
 #   → item_seq로 efficacy/caution/ingredient 조회
 # ──────────────────────────────────────────────
 
+import asyncio
 import base64
 import io
 import json
@@ -71,11 +72,8 @@ def preprocess_image(image_bytes: bytes) -> tuple[str, bytes]:
 
 
 # ── Clova OCR - 각인 텍스트 추출 ──────────────
-async def extract_imprint_ocr(image_bytes: bytes) -> str | None:
-    """Clova OCR로 이미지에서 텍스트를 추출해 각인 문자열 반환."""
-    if not settings.OCR_INVOKE_URL or not settings.OCR_SECRET_KEY:
-        return None
-
+async def _ocr_request(client: httpx.AsyncClient, image_bytes: bytes) -> str:
+    """단일 이미지 OCR 요청, 인식된 텍스트 반환 (없으면 빈 문자열)."""
     payload = {
         "version": "V2",
         "requestId": str(uuid.uuid4()),
@@ -83,16 +81,34 @@ async def extract_imprint_ocr(image_bytes: bytes) -> str | None:
         "images": [{"format": "jpg", "name": "pill", "data": base64.b64encode(image_bytes).decode()}],
     }
     headers = {"X-OCR-SECRET": settings.OCR_SECRET_KEY, "Content-Type": "application/json"}
+    resp = await client.post(settings.OCR_INVOKE_URL, json=payload, headers=headers)
+    resp.raise_for_status()
+    fields = resp.json()["images"][0].get("fields", [])
+    return " ".join(f["inferText"] for f in fields if f.get("inferText")).strip().upper()
+
+
+def _rotate_180(image_bytes: bytes) -> bytes:
+    img = Image.open(io.BytesIO(image_bytes)).rotate(180, expand=True)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
+async def extract_imprint_ocr(image_bytes: bytes) -> str | None:
+    """원본 + 180도 회전 중 텍스트가 더 많은 결과 반환."""
+    if not settings.OCR_INVOKE_URL or not settings.OCR_SECRET_KEY:
+        return None
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(settings.OCR_INVOKE_URL, json=payload, headers=headers)
-            resp.raise_for_status()
-            fields = resp.json()["images"][0].get("fields", [])
-            texts = [f["inferText"] for f in fields if f.get("inferText")]
-            result = " ".join(texts).strip().upper()
-            logger.info("Clova OCR 결과: %s", result)
-            return result or None
+            normal, rotated = await asyncio.gather(
+                _ocr_request(client, image_bytes),
+                _ocr_request(client, _rotate_180(image_bytes)),
+            )
+        # 더 긴 텍스트(더 많이 인식된 방향) 선택
+        result = normal if len(normal) >= len(rotated) else rotated
+        logger.info("Clova OCR 결과: %s (normal=%s, rotated=%s)", result, normal, rotated)
+        return result or None
     except Exception as e:
         logger.warning("Clova OCR 실패 (무시): %s", e)
         return None
@@ -326,9 +342,19 @@ async def process_pill_analysis(task_data: dict) -> dict:
             raise ValueError("처리할 이미지가 없습니다.")
 
         # ── Clova OCR - 각인 텍스트 추출 ──
-        import asyncio
-
         ocr_texts: list[str | None] = list(await asyncio.gather(*[extract_imprint_ocr(b) for b in image_bytes_list]))
+
+        # 앞면이 숫자만이고 뒷면이 영문자면 앞뒤 swap (사용자가 반대로 업로드한 경우)
+        if (
+            len(ocr_texts) == 2
+            and ocr_texts[0]
+            and ocr_texts[1]
+            and ocr_texts[0].replace(" ", "").isdigit()
+            and any(c.isalpha() for c in ocr_texts[1])
+        ):
+            ocr_texts[0], ocr_texts[1] = ocr_texts[1], ocr_texts[0]
+            logger.info("OCR 앞뒤 swap 적용")
+
         logger.info(
             "OCR 결과: front=%s, back=%s",
             ocr_texts[0] if ocr_texts else None,
