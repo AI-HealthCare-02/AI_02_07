@@ -74,8 +74,8 @@ export default function LoginPage() {
         )}
 
         <div className="flex flex-col gap-3">
-          {/* 구글 로그인 */}
-          <button
+          {/* 구글 로그인 - 추후 활성화 */}
+          {/* <button
             onClick={() => handleOAuth("google")}
             disabled={loading !== null}
             className="flex w-full items-center justify-center gap-3 rounded-lg border bg-white px-4 py-3 text-sm font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
@@ -86,7 +86,7 @@ export default function LoginPage() {
               <GoogleIcon />
             )}
             Google로 계속하기
-          </button>
+          </button> */}
 
           {/* 카카오 로그인 */}
           <button

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
 import apiClient from "@/lib/axios";
-import ReactMarkdown from "react-markdown";
 
 interface ChatRoom {
   roomId: number;
@@ -16,8 +15,7 @@ interface ChatMessage {
   messageId: number;
   senderTypeCode: "USER" | "ASSISTANT";
   content: string;
-  filterResult: "PASS" | "DOMAIN" | "EMERGENCY" | "OTHER" | null;
-  isBookmarked?: boolean;
+  filterResult: "PASS" | "DOMAIN" | "EMERGENCY" | null;
   createdAt: string;
 }
 
@@ -53,7 +51,7 @@ function TypingBubble() {
 
 const markdownComponents = {
   p: ({ children }: { children?: React.ReactNode }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
-  strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-semibold text-white">{children}</strong>,
+  strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-semibold text-foreground">{children}</strong>,
   ul: ({ children }: { children?: React.ReactNode }) => <ul className="mb-2 ml-4 list-disc space-y-1">{children}</ul>,
   ol: ({ children }: { children?: React.ReactNode }) => <ol className="mb-2 ml-4 list-decimal space-y-1">{children}</ol>,
   li: ({ children }: { children?: React.ReactNode }) => <li className="leading-relaxed">{children}</li>,
@@ -102,7 +100,6 @@ function BookmarkButton({ messageId, initialBookmarked = false }: { messageId: n
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   const isUser = msg.senderTypeCode === "USER";
   const isEmergency = msg.filterResult === "EMERGENCY";
-  const isOther = msg.filterResult === "OTHER";
 
   if (isUser) {
     return (
@@ -130,36 +127,18 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
     );
   }
 
-  if (isOther) {
-    return (
-      <div className="flex items-end gap-2">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--muted-foreground))" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-        </div>
-        <div className="max-w-[75%] rounded-2xl rounded-bl-sm border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
-          {msg.content}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex items-start gap-2">
-      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-teal-500/30 bg-teal-500/10">
+    <div className="flex items-end gap-2">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-teal-500/30 bg-teal-500/10">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
         </svg>
       </div>
-      <div className="flex max-w-[75%] flex-col">
-        <div
-          className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-white"
-          style={{ background: "linear-gradient(135deg, rgb(20,184,166), rgb(6,182,212))" }}
-        >
-          <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
-        </div>
-        <BookmarkButton messageId={msg.messageId} initialBookmarked={msg.isBookmarked ?? false} />
+      <div
+        className="max-w-[75%] rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-white dark:text-white"
+        style={{ background: "linear-gradient(135deg, rgb(20,184,166), rgb(6,182,212))" }}
+      >
+        {msg.content}
       </div>
     </div>
   );
@@ -376,7 +355,7 @@ export default function ChatPage() {
                 messageId: Date.now() + 1,
                 senderTypeCode: "ASSISTANT",
                 content: parsed.message,
-                filterResult: parsed.type as "EMERGENCY" | "OTHER",
+                filterResult: parsed.type,
                 createdAt: new Date().toISOString(),
               },
             ]);
@@ -494,7 +473,7 @@ export default function ChatPage() {
                   }`}
                 >
                   <p className="truncate text-sm font-medium">{room.title}</p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground/50">
+                  <p className="mt-0.5 text-[10px] text-muted-foreground/60">
                     {new Date(room.updatedAt).toLocaleDateString("ko-KR", {
                       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
                     })}
@@ -564,7 +543,7 @@ export default function ChatPage() {
                 placeholder="메시지를 입력하세요"
                 rows={1}
                 disabled={sending || aiTyping}
-                className="flex-1 resize-none rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/40 focus:outline-none disabled:opacity-50"
+                className="flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/40 focus:outline-none disabled:opacity-50"
                 style={{ maxHeight: 120, overflowY: "auto" }}
                 onInput={(e) => {
                   const el = e.currentTarget;

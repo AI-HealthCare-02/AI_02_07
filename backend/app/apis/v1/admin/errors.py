@@ -1,7 +1,6 @@
 # app/apis/v1/admin/errors.py
 
 from datetime import date
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
@@ -16,9 +15,9 @@ router = APIRouter()
 async def list_errors(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    error_type: Optional[str] = Query(None),
-    start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None),
+    error_type: str | None = Query(None),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
     admin: AdminUser = Depends(get_current_admin),
 ):
     qs = SystemErrorLog.all()
@@ -29,6 +28,7 @@ async def list_errors(
         qs = qs.filter(created_at__gte=date.fromisoformat(start_date))
     if end_date:
         from datetime import timedelta
+
         qs = qs.filter(created_at__lt=date.fromisoformat(end_date) + timedelta(days=1))
 
     total = await qs.count()
@@ -57,15 +57,11 @@ async def list_errors(
 @router.get("/types")
 async def list_error_types(admin: AdminUser = Depends(get_current_admin)):
     """발생한 오류 타입 목록 조회 (필터용)"""
-    from tortoise import connections
-    conn = connections.get("default")
-    rows = await conn.execute_query_dict(
-        "SELECT DISTINCT error_type FROM system_error_logs WHERE error_type IS NOT NULL ORDER BY error_type"
-    )
+    types = await SystemErrorLog.filter(error_type__not_isnull=True).distinct().values_list("error_type", flat=True)
     return {
         "status": 200,
         "message": "조회 성공",
-        "data": [r["error_type"] for r in rows],
+        "data": sorted(types),
     }
 
 

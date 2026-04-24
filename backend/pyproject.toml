@@ -18,6 +18,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "tzdata>=2024.1",  # Windows 타임존 데이터 (Linux/Mac에는 시스템 제공)
     "langfuse>=4.2.0",
+    "asyncpg>=0.30",   # embed_drugs.py 스크립트용 (app 그룹과 공유)
 ]
 
 # ── 의존성 그룹: uv sync --group <name> 으로 선택 설치 ──
@@ -29,16 +30,17 @@ app = [
     "tortoise-orm[asyncpg]>=0.24",
     "aerich>=0.8",             # Tortoise ORM 마이그레이션
     "asyncpg>=0.30",
+    "pgvector>=0.3.0",          # pgvector Python 클라이언트
     "sse-starlette>=2.2",      # Server-Sent Events
     "python-multipart>=0.0.18",# 파일 업로드
+    "Pillow>=11.1",             # 이미지 유효성 검사 (알약 분석 API)
     "python-jose[cryptography]>=3.3",  # JWT
     "passlib[bcrypt]>=1.7",    # 비밀번호 해싱
     "httpx>=0.28",             # 외부 API 호출 (OAuth 등)
     "boto3>=1.36",             # AWS S3
     "openai>=1.60",            # OpenAI GPT API
     "email-validator>=2.0",
-    "Pillow>=11.1",
-    "python-multipart>=0.0.18",# 파일 업로드
+    "Pillow>=11.1",            # 이미지 전처리 (비의료 문서 감지)
 ]
 ai = [
     # AI Worker 관련
@@ -67,8 +69,14 @@ line-length = 120
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
 ignore = [
     "E501",   # line-length는 formatter가 처리
+    "E402",   # 모듈 레벨 import 순서 (라우터 등록 패턴 허용)
     "B008",   # FastAPI Depends/File 패턴 허용
     "B904",   # except 절 raise from 강제 비활성화
+    "N803",   # 함수 인자 camelCase 허용 (FastAPI Query 파라미터)
+    "N815",   # 클래스 변수 camelCase 허용 (Pydantic DTO camelCase 필드)
+    "SIM117", # 중첩 with 허용 (팀원 코드 스타일)
+    "UP017",  # datetime.UTC alias 강제 비활성화
+    "F841",   # 미사용 변수 강제 비활성화 (TODO 주석 포함 코드)
     "SIM102", # 중첩 if 허용 (가독성)
     "SIM105", # contextlib.suppress 강제 비활성화
     "SIM108", # 삼항 연산자 강제 비활성화

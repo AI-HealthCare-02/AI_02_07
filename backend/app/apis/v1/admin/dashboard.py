@@ -1,7 +1,6 @@
 # app/apis/v1/admin/dashboard.py
 
 from datetime import date
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
@@ -22,8 +21,8 @@ async def dashboard_summary(admin: AdminUser = Depends(get_current_admin)):
 async def dashboard_chart(
     type: str = Query(...),
     period: str = Query(...),
-    startDate: Optional[str] = Query(None),
-    endDate: Optional[str] = Query(None),
+    startDate: str | None = Query(None),
+    endDate: str | None = Query(None),
     admin: AdminUser = Depends(get_current_admin),
 ):
     if type not in ("SIGNUP", "OCR_SUCCESS", "CHAT_USAGE", "FILTER_BLOCKED"):

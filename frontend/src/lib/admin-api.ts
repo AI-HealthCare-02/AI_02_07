@@ -4,7 +4,7 @@ import { useAdminStore } from "@/store/admin-store";
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export const adminApiClient = axios.create({
-  baseURL: typeof window === "undefined" ? BASE_URL : "",
+  baseURL: BASE_URL,
   timeout: 15000,
   headers: { "Content-Type": "application/json" },
 });

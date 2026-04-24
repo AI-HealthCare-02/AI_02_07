@@ -7,6 +7,12 @@
 -- =============================================================
 
 -- ============================================================
+-- 0-0. extensions
+-- ============================================================
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- ============================================================
 -- 0. 공통 코드 체계
 -- ============================================================
 CREATE TABLE IF NOT EXISTS common_group_code (
@@ -166,8 +172,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
                          CHECK (sender_type_grp = 'SENDER_TYPE'),
     sender_type_code VARCHAR(20) NOT NULL,
 
-    content       TEXT        NOT NULL,
-    filter_result VARCHAR(20),          -- 3단계 필터 결과: PASS | DOMAIN | EMERGENCY (사용자 메시지는 NULL)
+    content     TEXT        NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     FOREIGN KEY (sender_type_grp, sender_type_code)
@@ -634,180 +639,7 @@ EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
 
 -- ============================================================
--- 22. 알약 이미지 분석 요청  ★ 수정: image_url 제거
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS pill_analysis_request (
-    analysis_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-    source_type_grp  VARCHAR(20) NOT NULL DEFAULT 'PILL_SOURCE'
-                         CHECK (source_type_grp = 'PILL_SOURCE'),
-    source_type_code VARCHAR(20) NOT NULL,
-
-    -- ★ image_url 제거
-    -- → uploaded_file + file_entity_map (entity_type_code = 'PILL_REQUEST') 으로 관리
-    -- → 멀티 이미지(여러 각도 촬영 등) 지원 가능
-
-    status_grp   VARCHAR(20) NOT NULL DEFAULT 'PILL_ANALYSIS'
-                     CHECK (status_grp = 'PILL_ANALYSIS'),
-    status_code  VARCHAR(20) NOT NULL DEFAULT 'RECEIVED',
-
-    requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    FOREIGN KEY (source_type_grp, source_type_code)
-        REFERENCES common_code (group_code, code),
-    FOREIGN KEY (status_grp, status_code)
-        REFERENCES common_code (group_code, code)
-);
-
-CREATE INDEX IF NOT EXISTS idx_pill_analysis_request_status
-    ON pill_analysis_request (status_code);
-
-
--- ============================================================
--- 23. 알약 분석 단계 (pill_analysis_request CASCADE 재생성으로 재정의 필요)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS pill_analysis_step (
-    step_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    analysis_id  UUID NOT NULL
-                     REFERENCES pill_analysis_request (analysis_id) ON DELETE CASCADE,
-
-    step_code_grp  VARCHAR(20) NOT NULL DEFAULT 'PILL_STEP'
-                       CHECK (step_code_grp = 'PILL_STEP'),
-    step_code_code VARCHAR(20) NOT NULL,
-
-    status_grp     VARCHAR(20) NOT NULL DEFAULT 'PILL_STEP_STATUS'
-                       CHECK (status_grp = 'PILL_STEP_STATUS'),
-    status_code    VARCHAR(20) NOT NULL DEFAULT 'WAITING',
-
-    progress_percent SMALLINT NOT NULL DEFAULT 0
-                         CHECK (progress_percent BETWEEN 0 AND 100),
-
-    FOREIGN KEY (step_code_grp, step_code_code)
-        REFERENCES common_code (group_code, code),
-    FOREIGN KEY (status_grp, status_code)
-        REFERENCES common_code (group_code, code),
-
-    UNIQUE (analysis_id, step_code_code)
-);
-
-CREATE INDEX IF NOT EXISTS idx_pill_analysis_step_analysis
-    ON pill_analysis_step (analysis_id);
-
-CREATE INDEX IF NOT EXISTS idx_pill_analysis_step_analysis
-    ON pill_analysis_step (analysis_id);
-
--- ============================================================
--- 24. 약품 기본 정보
--- ============================================================
-CREATE TABLE IF NOT EXISTS medicine (
-    medicine_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    product_name     VARCHAR(200) NOT NULL,
-    ingredient_name  VARCHAR(200) NOT NULL,
-    product_strength VARCHAR(50),
-    thumbnail_url    VARCHAR(500)
-);
-
--- ============================================================
--- 25. 알약 분석 결과 (pill_analysis_request CASCADE 재생성으로 재정의 필요)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS pill_analysis_result (
-    result_id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    analysis_id  UUID   NOT NULL UNIQUE
-                     REFERENCES pill_analysis_request (analysis_id) ON DELETE CASCADE,
-    medicine_id  BIGINT NOT NULL
-                     REFERENCES medicine (medicine_id),
-
-    confidence_score DECIMAL(5,2) NOT NULL
-                         CHECK (confidence_score BETWEEN 0 AND 100),
-
-    result_status_grp  VARCHAR(20) NOT NULL DEFAULT 'PILL_RESULT'
-                           CHECK (result_status_grp = 'PILL_RESULT'),
-    result_status_code VARCHAR(20) NOT NULL,
-
-    FOREIGN KEY (result_status_grp, result_status_code)
-        REFERENCES common_code (group_code, code)
-);
-
-
--- ============================================================
--- 26. 약품 태그
--- ============================================================
-CREATE TABLE IF NOT EXISTS medicine_tag (
-    tag_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    tag_name    VARCHAR(100) NOT NULL,
-
-    tag_type_grp  VARCHAR(20) NOT NULL DEFAULT 'TAG_TYPE'
-                      CHECK (tag_type_grp = 'TAG_TYPE'),
-    tag_type_code VARCHAR(20) NOT NULL,
-
-    color_token VARCHAR(30),
-
-    FOREIGN KEY (tag_type_grp, tag_type_code)
-        REFERENCES common_code (group_code, code)
-);
-
--- ============================================================
--- 27. 약품-태그 매핑
--- ============================================================
-CREATE TABLE IF NOT EXISTS medicine_tag_map (
-    medicine_id BIGINT NOT NULL
-                    REFERENCES medicine (medicine_id) ON DELETE CASCADE,
-    tag_id      BIGINT NOT NULL
-                    REFERENCES medicine_tag (tag_id) ON DELETE CASCADE,
-
-    PRIMARY KEY (medicine_id, tag_id)
-);
-
--- ============================================================
--- 28. 약품 효능
--- ============================================================
-CREATE TABLE IF NOT EXISTS medicine_effect (
-    effect_id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    medicine_id        BIGINT NOT NULL
-                           REFERENCES medicine (medicine_id) ON DELETE CASCADE,
-    effect_title       VARCHAR(100),
-    effect_description TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_medicine_effect_medicine
-    ON medicine_effect (medicine_id);
-
--- ============================================================
--- 29. 약품 복약 정보
--- ============================================================
-CREATE TABLE IF NOT EXISTS medicine_dosage (
-    dosage_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    medicine_id    BIGINT NOT NULL UNIQUE
-                       REFERENCES medicine (medicine_id) ON DELETE CASCADE,
-    dosage_text    VARCHAR(255),
-    frequency_text VARCHAR(255)
-);
-
--- ============================================================
--- 30. 약품 주의사항
--- ============================================================
-CREATE TABLE IF NOT EXISTS medicine_caution (
-    caution_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    medicine_id  BIGINT NOT NULL
-                     REFERENCES medicine (medicine_id) ON DELETE CASCADE,
-    caution_title VARCHAR(100),
-
-    severity_grp  VARCHAR(20) NOT NULL DEFAULT 'SEVERITY'
-                      CHECK (severity_grp = 'SEVERITY'),
-    severity_code VARCHAR(20),
-
-    FOREIGN KEY (severity_grp, severity_code)
-        REFERENCES common_code (group_code, code)
-);
-
-CREATE INDEX IF NOT EXISTS idx_medicine_caution_medicine
-    ON medicine_caution (medicine_id);
-
--- ============================================================
--- 31. 공통 파일 업로드 (S3 멀티파일)
+-- 22. 공통 파일 업로드 (S3 멀티파일)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS uploaded_file (
     file_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -850,7 +682,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uix_uploaded_file_s3_key
 
 
 -- ============================================================
--- 32. 파일-엔티티 매핑 (다대다 — 멀티파일 지원)
+-- 24. 파일-엔티티 매핑 (다대다 — 멀티파일 지원)
 -- ============================================================
 -- entity_type: 어떤 테이블과 연결되는지 (DOC_JOB, DOC_RESULT, PILL_REQUEST, GUIDE, CHAT 등)
 -- entity_id  : 해당 테이블의 PK 값
@@ -881,6 +713,74 @@ CREATE INDEX IF NOT EXISTS idx_file_entity_map_entity
 CREATE INDEX IF NOT EXISTS idx_file_entity_map_file
     ON file_entity_map (file_id);
 
+-- ============================================================
+-- 23. 알약 분석 결과 테이블
+-- ============================================================
+CREATE TABLE IF NOT EXISTS pill_analysis_history (
+    analysis_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id          BIGINT NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
+    file_id          BIGINT NOT NULL REFERENCES uploaded_file (file_id),
+
+    product_name     VARCHAR(500) NOT NULL,
+    active_ingredients TEXT,
+    efficacy         TEXT,
+    usage_method     TEXT,
+    warning          TEXT,
+    caution          TEXT,
+    interactions     TEXT,
+    side_effects     TEXT,
+    storage_method   TEXT,
+
+    gpt_model_version VARCHAR(50),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE pill_analysis_history                IS '알약 이미지 분석 결과 이력';
+COMMENT ON COLUMN pill_analysis_history.analysis_id   IS '분석 결과 고유 ID (PK)';
+COMMENT ON COLUMN pill_analysis_history.user_id       IS '분석을 요청한 사용자 ID (FK)';
+COMMENT ON COLUMN pill_analysis_history.file_id       IS '업로드된 알약 이미지 파일 ID (FK)';
+COMMENT ON COLUMN pill_analysis_history.product_name  IS '알약 제품명';
+COMMENT ON COLUMN pill_analysis_history.active_ingredients IS '알약의 유효성분';
+COMMENT ON COLUMN pill_analysis_history.efficacy      IS '알약의 효능 및 효과';
+COMMENT ON COLUMN pill_analysis_history.usage_method  IS '복용 방법 및 용법';
+COMMENT ON COLUMN pill_analysis_history.warning       IS '복용 전 주의사항 경고';
+COMMENT ON COLUMN pill_analysis_history.caution       IS '일반적인 주의사항';
+COMMENT ON COLUMN pill_analysis_history.interactions  IS '다른 약물과의 상호작용';
+COMMENT ON COLUMN pill_analysis_history.side_effects  IS '발생 가능한 부작용';
+COMMENT ON COLUMN pill_analysis_history.storage_method IS '보관 방법';
+
+CREATE INDEX IF NOT EXISTS idx_pill_analysis_user ON pill_analysis_history (user_id);
+CREATE INDEX IF NOT EXISTS idx_pill_analysis_file ON pill_analysis_history (file_id);
+
+
+-- ============================================================
+-- 25. 약품 RAG 임베딩
+-- ============================================================
+CREATE TABLE IF NOT EXISTS drug_embeddings (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    item_seq     VARCHAR(20)  NOT NULL,            -- 약품 고유코드
+    item_name    VARCHAR(500) NOT NULL,            -- 약품명
+    etc_otc_code VARCHAR(50),                      -- 전문/일반 구분
+    chunk_type   VARCHAR(20)  NOT NULL,            -- 'efficacy' | 'caution' | 'ingredient'
+    chunk_text   TEXT         NOT NULL,            -- 임베딩 원문
+    embedding    vector(1536),                     -- text-embedding-3-small
+    metadata     JSONB,                            -- 원본 전체 데이터
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+    UNIQUE (item_seq, chunk_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_drug_emb_item_seq
+    ON drug_embeddings (item_seq);
+
+-- pg_trgm 인덱스: 약품명 유사도 검색 (오타 허용)
+CREATE INDEX IF NOT EXISTS idx_drug_name_trgm
+    ON drug_embeddings USING gin (item_name gin_trgm_ops);
+
+-- IVFFlat 인덱스: 임베딩 데이터가 충분히 쌓인 후 생성 (embed_drugs.py 실행 후)
+-- CREATE INDEX idx_drug_emb_ivfflat
+--     ON drug_embeddings USING ivfflat (embedding vector_cosine_ops)
+--     WITH (lists = 100);
 
 -- ============================================================
 -- 완료 메시지

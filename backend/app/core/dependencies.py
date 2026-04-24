@@ -81,6 +81,7 @@ async def get_current_user(
 
     # 오늘 날짜 기준으로 last_active_at 갱신 (당일 첫 요청 시에만 DB write)
     from datetime import UTC, datetime
+
     now = datetime.now(UTC)
     if user.last_active_at is None or user.last_active_at.date() < now.date():
         user.last_active_at = now

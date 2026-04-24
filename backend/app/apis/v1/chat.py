@@ -14,10 +14,12 @@ from app.dtos.chat_dto import (
 from app.dtos.common_dto import ResponseDTO
 from app.models.user import User
 from app.services import chat_service
+
 router = APIRouter()
 
 
 # ── 세션 ──────────────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/sessions",
@@ -71,6 +73,7 @@ async def delete_session(room_id: int, user: User = Depends(get_current_user)):
 
 # ── 메시지 전송 (SSE) ─────────────────────────────────────────────────────────
 
+
 @router.post(
     "/send",
     summary="메시지 전송 (SSE 스트리밍)",
@@ -103,6 +106,7 @@ async def cancel_stream(message_id: int, user: User = Depends(get_current_user))
 
 
 # ── 북마크 ────────────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/messages/{message_id}/bookmark",

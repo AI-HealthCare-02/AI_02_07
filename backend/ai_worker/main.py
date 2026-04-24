@@ -8,6 +8,7 @@ import logging
 from ai_worker.core.config import get_worker_settings
 from ai_worker.core.redis_client import close_worker_redis, get_worker_redis
 from ai_worker.tasks.chat_filter import process_chat_filter
+from ai_worker.tasks.pill_analysis import process_pill_analysis
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 TASK_HANDLERS = {
     "chat_filter": process_chat_filter,
+    "pill_analysis": process_pill_analysis,
 }
 
 
@@ -60,6 +62,7 @@ async def run_worker() -> None:
     # Langfuse 환경변수 세팅 (langfuse.openai drop-in이 자동 인식)
     try:
         import os
+
         if settings.LANGFUSE_TRACING and settings.LANGFUSE_PUBLIC_KEY:
             os.environ.setdefault("LANGFUSE_PUBLIC_KEY", settings.LANGFUSE_PUBLIC_KEY)
             os.environ.setdefault("LANGFUSE_SECRET_KEY", settings.LANGFUSE_SECRET_KEY)
