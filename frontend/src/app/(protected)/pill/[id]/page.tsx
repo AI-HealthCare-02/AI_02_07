@@ -43,7 +43,7 @@ function CautionText({ value }: { value: string }) {
   const sections = value.split(/(?=\d+\.\s)/).filter(Boolean);
 
   if (sections.length <= 1) {
-    const subItems = value.split(/(?=\d+\)\s)/).filter(Boolean);
+    const subItems = value.split(/(?=(?<!\d)\d+\)\s)/).filter(Boolean);
     if (subItems.length <= 1) {
       return <p className="text-sm text-foreground leading-relaxed">{value}</p>;
     }
@@ -65,7 +65,7 @@ function CautionText({ value }: { value: string }) {
         const colonIdx = section.indexOf(":");
         const title = colonIdx > -1 ? section.slice(0, colonIdx + 1).trim() : "";
         const body = colonIdx > -1 ? section.slice(colonIdx + 1).trim() : section.trim();
-        const subItems = body.split(/(?=\d+\)\s)/).filter(Boolean);
+        const subItems = body.split(/(?=(?<!\d)\d+\)\s)/).filter(Boolean);
         return (
           <div key={i}>
             {title && <p className="mb-1 text-xs font-semibold text-yellow-400">{title}</p>}
