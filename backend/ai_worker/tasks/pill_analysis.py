@@ -245,18 +245,20 @@ async def find_drug_by_imprint(
 
         if similarity < IMPRINT_SIMILARITY_THRESHOLD:
             logger.info(
-                "imprint 매칭 실패 - 유사도 낮음 (%.3f < %.2f): %s",
+                "imprint 매칭 실패 - 유사도 낙음 (%.3f < %.2f)\n  쿼리: %s\n  최유사 DB: %s",
                 similarity,
                 IMPRINT_SIMILARITY_THRESHOLD,
                 query,
+                best["chunk_text"],
             )
             return None
 
         logger.info(
-            "imprint 매칭 성공: '%s' → '%s' (유사도: %.3f)",
+            "imprint 매칭 성공: '%s' → '%s' (유사도: %.3f)\n  DB chunk: %s",
             query,
             best["item_name"],
             similarity,
+            best["chunk_text"],
         )
         return {
             "item_seq": best["item_seq"],
