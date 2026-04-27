@@ -1,0 +1,270 @@
+# ai_worker/tasks/imprint_parser.py
+# ──────────────────────────────────────────────
+# STEP 1: imprint chunk_text 파서 → metadata 생성
+# STEP 4: 이미지 분석 결과 정규화 유틸
+# ──────────────────────────────────────────────
+
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+
+# ── 색상 정규화 맵 ─────────────────────────────
+_COLOR_MAP: dict[str, str] = {
+    "흰색": "하양",
+    "백색": "하양",
+    "화이트": "하양",
+    "흰": "하양",
+    "황색": "노랑",
+    "연노랑": "노랑",
+    "연노": "노랑",
+    "황": "노랑",
+    "핑크": "분홍",
+    "연분홍": "분홍",
+    "살색": "분홍",
+    "빨강": "빨강",
+    "적색": "빨강",
+    "파랑": "파랑",
+    "청색": "파랑",
+    "연파랑": "파랑",
+    "초록": "초록",
+    "녹색": "초록",
+    "연두": "초록",
+    "보라": "보라",
+    "자색": "보라",
+    "연보라": "보라",
+    "주황": "주황",
+    "오렌지": "주황",
+    "갈색": "갈색",
+    "브라운": "갈색",
+    "회색": "회색",
+    "그레이": "회색",
+    "검정": "검정",
+    "흑색": "검정",
+    "투명": "투명",
+}
+
+# ── 모양 정규화 맵 ─────────────────────────────
+_SHAPE_MAP: dict[str, str] = {
+    "원": "원형",
+    "동그라미": "원형",
+    "구형": "원형",
+    "긴타원형": "장방형",
+    "장방형정제": "장방형",
+    "직사각형": "장방형",
+    "캡슐모양": "캡슐형",
+    "캡슐": "캡슐형",
+    "반원": "반원형",
+    "삼각": "삼각형",
+    "사각": "사각형",
+    "정사각형": "사각형",
+    "마름모": "마름모형",
+    "다이아몬드": "마름모형",
+    "오각": "오각형",
+    "육각": "육각형",
+    "팔각": "팔각형",
+}
+
+
+def _normalize_color(raw: str) -> str:
+    raw = raw.strip()
+    return _COLOR_MAP.get(raw, raw)
+
+
+def _normalize_shape(raw: str) -> str:
+    raw = raw.strip()
+    for k, v in _SHAPE_MAP.items():
+        if k in raw:
+            return v
+    return raw
+
+
+def _normalize_imprint(text: str) -> str:
+    """각인 텍스트 정규화: 분할선 제거, 대문자화, 공백/특수문자 제거."""
+    text = re.sub(r"분할선", "", text)
+    text = re.sub(r"[\s|/\-_\\]", "", text)
+    return text.upper().strip()
+
+
+def _parse_imprint_side(raw: str) -> dict:
+    """단면 각인 파싱."""
+    has_score = bool(re.search(r"분할선", raw))
+    text = re.sub(r"분할선", " ", raw).strip()
+    normalized = _normalize_imprint(raw)
+    tokens = [t for t in re.split(r"[\s분할선|/\-_\\]+", raw.upper()) if t]
+    tokens = [re.sub(r"[^A-Z0-9]", "", t) for t in tokens]
+    tokens = [t for t in tokens if t]
+    return {
+        "raw": raw,
+        "text": text,
+        "normalized": normalized,
+        "has_score_line": has_score,
+        "score_line_direction": None,
+        "tokens": tokens,
+    }
+
+
+def _parse_size(raw: str) -> dict:
+    """크기 파싱: 18x8mm, 18X8mm, 18×8mm 모두 처리."""
+    m = re.search(r"([\d.]+)\s*[xX×]\s*([\d.]+)\s*mm", raw)
+    if m:
+        a, b = float(m.group(1)), float(m.group(2))
+        return {
+            "raw": raw,
+            "long_mm": max(a, b),
+            "short_mm": min(a, b),
+            "unit": "mm",
+        }
+    m2 = re.search(r"([\d.]+)\s*mm", raw)
+    if m2:
+        v = float(m2.group(1))
+        return {"raw": raw, "long_mm": v, "short_mm": None, "unit": "mm"}
+    return {"raw": raw, "long_mm": None, "short_mm": None, "unit": None}
+
+
+# ── STEP 1: chunk_text 파서 ────────────────────
+def parse_imprint_chunk(chunk_text: str) -> dict | None:
+    """
+    imprint chunk_text를 파싱해 구조화된 metadata 반환.
+    파싱 실패 시 None 반환.
+
+    예시 입력:
+      [크라목스정625밀리그람] 각인: 앞면 SCD, 뒷면 C분할선6 | 색상: 하양 | 모양: 장방형 | 크기: 18x8mm
+    """
+    try:
+        raw_text = chunk_text.strip()
+
+        # 각인 파싱
+        imprint_m = re.search(r"각인:\s*(.+?)(?:\s*\||\s*$)", raw_text)
+        raw_imprint = imprint_m.group(1).strip() if imprint_m else ""
+
+        front_data: dict = {}
+        back_data: dict = {}
+
+        if raw_imprint:
+            front_m = re.search(r"앞면\s+([^,]+?)(?:,\s*뒷면|$)", raw_imprint)
+            back_m = re.search(r"뒷면\s+(.+?)$", raw_imprint)
+            if front_m:
+                front_data = _parse_imprint_side(front_m.group(1).strip())
+            if back_m:
+                back_data = _parse_imprint_side(back_m.group(1).strip())
+            # 앞뒤 구분 없이 단일 각인인 경우
+            if not front_m and not back_m and raw_imprint:
+                front_data = _parse_imprint_side(raw_imprint)
+
+        # 색상 파싱
+        color_m = re.search(r"색상:\s*([^|]+)", raw_text)
+        raw_color = color_m.group(1).strip() if color_m else ""
+
+        # 모양 파싱
+        shape_m = re.search(r"모양:\s*([^|]+)", raw_text)
+        raw_shape = shape_m.group(1).strip() if shape_m else ""
+
+        # 크기 파싱
+        size_m = re.search(r"크기:\s*([^|]+)", raw_text)
+        raw_size = size_m.group(1).strip() if size_m else ""
+
+        front_norm = front_data.get("normalized", "")
+        back_norm = back_data.get("normalized", "")
+        all_norm = f"{front_norm} {back_norm}".strip()
+        all_compact = (front_norm + back_norm).strip()
+
+        # 검색 variants
+        variants: list[str] = []
+        if front_norm and back_norm:
+            variants += [
+                f"{front_norm} {back_norm}",
+                f"{back_norm} {front_norm}",
+            ]
+            if front_data.get("has_score_line"):
+                variants.append(f"{front_data['raw']} {back_norm}")
+            if back_data.get("has_score_line"):
+                variants.append(f"{front_norm} {back_data['raw']}")
+        elif front_norm:
+            variants.append(front_norm)
+
+        return {
+            "imprint_schema_version": 1,
+            "source": {
+                "raw_text": raw_text,
+                "raw_imprint": raw_imprint,
+                "raw_color": raw_color,
+                "raw_shape": raw_shape,
+                "raw_size": raw_size,
+            },
+            "imprint": {
+                "front": front_data or None,
+                "back": back_data or None,
+            },
+            "appearance": {
+                "color_raw": raw_color,
+                "color_normalized": _normalize_color(raw_color),
+                "shape_raw": raw_shape,
+                "shape_normalized": _normalize_shape(raw_shape),
+            },
+            "size": _parse_size(raw_size) if raw_size else {"raw": "", "long_mm": None, "short_mm": None, "unit": None},
+            "search_keys": {
+                "front_norm": front_norm or None,
+                "back_norm": back_norm or None,
+                "all_imprints_norm": all_norm or None,
+                "all_imprints_compact": all_compact or None,
+                "imprint_variants": variants,
+            },
+        }
+    except Exception as e:
+        logger.warning("imprint chunk 파싱 실패: %s | %s", chunk_text[:80], e)
+        return None
+
+
+# ── STEP 4: 이미지 분석 결과 정규화 ───────────
+def normalize_vision_result(vision: dict) -> dict:
+    """
+    GPT Vision 분석 결과를 검색용으로 정규화.
+
+    입력:
+        {"print_front": "SCD", "print_back": "C 6", "color": "하양", "shape": "장방형", ...}
+    출력:
+        {"front_norm": "SCD", "back_norm": "C6", "color_norm": "하양", ...}
+    """
+    raw_front = (vision.get("print_front") or "").strip().upper()
+    raw_back = (vision.get("print_back") or "").strip().upper()
+
+    front_norm = _normalize_imprint(raw_front) if raw_front else None
+    back_norm = _normalize_imprint(raw_back) if raw_back else None
+    color_norm = _normalize_color(vision.get("color") or "")
+    shape_norm = _normalize_shape(vision.get("shape") or "")
+
+    variants: list[str] = []
+    parts = [p for p in [front_norm, back_norm] if p]
+    color_shape = f"{color_norm} {shape_norm}".strip()
+
+    if len(parts) == 2:
+        variants.append(f"{parts[0]} {parts[1]} {color_shape}".strip())
+        variants.append(f"{parts[1]} {parts[0]} {color_shape}".strip())
+        # OCR 혼동 문자 variant (편집거리 1 수준)
+        for orig, alts in [("0", "O"), ("1", "I"), ("8", "B"), ("5", "S"), ("H", "N")]:
+            for i, p in enumerate(parts):
+                if orig in p:
+                    alt_p = p.replace(orig, alts, 1)
+                    other = parts[1 - i]
+                    variants.append(f"{alt_p} {other} {color_shape}".strip())
+    elif len(parts) == 1:
+        variants.append(f"{parts[0]} {color_shape}".strip())
+
+    # 중복 제거
+    seen: set[str] = set()
+    unique_variants: list[str] = []
+    for v in variants:
+        if v not in seen:
+            seen.add(v)
+            unique_variants.append(v)
+
+    return {
+        "front_norm": front_norm,
+        "back_norm": back_norm,
+        "front_score_line": vision.get("score_line_front"),
+        "back_score_line": vision.get("score_line_back"),
+        "color_norm": color_norm,
+        "shape_norm": shape_norm,
+        "query_variants": unique_variants,
+    }
