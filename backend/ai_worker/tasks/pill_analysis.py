@@ -240,16 +240,18 @@ async def find_drug_by_imprint(
             logger.info("imprint 데이터 없음 (임베딩 미구축)")
             return None
 
-        best = rows[0]
+        # 유사도 기준 내림차순 정렬 후 최대값 선택
+        best = max(rows, key=lambda r: float(r["similarity"]))
         similarity = float(best["similarity"])
 
-        # 상위 5개 후보 로그
-        candidates = ", ".join(f"{r['item_name']}({1 - float(r['similarity']):.3f})" for r in rows)
-        logger.info("imprint 상위 %d개 후보: %s", len(rows), candidates)
+        # 상위 5개 후보 로그 (유사도 내림차순)
+        sorted_rows = sorted(rows, key=lambda r: float(r["similarity"]), reverse=True)
+        candidates = ", ".join(f"{r['item_name']}({float(r['similarity']):.3f})" for r in sorted_rows)
+        logger.info("imprint 상위 %d개 후보 (유사도 내림차순): %s", len(rows), candidates)
 
         if similarity < IMPRINT_SIMILARITY_THRESHOLD:
             logger.info(
-                "imprint 매칭 실패 - 유사도 낙음 (%.3f < %.2f)\n  쿼리: %s\n  최유사 DB: %s",
+                "imprint 매칭 실패 - 유사도 낮음 (%.3f < %.2f)\n  쿼리: %s\n  최유사 DB: %s",
                 similarity,
                 IMPRINT_SIMILARITY_THRESHOLD,
                 query,
