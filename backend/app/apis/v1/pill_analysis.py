@@ -253,11 +253,7 @@ async def get_pill_analysis(
 
     settings = get_settings()
     uploaded = await UploadedFile.get_or_none(file_id=row.file_id)
-    image_url = (
-        f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}.amazonaws.com/{uploaded.s3_key}"
-        if uploaded
-        else None
-    )
+    image_url = uploaded.s3_url if uploaded else None
 
     product_name = row.product_name or ""
     is_unidentified = any(kw in product_name for kw in UNIDENTIFIED_KEYWORDS)
