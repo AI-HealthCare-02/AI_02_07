@@ -231,7 +231,7 @@ async def find_drug_by_imprint(
             WHERE chunk_type = 'imprint'
               AND embedding IS NOT NULL
             ORDER BY embedding <=> $1::vector
-            LIMIT 1
+            LIMIT 5
             """,
             vector_str,
         )
@@ -243,20 +243,26 @@ async def find_drug_by_imprint(
         best = rows[0]
         similarity = float(best["similarity"])
 
+        # 상위 5개 후보 로그
+        candidates = ", ".join(f"{r['item_name']}({1 - float(r['similarity']):.3f})" for r in rows)
+        logger.info("imprint 상위 %d개 후보: %s", len(rows), candidates)
+
         if similarity < IMPRINT_SIMILARITY_THRESHOLD:
             logger.info(
-                "imprint 매칭 실패 - 유사도 낮음 (%.3f < %.2f): %s",
+                "imprint 매칭 실패 - 유사도 낙음 (%.3f < %.2f)\n  쿼리: %s\n  최유사 DB: %s",
                 similarity,
                 IMPRINT_SIMILARITY_THRESHOLD,
                 query,
+                best["chunk_text"],
             )
             return None
 
         logger.info(
-            "imprint 매칭 성공: '%s' → '%s' (유사도: %.3f)",
+            "imprint 매칭 성공: '%s' → '%s' (유사도: %.3f)\n  DB chunk: %s",
             query,
             best["item_name"],
             similarity,
+            best["chunk_text"],
         )
         return {
             "item_seq": best["item_seq"],
