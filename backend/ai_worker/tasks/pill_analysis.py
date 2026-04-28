@@ -181,7 +181,7 @@ OCR 참고값:
 - 혼동 주의: O/0, I/1/L, S/5, B/8, G/6, Z/2, H/N, M/W/N, C/G, P/R.
 - 혼동 문자는 이미지에서 명확할 때만 교정하세요.
 
-[분할선 판단]
+[분할선 판단 - 매우 중요]
 score_line_type 값:
 - "없음"
 - "분할선": 한 줄짜리 분할선. 세로/가로/대각선 포함
@@ -195,6 +195,14 @@ score_line_direction 값:
 - "대각선"
 - "십자"
 - "판독불가"
+
+[십자분할선 판단 기준 - 특히 주의]
+- 알약 표면에 가로선과 세로선이 동시에 보이면 반드시 "십자분할선"으로 판단하세요.
+- 십자분할선은 알약을 4등분하는 선입니다. 원형 알약에서 자주 보입니다.
+- 조명/각도에 따라 한 선만 보일 수 있어도, 알약을 돌려보면서 십자 패턴이 확인되면 "십자분할선"으로 판단하세요.
+- "분할선"(한 줄)과 "십자분할선"(두 줄 교차)을 혼동하지 마세요.
+- 십자분할선이 있는 면에 각인이 없으면: print=null, score_line_type="십자분할선"
+- 십자분할선이 있는 면에 각인이 있으면: 각 영역(top/bottom/left/right)에서 각인 확인
 
 분할선이 있으면 각인을 한 덩어리로 읽지 말고 영역별로 확인하세요.
 - 세로 분할선: left_text, right_text 확인. 예: ID|25 -> print="ID 25", raw="ID|25"
@@ -276,7 +284,8 @@ dosage_form_hint 값:
 예시:
 - ID|25가 보이면 print_front="ID 25", print_front_raw="ID|25", score_line_front_type="분할선"
 - 1|3이 보이면 print_back="1 3", print_back_raw="1|3", score_line_back_type="분할선"
-- 십자분할선만 있고 글자가 없으면 print_back=null, score_line_back_type="십자분할선"
+- 십자분할선만 있고 글자가 없으면 print=null, score_line_type="십자분할선"
+- 원형 알약에 가로선+세로선이 보이면 반드시 score_line_type="십자분할선" ("분할선" 아님)
 - 갈색/하양 경질캡슐이면 color="갈색/하양", shape="장방형", dosage_form_hint="경질캡슐"
 - 갈색 투명 연질캡슐이면 color="갈색, 투명", dosage_form_hint="연질캡슐", shape는 외곽에 따라 타원형 또는 장방형
 
@@ -333,14 +342,23 @@ def _rerank_score(query: dict, candidate_meta: dict) -> float:
     swapped = _imprint_score(q_front, q_back, c_back, c_front)
     score += max(direct, swapped)
 
-    # 분할선 (8점)
+    # 분할선 (12점)
     imprint = candidate_meta.get("imprint") or {}
     for side_key, score_line_key in [("front", "score_line_front_type"), ("back", "score_line_back_type")]:
         side = imprint.get(side_key) or {}
-        q_has = bool(query.get(score_line_key) and query[score_line_key] != "없음")
+        q_type = query.get(score_line_key) or "없음"
+        q_has = q_type != "없음"
+        q_cross = q_type == "십자분할선"
         c_has = side.get("has_score_line", False)
-        if q_has == c_has:
+        c_cross = side.get("is_cross", False)
+        if q_cross and c_cross:
+            score += 6.0
+        elif q_has == c_has:
             score += 4.0
+        else:
+            # 분할선 유무 불일치 패널티
+            # 예: 쿼리가 분할선 있는데 DB는 없으면 -4점
+            score -= 4.0
 
     # 색상 (8점)
     if query.get("color_norm") and ap.get("color_normalized") == query["color_norm"]:
