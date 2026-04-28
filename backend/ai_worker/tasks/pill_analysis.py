@@ -96,7 +96,10 @@ def _rotate_180(image_bytes: bytes) -> bytes:
 
 
 async def extract_imprint_ocr(image_bytes: bytes) -> str | None:
-    """원본 + 180도 회전 중 텍스트가 더 많은 결과 반환."""
+    """
+    원본 + 180도 회전 OCR을 모두 실행하고 결과를 합산 반환.
+    분할선 양쪽 각인이 방향에 따라 한쪽만 잡히는 문제를 완화.
+    """
     if not settings.OCR_INVOKE_URL or not settings.OCR_SECRET_KEY:
         return None
 
@@ -106,15 +109,28 @@ async def extract_imprint_ocr(image_bytes: bytes) -> str | None:
                 _ocr_request(client, image_bytes),
                 _ocr_request(client, _rotate_180(image_bytes)),
             )
-        result = normal if len(normal) >= len(rotated) else rotated
-        logger.info("Clova OCR 결과: %s (normal=%s, rotated=%s)", result, normal, rotated)
-        return result or None
+        logger.info("Clova OCR 결과: normal=%s, rotated=%s", normal, rotated)
+
+        # 두 결과를 토큰 단위로 합산 — 중복 제거 후 병합
+        # 분할선 기준 한쪽만 잡히는 경우를 보완
+        normal_tokens = normal.split() if normal else []
+        rotated_tokens = rotated.split() if rotated else []
+        seen: set[str] = set()
+        merged: list[str] = []
+        for t in normal_tokens + rotated_tokens:
+            if t not in seen:
+                seen.add(t)
+                merged.append(t)
+
+        result = " ".join(merged) or None
+        logger.info("Clova OCR 병합 결과: %s", result)
+        return result
     except Exception as e:
         logger.warning("Clova OCR 실패 (무시): %s", e)
         return None
 
 
-# ── 1단계: GPT Vision - 색상/모양만 추출 ───────
+# ── 1단계: GPT Vision ─────────────────────────
 async def extract_pill_features(
     client: AsyncOpenAI,
     image_b64_list: list[str],
@@ -125,62 +141,155 @@ async def extract_pill_features(
     for i, b64 in enumerate(image_b64_list):
         face = "앞면" if i == 0 else "뒷면"
         ocr_hint = f" (OCR 각인: {ocr_texts[i]})" if i < len(ocr_texts) and ocr_texts[i] else ""
+        # detail:high — 각인 판독 정확도 향상 목적. low 대비 토큰 비용 약 3~4배 증가.
         image_contents.append(
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"}}
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}}
         )
         image_contents.append({"type": "text", "text": f"위 이미지는 알약의 {face}입니다.{ocr_hint}"})
 
     ocr_front = ocr_texts[0] if ocr_texts else None
     ocr_back = ocr_texts[1] if len(ocr_texts) > 1 else None
 
-    prompt = f"""알약 이미지를 보고 아래 JSON만 출력하세요. 다른 말은 하지 마세요.
+    prompt = f"""
+당신은 알약 이미지에서 각인, 분할선, 십자분할선, 색상, 모양을 추출하는 분석기입니다.
+반드시 JSON만 출력하세요. 설명/마크다운/코드블록은 금지입니다.
 
-OCR로 추출한 각인 문자가 있습니다. 아래 순서로 판단하세요.
+[핵심 원칙]
+- OCR은 정답이 아니라 참고값입니다. 최종 판단은 이미지에서 보이는 내용을 우선하세요.
+- OCR은 분할선, 십자분할선, 분할선 반대편 문자/숫자를 누락할 수 있습니다.
+- OCR이 한 글자 또는 일부 문자열만 제공되어도 전체 각인이라고 확정하지 마세요.
+- 이미지에 없는 문자/숫자/기호를 임의로 만들지 마세요.
+- 실제 약품명처럼 보이도록 무리하게 보정하지 마세요.
+- 분할선/십자분할선은 각인이 아니므로 print_front/print_back에 "분할선"이라는 단어를 넣지 마세요.
+- 하지만 분할선 주변 또는 분할된 영역 안의 문자/숫자는 각인입니다.
 
-[업로드 패턴 고려]
-- 일반: 첫 번째 이미지=앞면, 두 번째 이미지=뒷면
-- 앞뒤 반대: 첫 번째가 숫자만이고 두 번째가 영문자면 앞뒤가 바뀌어 업로드된 것
-- 한 이미지에 앞뒤 모두: 한 이미지에 알약 2개(앞면+뒷면)가 함께 찍힌 경우, 이미지에서 직접 앞뒤 각인을 구분하여 추출
-- 여러 알약: 이미지에 서로 다른 알약이 여러 개 있으면 multiple_pills=true로 설정
+OCR 참고값:
+- 앞면 OCR: {ocr_front or "없음 또는 불완전"}
+- 뒷면 OCR: {ocr_back or "없음 또는 불완전"}
 
-[1단계] 이미지를 직접 보고 OCR 오인식 교정
-자주 혼동되는 문자 쌍:
-- H ↔ N (예: TYLEHOL → TYLENOL)
-- 0 ↔ O, 1 ↔ I ↔ L, 8 ↔ B, 5 ↔ S, 6 ↔ G
+[업로드 패턴]
+- 첫 번째 이미지=앞면 후보, 두 번째 이미지=뒷면 후보입니다.
+- 앞뒤가 바뀌었을 수 있으므로 이미지의 각인/분할선/OCR을 종합해 판단하세요.
+- 한 이미지에 같은 알약의 앞뒷면이 같이 있으면 각각 구분하세요. 이 경우 multiple_pills=false입니다.
+- 서로 다른 알약이 여러 개 있으면 multiple_pills=true입니다.
 
-[2단계] 교정된 각인이 실제 약품 각인인지 판별
-- 실제 약품 각인이면 그대로 사용
-- 존재하지 않는 각인이라면 발음/철자가 유사한 실제 약품 각인으로 유추
-  (예: TYLEHOL → TYLENOL, ASPRIN → ASPIRIN)
+[각인 판독]
+- 알약 표면의 문자, 숫자, 로고, 기호만 기록하세요.
+- 공백이 보이면 유지하세요.
+- 같은 면에 "HL"과 "PGN300"이 보이면 "HL PGN300"처럼 출력하세요.
+- 각인이 없거나 판독 불가능하면 null입니다.
+- 혼동 주의: O/0, I/1/L, S/5, B/8, G/6, Z/2, H/N, M/W/N, C/G, P/R.
+- 혼동 문자는 이미지에서 명확할 때만 교정하세요.
 
-- 앞면 OCR: {ocr_front or "없음"}
-- 뒷면 OCR: {ocr_back or "없음"}
+[분할선 판단]
+score_line_type 값:
+- "없음"
+- "분할선": 한 줄짜리 분할선. 세로/가로/대각선 포함
+- "십자분할선": 가로선과 세로선이 교차하는 십자 모양
+- "판독불가"
 
-이미지에서 색상과 모양도 판단하세요.
+score_line_direction 값:
+- "없음"
+- "세로"
+- "가로"
+- "대각선"
+- "십자"
+- "판독불가"
 
+분할선이 있으면 각인을 한 덩어리로 읽지 말고 영역별로 확인하세요.
+- 세로 분할선: left_text, right_text 확인. 예: ID|25 -> print="ID 25", raw="ID|25"
+- 가로 분할선: top_text, bottom_text 확인. 예: ID/25 -> print="ID 25", raw="ID/25"
+- 각 영역은 한 글자일 수도 있고 여러 글자일 수도 있습니다.
+- 십자분할선만 있고 텍스트가 없으면 print는 null입니다.
+- DB에는 세로/가로 구분 없이 "분할선"만 있을 수 있지만, 이미지 분석에서는 보이는 방향을 기록하세요.
+
+[색상 판단]
+- 배경/그림자/반사는 제외하고 알약 본체 색만 판단하세요.
+- 표준 색상명 사용: 하양, 아이보리, 노랑, 주황, 분홍, 빨강, 갈색, 연두, 초록, 파랑, 보라, 회색, 검정, 투명.
+- "반투명"은 사용하지 말고, 투명해 보이면 "투명"으로만 기록하세요.
+- 단색이면 예: "하양", "갈색"
+- 두 가지 불투명 색으로 나뉜 경질캡슐이면 "/" 사용. 예: "갈색/하양", "초록/하양"
+- 투명한 연질캡슐이면 ", 투명" 사용. 예: "갈색, 투명", "노랑, 투명"
+- 투명이 보이면 is_transparent=true로 설정하세요.
+
+[모양/제형 판단]
+shape는 반드시 아래 중 하나만 사용하세요. "캡슐형"은 사용하지 마세요.
+- 원형, 타원형, 장방형, 반원형, 삼각형, 사각형, 마름모형, 오각형, 육각형, 팔각형, 기타, 판독불가
+
+dosage_form_hint 값:
+- "정제"
+- "경질캡슐"
+- "연질캡슐"
+- "판독불가"
+
+캡슐 기준:
+- 경질캡슐: 두 개의 캡슐 껍질이 결합된 형태, 중앙 결합선 또는 두 색 구역이 보일 수 있음. 대부분 shape="장방형".
+- 연질캡슐: 매끈한 젤라틴 캡슐, 투명하거나 내부 액상 느낌이 보일 수 있음. shape는 타원형/장방형/삼각형 가능.
+- 캡슐 여부는 shape가 아니라 dosage_form_hint에 기록하세요.
+
+[원형/타원형/장방형 구분 - 매우 중요]
+- 원형: 가로와 세로가 거의 같음. 외곽이 원에 가까움.
+- 타원형: 전체 외곽이 매끄러운 달걀형/타원형. 중앙부에 긴 직선 구간이 거의 없음.
+- 장방형: 가로가 세로보다 뚜렷하게 김. 가운데 몸통 부분이 직선에 가깝고, 양 끝만 둥글게 처리된 긴 직사각형 형태.
+- 중앙부가 직선처럼 길게 뻗어 있으면 장방형. 전체가 연속된 곡선으로 둥글게 이어지면 타원형.
+- 애매하면 notes에 "타원형/장방형 혼동 가능"이라고 적으세요.
+
+[출력 JSON]
 {{
   "is_pill": true,
   "multiple_pills": false,
-  "print_front": "교정+유추된 앞면 각인 (없으면 null)",
-  "print_back": "교정+유추된 뒷면 각인 (없으면 null)",
-  "color": "색상 (예: 하양, 노랑, 분홍)",
-  "shape": "모양. 아래 기준으로 정확히 구분하세요.
-    - 원형: 완전한 원 모양
-    - 타원형: 위아래가 둥근 타원 (약의 두께가 두꺼운 편, 가로 너비가 세로보다 조금 더 넓음)
-    - 장방형: 직사각형에 가까운 모양 (가로가 세로보다 눈에 띄게 더 길고, 끝이 둥근 직사각형). 타이레놀정500이 대표적 예시
-    - 반원형: 반으로 자른 원
-    - 삼각형 / 사각형 / 마름모형 / 오각형 / 육각형 / 팔각형: 해당 다각형 모양
-    - 타원형과 장방형은 특히 혼동하기 쉬우니, 약의 가로와 세로 비율을 주의 깊게 확인하세요."
+
+  "print_front": null,
+  "print_front_raw": null,
+  "score_line_front_type": "없음 | 분할선 | 십자분할선 | 판독불가",
+  "score_line_front_direction": "없음 | 세로 | 가로 | 대각선 | 십자 | 판독불가",
+  "front_left_text": null,
+  "front_right_text": null,
+  "front_top_text": null,
+  "front_bottom_text": null,
+
+  "print_back": null,
+  "print_back_raw": null,
+  "score_line_back_type": "없음 | 분할선 | 십자분할선 | 판독불가",
+  "score_line_back_direction": "없음 | 세로 | 가로 | 대각선 | 십자 | 판독불가",
+  "back_left_text": null,
+  "back_right_text": null,
+  "back_top_text": null,
+  "back_bottom_text": null,
+
+  "color": "예: 하양, 갈색/하양, 갈색, 투명",
+  "color_count": 1,
+  "color_detail": "짧은 색상 설명",
+  "is_transparent": false,
+
+  "shape": "원형 | 타원형 | 장방형 | 반원형 | 삼각형 | 사각형 | 마름모형 | 오각형 | 육각형 | 팔각형 | 기타 | 판독불가",
+  "dosage_form_hint": "정제 | 경질캡슐 | 연질캡슐 | 판독불가",
+
+  "confidence": 0.0,
+  "imprint_confidence": 0.0,
+  "score_line_confidence": 0.0,
+  "color_confidence": 0.0,
+  "shape_confidence": 0.0,
+  "notes": null
 }}
 
-알약이 아닌 이미지면 is_pill=false, 여러 알약이면 multiple_pills=true로 설정하세요."""
+예시:
+- ID|25가 보이면 print_front="ID 25", print_front_raw="ID|25", score_line_front_type="분할선"
+- 1|3이 보이면 print_back="1 3", print_back_raw="1|3", score_line_back_type="분할선"
+- 십자분할선만 있고 글자가 없으면 print_back=null, score_line_back_type="십자분할선"
+- 갈색/하양 경질캡슐이면 color="갈색/하양", shape="장방형", dosage_form_hint="경질캡슐"
+- 갈색 투명 연질캡슐이면 color="갈색, 투명", dosage_form_hint="연질캡슐", shape는 외곽에 따라 타원형 또는 장방형
+
+알약이 아니면 is_pill=false.
+서로 다른 알약이 여러 개면 multiple_pills=true.
+"""
 
     contents = image_contents + [{"type": "text", "text": prompt}]
 
     try:
         response = await client.chat.completions.create(
             model=model,
-            max_tokens=200,
+            max_tokens=600,
             temperature=0,
             messages=[{"role": "user", "content": contents}],
         )
@@ -226,7 +335,7 @@ def _rerank_score(query: dict, candidate_meta: dict) -> float:
 
     # 분할선 (8점)
     imprint = candidate_meta.get("imprint") or {}
-    for side_key, score_line_key in [("front", "front_score_line"), ("back", "back_score_line")]:
+    for side_key, score_line_key in [("front", "score_line_front_type"), ("back", "score_line_back_type")]:
         side = imprint.get(side_key) or {}
         q_has = bool(query.get(score_line_key) and query[score_line_key] != "없음")
         c_has = side.get("has_score_line", False)

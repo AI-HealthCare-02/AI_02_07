@@ -266,8 +266,8 @@ def normalize_vision_result(vision: dict) -> dict:
     return {
         "front_norm": front_norm,
         "back_norm": back_norm,
-        "front_score_line": vision.get("score_line_front"),
-        "back_score_line": vision.get("score_line_back"),
+        "score_line_front_type": vision.get("score_line_front_type"),
+        "score_line_back_type": vision.get("score_line_back_type"),
         "color_norm": color_norm,
         "shape_norm": shape_norm,
         "query_variants": unique_variants,
