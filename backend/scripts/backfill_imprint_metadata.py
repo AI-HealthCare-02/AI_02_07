@@ -45,14 +45,14 @@ def get_db_config() -> dict:
     }
 
 
-async def main(dry_run: bool, batch_size: int) -> None:
+async def main(dry_run: bool, batch_size: int, force: bool) -> None:
     pool = await asyncpg.create_pool(**get_db_config(), min_size=1, max_size=3)
 
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT id, chunk_text, metadata FROM drug_embeddings WHERE chunk_type = 'imprint'")
 
     total = len(rows)
-    logger.info("대상 imprint 행: %d개 | dry_run=%s | batch_size=%d", total, dry_run, batch_size)
+    logger.info("대상 imprint 행: %d개 | dry_run=%s | batch_size=%d | force=%s", total, dry_run, batch_size, force)
 
     success = skip = fail = 0
     fail_samples: list[str] = []
@@ -77,14 +77,14 @@ async def main(dry_run: bool, batch_size: int) -> None:
 
     for row in rows:
         existing = row["metadata"] or {}
-        # imprint_schema_version이 없거나 1보다 낮은 경우만 갱신
         if isinstance(existing, str):
             try:
                 existing = json.loads(existing)
             except Exception:
                 existing = {}
 
-        if existing.get("imprint_schema_version", 0) >= 1:
+        # --force 없으면 이미 처리된 행 스킵
+        if not force and existing.get("imprint_schema_version", 0) >= 1:
             skip += 1
             continue
 
@@ -123,5 +123,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--batch-size", type=int, default=100)
+    parser.add_argument("--force", action="store_true", help="이미 처리된 행도 재처리 (shape_normalized 버그 수정 등)")
     args = parser.parse_args()
-    asyncio.run(main(args.dry_run, args.batch_size))
+    asyncio.run(main(args.dry_run, args.batch_size, args.force))
