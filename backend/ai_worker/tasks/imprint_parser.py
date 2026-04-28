@@ -105,20 +105,24 @@ def _parse_imprint_side(raw: str) -> dict:
 
 
 def _parse_size(raw: str) -> dict:
-    """크기 파싱: 18x8mm, 18X8mm, 18×8mm 모두 처리."""
-    m = re.search(r"([\d.]+)\s*[xX×]\s*([\d.]+)\s*mm", raw)
+    """크기 파싱: 18x8mm, 18X8mm, 18×8mm 모두 처리. 오타(9..5, 14.2.) 허용."""
+    # 숫자 정규화: 연속 점 제거, 끝 점 제거
+    cleaned = re.sub(r"\.{2,}", ".", raw)  # 9..5 → 9.5
+    cleaned = re.sub(r"\.(\s*mm)", r"\1", cleaned)  # 14.2.mm → 14.2mm
+    m = re.search(r"([\d.]+)\s*[xX×]\s*([\d.]+)\s*mm", cleaned)
     if m:
-        a, b = float(m.group(1)), float(m.group(2))
-        return {
-            "raw": raw,
-            "long_mm": max(a, b),
-            "short_mm": min(a, b),
-            "unit": "mm",
-        }
-    m2 = re.search(r"([\d.]+)\s*mm", raw)
+        try:
+            a, b = float(m.group(1)), float(m.group(2))
+            return {"raw": raw, "long_mm": max(a, b), "short_mm": min(a, b), "unit": "mm"}
+        except ValueError:
+            pass
+    m2 = re.search(r"([\d.]+)\s*mm", cleaned)
     if m2:
-        v = float(m2.group(1))
-        return {"raw": raw, "long_mm": v, "short_mm": None, "unit": "mm"}
+        try:
+            v = float(m2.group(1))
+            return {"raw": raw, "long_mm": v, "short_mm": None, "unit": "mm"}
+        except ValueError:
+            pass
     return {"raw": raw, "long_mm": None, "short_mm": None, "unit": None}
 
 
