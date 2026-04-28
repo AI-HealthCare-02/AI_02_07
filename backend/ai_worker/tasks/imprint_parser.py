@@ -191,9 +191,33 @@ def parse_imprint_chunk(chunk_text: str) -> dict | None:
             front_m = re.search(r"앞면\s+([^,]+?)(?:,\s*뒷면|$)", raw_imprint)
             back_m = re.search(r"뒷면\s+(.+?)$", raw_imprint)
             if front_m:
-                front_data = _parse_imprint_side(front_m.group(1).strip())
+                val = front_m.group(1).strip()
+                if val == "십자분할선":
+                    front_data = {
+                        "raw": val,
+                        "text": "",
+                        "normalized": "",
+                        "has_score_line": True,
+                        "is_cross": True,
+                        "score_line_direction": None,
+                        "tokens": [],
+                    }
+                else:
+                    front_data = _parse_imprint_side(val)
             if back_m:
-                back_data = _parse_imprint_side(back_m.group(1).strip())
+                val = back_m.group(1).strip()
+                if val == "십자분할선":
+                    back_data = {
+                        "raw": val,
+                        "text": "",
+                        "normalized": "",
+                        "has_score_line": True,
+                        "is_cross": True,
+                        "score_line_direction": None,
+                        "tokens": [],
+                    }
+                else:
+                    back_data = _parse_imprint_side(val)
             # 앞뒤 구분 없이 단일 각인인 경우
             if not front_m and not back_m and raw_imprint:
                 front_data = _parse_imprint_side(raw_imprint)
@@ -308,8 +332,8 @@ def normalize_vision_result(vision: dict) -> dict:
     return {
         "front_norm": front_norm,
         "back_norm": back_norm,
-        "score_line_front_type": vision.get("score_line_front_type"),
-        "score_line_back_type": vision.get("score_line_back_type"),
+        "score_line_front_type": vision.get("score_line_front_type") or "없음",
+        "score_line_back_type": vision.get("score_line_back_type") or "없음",
         "color_norm": color_norm,
         "shape_norm": shape_norm,
         "query_variants": unique_variants,
