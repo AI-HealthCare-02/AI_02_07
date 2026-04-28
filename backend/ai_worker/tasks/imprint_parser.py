@@ -193,13 +193,29 @@ def parse_imprint_chunk(chunk_text: str) -> dict | None:
             if front_m:
                 val = front_m.group(1).strip()
                 if val == "십자분할선":
-                    front_data = {"raw": val, "text": "", "normalized": "", "has_score_line": True, "is_cross": True, "score_line_direction": None, "tokens": []}
+                    front_data = {
+                        "raw": val,
+                        "text": "",
+                        "normalized": "",
+                        "has_score_line": True,
+                        "is_cross": True,
+                        "score_line_direction": None,
+                        "tokens": [],
+                    }
                 else:
                     front_data = _parse_imprint_side(val)
             if back_m:
                 val = back_m.group(1).strip()
                 if val == "십자분할선":
-                    back_data = {"raw": val, "text": "", "normalized": "", "has_score_line": True, "is_cross": True, "score_line_direction": None, "tokens": []}
+                    back_data = {
+                        "raw": val,
+                        "text": "",
+                        "normalized": "",
+                        "has_score_line": True,
+                        "is_cross": True,
+                        "score_line_direction": None,
+                        "tokens": [],
+                    }
                 else:
                     back_data = _parse_imprint_side(val)
             # 앞뒤 구분 없이 단일 각인인 경우
