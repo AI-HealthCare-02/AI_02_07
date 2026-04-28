@@ -23,7 +23,7 @@ interface PillDetail {
 
 // ── 주성분 렌더링 (| 구분) ─────────────────────
 function Ingredients({ value }: { value: string }) {
-  const items = value.split("|").map((s) => s.trim()).filter(Boolean);
+  const items = [...new Set(value.split("|").map((s) => s.trim()).filter(Boolean))];
   return (
     <div className="flex flex-wrap gap-1.5 pt-1">
       {items.map((item, i) => (
@@ -37,6 +37,57 @@ function Ingredients({ value }: { value: string }) {
     </div>
   );
 }
+
+// 주의사항 렌더링 (번호 항목 분리 + 들여쓰기)
+function CautionText({ value }: { value: string }) {
+  const sections = value.split(/(?=\d+\.\s)/).filter(Boolean);
+
+  if (sections.length <= 1) {
+    const subItems = value.split(/(?=(?<!\d)\d+\)\s)/).filter(Boolean);
+    if (subItems.length <= 1) {
+      return <p className="text-sm text-foreground leading-relaxed">{value}</p>;
+    }
+    return (
+      <ul className="space-y-1">
+        {subItems.map((item, i) => (
+          <li key={i} className="flex gap-2 text-sm text-foreground leading-relaxed">
+            <span className="shrink-0 text-yellow-500/70">•</span>
+            <span>{item.trim()}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {sections.map((section, i) => {
+        const colonIdx = section.indexOf(":");
+        const title = colonIdx > -1 ? section.slice(0, colonIdx + 1).trim() : "";
+        const body = colonIdx > -1 ? section.slice(colonIdx + 1).trim() : section.trim();
+        const subItems = body.split(/(?=(?<!\d)\d+\)\s)/).filter(Boolean);
+        return (
+          <div key={i}>
+            {title && <p className="mb-1 text-xs font-semibold text-yellow-400">{title}</p>}
+            {subItems.length > 1 ? (
+              <ul className="space-y-0.5 pl-1">
+                {subItems.map((sub, j) => (
+                  <li key={j} className="flex gap-2 text-sm text-foreground leading-relaxed">
+                    <span className="shrink-0 text-yellow-500/50">•</span>
+                    <span>{sub.trim()}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-foreground leading-relaxed">{body}</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 
 // ── 줄바꿈 처리 텍스트 ─────────────────────────
 function MultilineText({ value }: { value: string }) {
@@ -68,7 +119,7 @@ function WarnRow({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="border-b border-yellow-500/20 py-3 last:border-0">
       <p className="mb-1 text-xs font-semibold text-yellow-500">{label}</p>
-      <MultilineText value={value} />
+      <CautionText value={value} />
     </div>
   );
 }

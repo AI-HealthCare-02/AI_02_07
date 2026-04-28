@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict
 
-from app.core.s3 import delete_file, generate_s3_key, upload_file
+from app.core.s3 import delete_file, generate_presigned_url, generate_s3_key, upload_file
 from app.dependencies.security import get_current_user
 from app.dtos.common_dto import PaginatedResponseDTO, PaginationDTO, ResponseDTO
 from app.models.pill_analysis import PillAnalysisHistory, UploadedFile
@@ -253,11 +253,7 @@ async def get_pill_analysis(
 
     settings = get_settings()
     uploaded = await UploadedFile.get_or_none(file_id=row.file_id)
-    image_url = (
-        f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_S3_REGION}.amazonaws.com/{uploaded.s3_key}"
-        if uploaded
-        else None
-    )
+    image_url = generate_presigned_url(uploaded.s3_key, expiration=3600) if uploaded else None
 
     product_name = row.product_name or ""
     is_unidentified = any(kw in product_name for kw in UNIDENTIFIED_KEYWORDS)
