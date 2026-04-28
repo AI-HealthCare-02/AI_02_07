@@ -354,11 +354,51 @@ def _rerank_score(query: dict, candidate_meta: dict) -> float:
 
 
 # ── STEP 5: metadata 기반 후보 검색 + rerank ───
+def _split_combined_imprint(features: dict) -> dict:
+    """
+    GPT가 앞뒷면을 한 면으로 합쳐서 반환한 경우를 보정.
+
+    조건:
+    - print_back이 없고
+    - print_front에 공백으로 구분된 토큰이 정확히 2개이고
+    - front_left_text/front_right_text 힌트가 각 토큰과 일치하며
+    - score_line_front_type이 "없음" 또는 누락인 경우만 분리
+      (분할선이 있는 경우는 한 면의 각인이 맞으므로 분리 금지)
+    """
+    front = features.get("print_front") or ""
+    back = features.get("print_back") or ""
+    score_line_type = features.get("score_line_front_type") or "없음"
+
+    # 뒷면이 있거나, 앞면에 분할선이 있으면 분리 안 함
+    if back or not front or score_line_type not in ("없음", ""):
+        return features
+
+    tokens = front.strip().split()
+    if len(tokens) != 2:
+        return features
+
+    # left_text/right_text 힌트가 각 토큰과 일치하면 분리 확정
+    left = (features.get("front_left_text") or "").strip()
+    right = (features.get("front_right_text") or "").strip()
+    if left == tokens[0] and right == tokens[1]:
+        logger.info(
+            "앞뒷면 합산 각인 감지 → 분리: front=%s, back=%s",
+            tokens[0],
+            tokens[1],
+        )
+        return {**features, "print_front": tokens[0], "print_back": tokens[1]}
+
+    return features
+
+
 async def find_drug_by_imprint(
     conn: asyncpg.Connection,
     client: AsyncOpenAI,
     features: dict,
 ) -> dict | None:
+    # GPT가 앞뒷면을 한 면으로 합쳐서 반환한 경우 보정
+    features = _split_combined_imprint(features)
+
     parts = []
     if features.get("print_front"):
         parts.append(features["print_front"])
