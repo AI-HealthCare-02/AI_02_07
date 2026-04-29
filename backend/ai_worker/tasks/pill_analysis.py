@@ -28,8 +28,9 @@ from ai_worker.core.config import get_worker_settings
 from ai_worker.core.logger import setup_logger
 from ai_worker.core.s3_client import download_file_from_s3
 from ai_worker.tasks.imprint_parser import (
+    candidate_side_has_mark,
     color_tokens,
-    is_mark_text,
+    mark_match_score,
     normalize_vision_result,
     shape_match_score,
 )
@@ -145,7 +146,7 @@ def build_ocr_hint(text: str | None) -> str:
     )
 
 
-# ── 반점/마크 helper (v4) ─────────────────────
+# -- speckle/mark helper (v5) --
 def has_speckle_hint(vlm_result: dict) -> bool:
     text = " ".join(
         [
@@ -156,20 +157,102 @@ def has_speckle_hint(vlm_result: dict) -> bool:
     return any(kw in text for kw in SPECKLE_KEYWORDS)
 
 
-def candidate_side_has_mark(metadata: dict, side: str) -> bool:
-    if not metadata:
-        return False
-    imprint = (metadata.get("imprint") or {}).get(side) or {}
-    values = [
-        imprint.get("raw"),
-        imprint.get("text"),
-        imprint.get("normalized"),
-        metadata.get(f"print_{side}"),
-    ]
-    values.extend(imprint.get("tokens") or [])
-    sk = metadata.get("search_keys") or {}
-    values.append(sk.get(f"{side}_norm"))
-    return any(is_mark_text(v) for v in values)
+def _append_note(old: str | None, new: str) -> str:
+    return f"{old} / {new}" if old else new
+
+
+def calibrate_vlm_confidence(vlm: dict) -> dict:
+    """
+    VLM confidence over-confidence correction (v5).
+    Caps confidence when speckle/mark misread is likely.
+    """
+    result = dict(vlm)
+    imprint_conf = float(result.get("imprint_confidence") or 0)
+    score_line_conf = float(result.get("score_line_confidence") or 0)
+    color_conf = float(result.get("color_confidence") or 0)
+
+    if has_speckle_hint(result):
+        result["imprint_confidence"] = min(imprint_conf, 0.65)
+        result["color_confidence"] = min(color_conf, 0.75)
+        if result.get("score_line_front_type") in {"분할선", "십자분할선"} or result.get("score_line_back_type") in {
+            "분할선",
+            "십자분할선",
+        }:
+            result["score_line_confidence"] = min(score_line_conf, 0.35)
+            result["notes"] = _append_note(result.get("notes"), "반점/음영을 분할선으로 오인했을 가능성 있음")
+
+    if has_speckle_hint(result) and result.get("color") in {"갈색", "검정", "검정색"}:
+        result["color_confidence"] = min(float(result.get("color_confidence") or 0), 0.55)
+        result["notes"] = _append_note(result.get("notes"), "반점 색상을 기본색으로 오인했을 가능성 있음")
+
+    suspicious = {"5", "S", "JS", "J5", "15", "1S", "I5"}
+    pf = str(result.get("print_front") or "").strip()
+    pb = str(result.get("print_back") or "").strip()
+    if pf in suspicious or pb in suspicious:
+        result["imprint_confidence"] = min(float(result.get("imprint_confidence") or 0), 0.65)
+        result["notes"] = _append_note(result.get("notes"), "짧은 문자/숫자가 마크 또는 로고일 가능성 있음")
+
+    for key in ["imprint_confidence", "score_line_confidence", "color_confidence", "shape_confidence"]:
+        if result.get(key) is not None:
+            result[key] = min(float(result[key]), 0.95)
+
+    return result
+
+
+def normalize_multiple_pills_flag(vlm: dict) -> dict:
+    """
+    Same pill front/back in one image: correct multiple_pills=True to False.
+    """
+    result = dict(vlm)
+    if result.get("multiple_pills") is True:
+        if (
+            bool(result.get("color"))
+            and bool(result.get("shape"))
+            and bool(result.get("print_front") or result.get("print_back"))
+        ):
+            result["multiple_pills"] = False
+            result["notes"] = _append_note(
+                result.get("notes"),
+                "동일 색상/모양의 두 면 이미지로 판단하여 multiple_pills=false로 보정",
+            )
+    return result
+
+
+def build_rag_query_variants(vlm: dict) -> list[str]:
+    """
+    Build search variants including single-side imprint queries.
+    Compensates for VLM misreading one side.
+    """
+    from ai_worker.tasks.imprint_parser import (
+        _normalize_color,
+        _normalize_imprint,
+        _normalize_shape,
+    )
+
+    front = vlm.get("print_front")
+    back = vlm.get("print_back")
+    color = vlm.get("color")
+    shape = vlm.get("shape")
+
+    fn = _normalize_imprint(front.strip().upper()) if front else None
+    bn = _normalize_imprint(back.strip().upper()) if back else None
+    cn = _normalize_color(color or "")
+    sn = _normalize_shape(shape or "")
+    cs = f"{cn} {sn}".strip()
+
+    variants: list[str] = []
+
+    def _add(parts: list) -> None:
+        q = " ".join(p for p in parts if p)
+        if q and q not in variants:
+            variants.append(q)
+
+    _add([fn, bn, cs])
+    _add([bn, fn, cs])
+    _add([fn, cs])
+    _add([bn, cs])
+    _add([cs])
+    return variants
 
 
 # ── 1차 VLM 프롬프트 (v4) ─────────────────────
@@ -349,9 +432,10 @@ def _rerank_score(query: dict, candidate_meta: dict) -> float:
     def _side_score(qv: str, cv: str, meta: dict, side: str) -> float:
         if not qv:
             return 0.0  # unknown — 감점 안 함
-        # 마크 매칭
-        if is_mark_text(qv) and candidate_side_has_mark(meta, side):
-            return 35.0
+        # 마크 매칭 (정확 35점, suspicious 문자 18점)
+        ms = mark_match_score(qv, meta, side)
+        if ms > 0:
+            return ms
         if qv and cv and qv == cv:
             return 35.0
         return 0.0
@@ -955,6 +1039,15 @@ async def process_pill_analysis(task_data: dict) -> dict:
         features = await extract_pill_features(client, image_b64_list, ocr_texts, model)
         logger.info("1단계 완료: %s", features)
 
+        # v5: multiple_pills 보정 + confidence 보정
+        features = normalize_multiple_pills_flag(features)
+        features = calibrate_vlm_confidence(features)
+        logger.info(
+            "v5 보정 후: multiple_pills=%s, imprint_conf=%.2f",
+            features.get("multiple_pills"),
+            features.get("imprint_confidence") or 0,
+        )
+
         if not features.get("is_pill", True):
             result = {"product_name": "알약 이미지가 아닙니다", "gpt_model_version": model}
             analysis_id = await save_analysis_result(conn, user_id, file_id, result)
@@ -964,6 +1057,10 @@ async def process_pill_analysis(task_data: dict) -> dict:
             result = {"product_name": "여러 알약 감지 - 분석 실패", "gpt_model_version": model}
             analysis_id = await save_analysis_result(conn, user_id, file_id, result)
             return {"analysis_id": analysis_id, "product_name": result["product_name"], "result": result}
+
+        # v5: RAG query variants 로그
+        rag_variants = build_rag_query_variants(features)
+        logger.info("v5 RAG query variants: %s", rag_variants)
 
         matched_drug = await find_drug_by_imprint(conn, client, features, image_b64_list)
 
