@@ -1,11 +1,8 @@
 # tests/pill_apis/test_pill_v5_1.py
 """v5.1 회귀 테스트"""
 
-import pytest
-
 from ai_worker.tasks.imprint_parser import candidate_side_has_mark
 from ai_worker.tasks.pill_analysis import (
-    MARK_CONFUSABLE_IMPRINTS,
     build_rag_query_variants,
     is_mark_confusable_imprint,
     mark_match_score,
