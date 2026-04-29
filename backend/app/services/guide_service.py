@@ -41,18 +41,38 @@ logger = logging.getLogger(__name__)
 
 # ── timing 한글 → DB 코드 변환 매핑 ──
 TIMING_MAP = {
+    # 식후
     "식후": "AFTER_MEAL",
+    "식후 30분": "AFTER_MEAL",  # ✅ 추가
+    "식후30분": "AFTER_MEAL",  # ✅ 추가
+    "식후 즉시": "AFTER_MEAL",  # ✅ 추가
+    "식후즉시": "AFTER_MEAL",  # ✅ 추가 (프론트 버튼)
+    "밥 먹고": "AFTER_MEAL",  # ✅ 추가
+    # 식전
     "식전": "BEFORE_MEAL",
+    "식전 30분": "BEFORE_MEAL",  # ✅ 추가
+    "식전30분": "BEFORE_MEAL",  # ✅ 추가
+    "밥 먹기 전": "BEFORE_MEAL",  # ✅ 추가
+    # 식사 중
     "식사 중": "WITH_MEAL",
     "식사중": "WITH_MEAL",
+    "식사와 함께": "WITH_MEAL",  # ✅ 추가
+    # 취침 전
     "취침 전": "BEFORE_SLEEP",
     "취침전": "BEFORE_SLEEP",
+    "자기 전": "BEFORE_SLEEP",  # ✅ 추가
+    "자기전": "BEFORE_SLEEP",  # ✅ 추가
+    # 아침
     "아침": "MORNING",
+    "기상 후": "MORNING",  # ✅ 추가
+    "기상후": "MORNING",  # ✅ 추가
+    # 필요 시
     "필요 시": "AS_NEEDED",
     "필요시": "AS_NEEDED",
+    "필요할 때": "AS_NEEDED",  # ✅ 추가
 }
 
-# ✅ 추가: DB 코드 → 한글 역방향 매핑 (응답 시 사용)
+# ✅ DB 코드 → 한글 역방향 매핑 (응답 시 사용)
 TIMING_DISPLAY_MAP = {
     "BEFORE_MEAL": "식전",
     "AFTER_MEAL": "식후",
@@ -88,7 +108,7 @@ class GuideService:
         status: str | None,
         page: int,
         size: int,
-        search: str | None = None,  # ✅ 추가: 검색 파라미터
+        search: str | None = None,
     ) -> GuideListResponse:
         total, guides = await self._repo.get_guides_by_user(user_id, period, status, page, size, search=search)
 
@@ -193,7 +213,6 @@ class GuideService:
                     medication_name=m.medication_name,
                     dosage=m.dosage,
                     frequency=m.frequency,
-                    # ✅ 수정: DB 코드 → 한글로 변환하여 응답
                     timing=TIMING_DISPLAY_MAP.get(m.timing_code, m.timing_code),
                     duration_days=m.duration_days,
                 )
@@ -282,7 +301,6 @@ class GuideService:
                 content=r["content"],
                 status=r.get("status", "COMPLETED"),
             )
-            # ✅ 수정: TEXT/JSONB 모두 대응
             content_raw = saved.content
             if isinstance(content_raw, dict):
                 content = content_raw
@@ -315,7 +333,6 @@ class GuideService:
         results = await self._repo.get_latest_ai_results(guide_id, db_result_type)
 
         def _parse_content(raw):
-            # ✅ 수정: TEXT/JSONB 모두 대응
             if isinstance(raw, dict):
                 return raw
             if isinstance(raw, str):
@@ -360,7 +377,6 @@ class GuideService:
                     check_id=c.check_id if c else None,
                     guide_medication_id=m.guide_medication_id,
                     medication_name=m.medication_name,
-                    # ✅ 수정: timing 코드 한글 변환
                     timing=TIMING_DISPLAY_MAP.get(m.timing_code, m.timing_code),
                     is_taken=bool(c and c.is_taken),
                     taken_at=c.taken_at if c else None,
@@ -540,10 +556,6 @@ class GuideService:
     # 문서 분석 결과로 가이드 생성 (승원 파트 연동)
     # ──────────────────────────────────────────
     async def create_guide_from_doc(self, user_id: int, req: GuideCreateFromDocRequest) -> GuideCreateResponse:
-        """
-        의료 문서 분석 결과(doc_result_id)를 읽어 가이드 + 약물 정보를 자동 생성.
-        약봉투는 diagnosis_name이 null일 수 있으므로 병원명으로 title 대체.
-        """
         from app.models.medical_doc import DocAnalysisResult
 
         result = await DocAnalysisResult.get_or_none(
