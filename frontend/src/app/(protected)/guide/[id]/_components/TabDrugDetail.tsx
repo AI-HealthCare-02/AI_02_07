@@ -37,6 +37,12 @@ interface DrugDetail {
   error?: string;
 }
 
+interface LifestyleItem {
+  category: string;
+  title: string;
+  content: string;
+}
+
 interface MedSummary {
   name: string;
   summary?: string;
@@ -67,6 +73,7 @@ export default function TabDrugDetail({
   // RT_MEDICATION:   { medications: [{name, summary, how_to_take, caution}] }
   const drugDetailResult = aiResults.find((r) => r.result_type === "RT_DRUG_DETAIL");
   const medicationResult = aiResults.find((r) => r.result_type === "RT_MEDICATION");
+  const lifestyleResult  = aiResults.find((r) => r.result_type === "RT_LIFESTYLE");
 
   // 선택된 약물에 해당하는 상세 데이터 추출
   const getDrugDetail = (): DrugDetail | null => {
@@ -93,6 +100,9 @@ export default function TabDrugDetail({
 
   const drugDetail = getDrugDetail();
   const medSummary = getMedSummary();
+  const lifestyleItems = lifestyleResult?.content
+    ? ((lifestyleResult.content as Record<string, unknown>).lifestyle ?? []) as LifestyleItem[]
+    : [];
 
   return (
     <div className="space-y-4">
@@ -189,6 +199,21 @@ export default function TabDrugDetail({
           <p className="text-sm text-muted-foreground">AI 가이드가 아직 생성되지 않았습니다.</p>
         )}
       </div>
+
+      {/* RT_LIFESTYLE 생활습관 가이드 */}
+      {lifestyleItems.length > 0 && (
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="mb-3 text-xs font-semibold text-teal-400">🌿 생활습관 가이드</p>
+          <div className="space-y-3">
+            {lifestyleItems.map((item, i) => (
+              <div key={i} className="rounded-xl border border-border p-3">
+                <p className="mb-1 text-xs font-semibold text-foreground">{item.title}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{item.content}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
