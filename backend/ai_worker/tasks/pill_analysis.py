@@ -59,6 +59,7 @@ def preprocess_image(image_bytes: bytes) -> tuple[str, bytes]:
     img = Image.open(io.BytesIO(image_bytes))
     try:
         from PIL import ImageOps
+
         img = ImageOps.exif_transpose(img)
     except Exception:
         pass
@@ -146,10 +147,12 @@ def build_ocr_hint(text: str | None) -> str:
 
 # ── 반점/마크 helper (v4) ─────────────────────
 def has_speckle_hint(vlm_result: dict) -> bool:
-    text = " ".join([
-        str(vlm_result.get("color_detail") or ""),
-        str(vlm_result.get("notes") or ""),
-    ])
+    text = " ".join(
+        [
+            str(vlm_result.get("color_detail") or ""),
+            str(vlm_result.get("notes") or ""),
+        ]
+    )
     return any(kw in text for kw in SPECKLE_KEYWORDS)
 
 
@@ -158,7 +161,9 @@ def candidate_side_has_mark(metadata: dict, side: str) -> bool:
         return False
     imprint = (metadata.get("imprint") or {}).get(side) or {}
     values = [
-        imprint.get("raw"), imprint.get("text"), imprint.get("normalized"),
+        imprint.get("raw"),
+        imprint.get("text"),
+        imprint.get("normalized"),
         metadata.get(f"print_{side}"),
     ]
     values.extend(imprint.get("tokens") or [])
@@ -351,8 +356,12 @@ def _rerank_score(query: dict, candidate_meta: dict) -> float:
             return 35.0
         return 0.0
 
-    direct = _side_score(q_front, c_front, candidate_meta, "front") + _side_score(q_back, c_back, candidate_meta, "back")
-    swapped = _side_score(q_front, c_back, candidate_meta, "back") + _side_score(q_back, c_front, candidate_meta, "front")
+    direct = _side_score(q_front, c_front, candidate_meta, "front") + _side_score(
+        q_back, c_back, candidate_meta, "back"
+    )
+    swapped = _side_score(q_front, c_back, candidate_meta, "back") + _side_score(
+        q_back, c_front, candidate_meta, "front"
+    )
     score += max(direct, swapped)
 
     # 분할선/십자분할선 점수 (v4: 방향 강제 안 함, 존재 여부 중심)
@@ -412,8 +421,7 @@ def _needs_recheck(vlm: dict, top_candidates: list[dict]) -> dict:
     line_count = sum(1 for c in top_candidates if _candidate_has_score_line(c.get("metadata") or {}))
     candidate_has_imprint = any(_candidate_has_any_imprint(c.get("metadata") or {}) for c in top_candidates)
     candidate_has_mark = any(
-        candidate_side_has_mark(c.get("metadata") or {}, s)
-        for c in top_candidates for s in ("front", "back")
+        candidate_side_has_mark(c.get("metadata") or {}, s) for c in top_candidates for s in ("front", "back")
     )
 
     if cross_count >= 1 and not vlm_has_cross:
@@ -521,7 +529,9 @@ def merge_recheck_result(base: dict, recheck: dict, kind: str, threshold: float 
         if conf >= threshold:
             result["score_line_front_type"] = recheck.get("front_score_line_type", result.get("score_line_front_type"))
             result["score_line_back_type"] = recheck.get("back_score_line_type", result.get("score_line_back_type"))
-            result["score_line_front_direction"] = recheck.get("front_direction", result.get("score_line_front_direction"))
+            result["score_line_front_direction"] = recheck.get(
+                "front_direction", result.get("score_line_front_direction")
+            )
             result["score_line_back_direction"] = recheck.get("back_direction", result.get("score_line_back_direction"))
             result["score_line_confidence"] = conf
 
@@ -605,10 +615,16 @@ async def find_drug_by_imprint(
 ) -> dict | None:
     features = _split_combined_imprint(features)
 
-    parts = [v for v in [
-        features.get("print_front"), features.get("print_back"),
-        features.get("color"), features.get("shape"),
-    ] if v]
+    parts = [
+        v
+        for v in [
+            features.get("print_front"),
+            features.get("print_back"),
+            features.get("color"),
+            features.get("shape"),
+        ]
+        if v
+    ]
 
     if not parts:
         return None
@@ -650,8 +666,9 @@ async def find_drug_by_imprint(
                 params.append(back_norm)
                 conditions.append(f"metadata->'search_keys'->>'back_norm' = ${len(params)}")
             if conditions:
-                exact_rows = list(await conn.fetch(
-                    f"""
+                exact_rows = list(
+                    await conn.fetch(
+                        f"""
                     SELECT item_seq, item_name, chunk_text, metadata,
                            1 - (embedding <=> $1::vector) AS similarity
                     FROM drug_embeddings
@@ -659,8 +676,9 @@ async def find_drug_by_imprint(
                       AND ({" AND ".join(conditions)}) AND embedding IS NOT NULL
                     LIMIT 10
                     """,
-                    *params,
-                ))
+                        *params,
+                    )
+                )
             if front_norm and back_norm:
                 swap_rows = await conn.fetch(
                     """
@@ -673,7 +691,9 @@ async def find_drug_by_imprint(
                       AND embedding IS NOT NULL
                     LIMIT 5
                     """,
-                    vector_str, back_norm, front_norm,
+                    vector_str,
+                    back_norm,
+                    front_norm,
                 )
                 exact_rows += list(swap_rows)
 
@@ -688,13 +708,15 @@ async def find_drug_by_imprint(
                         meta = json.loads(meta)
                     except Exception:
                         meta = {}
-                candidates.append({
-                    "item_seq": r["item_seq"],
-                    "item_name": r["item_name"],
-                    "chunk_text": r["chunk_text"],
-                    "metadata": meta,
-                    "vector_similarity": float(r["similarity"]),
-                })
+                candidates.append(
+                    {
+                        "item_seq": r["item_seq"],
+                        "item_name": r["item_name"],
+                        "chunk_text": r["chunk_text"],
+                        "metadata": meta,
+                        "vector_similarity": float(r["similarity"]),
+                    }
+                )
 
         if not candidates:
             logger.info("imprint 데이터 없음 (임베딩 미구축)")
@@ -708,7 +730,9 @@ async def find_drug_by_imprint(
         candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
         logger.info(
             "imprint 상위 5개: %s",
-            ", ".join(f"{c['item_name']}(r={c['rerank_base']:.0f},v={c['vector_similarity']:.3f})" for c in candidates[:5]),
+            ", ".join(
+                f"{c['item_name']}(r={c['rerank_base']:.0f},v={c['vector_similarity']:.3f})" for c in candidates[:5]
+            ),
         )
 
         # 조건부 2차 VLM
@@ -750,12 +774,17 @@ async def find_drug_by_imprint(
         # v4 매칭 실패 판단
         fail, reason = should_return_match_failure(best, second, features, best["rerank_score"])
         if fail:
-            logger.info("imprint 매칭 실패 (%s) - rerank=%.1f, vec=%.3f", reason, best["rerank_base"], best["vector_similarity"])
+            logger.info(
+                "imprint 매칭 실패 (%s) - rerank=%.1f, vec=%.3f", reason, best["rerank_base"], best["vector_similarity"]
+            )
             return None
 
         logger.info(
             "imprint 매칭 성공: '%s' → '%s' (rerank=%.1f, vec=%.3f)",
-            query_str, best["item_name"], best["rerank_base"], best["vector_similarity"],
+            query_str,
+            best["item_name"],
+            best["rerank_base"],
+            best["vector_similarity"],
         )
         return {
             "item_seq": best["item_seq"],
@@ -820,7 +849,9 @@ async def refine_drug_info(client: AsyncOpenAI, model: str, item_name: str, db_i
 
     try:
         resp = await client.chat.completions.create(
-            model=model, max_tokens=800, temperature=0,
+            model=model,
+            max_tokens=800,
+            temperature=0,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = resp.choices[0].message.content.strip()
@@ -834,9 +865,12 @@ async def refine_drug_info(client: AsyncOpenAI, model: str, item_name: str, db_i
         return {
             "active_ingredients": raw_ingredient or None,
             "efficacy": raw_efficacy or None,
-            "usage_method": None, "warning": None,
+            "usage_method": None,
+            "warning": None,
             "caution": raw_caution or None,
-            "interactions": None, "side_effects": None, "storage_method": None,
+            "interactions": None,
+            "side_effects": None,
+            "storage_method": None,
         }
 
 
@@ -857,12 +891,18 @@ async def save_analysis_result(conn: asyncpg.Connection, user_id: int, file_id: 
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
         RETURNING analysis_id
         """,
-        user_id, file_id,
-        result.get("product_name"), result.get("active_ingredients"),
-        result.get("efficacy"), result.get("usage_method"),
-        result.get("warning"), result.get("caution"),
-        result.get("interactions"), result.get("side_effects"),
-        result.get("storage_method"), result.get("gpt_model_version"),
+        user_id,
+        file_id,
+        result.get("product_name"),
+        result.get("active_ingredients"),
+        result.get("efficacy"),
+        result.get("usage_method"),
+        result.get("warning"),
+        result.get("caution"),
+        result.get("interactions"),
+        result.get("side_effects"),
+        result.get("storage_method"),
+        result.get("gpt_model_version"),
     )
     return row["analysis_id"]
 
@@ -893,14 +933,13 @@ async def process_pill_analysis(task_data: dict) -> dict:
         if not image_b64_list:
             raise ValueError("처리할 이미지가 없습니다.")
 
-        ocr_texts: list[str | None] = list(
-            await asyncio.gather(*[extract_imprint_ocr(b) for b in image_bytes_list])
-        )
+        ocr_texts: list[str | None] = list(await asyncio.gather(*[extract_imprint_ocr(b) for b in image_bytes_list]))
 
         # 앞면이 숫자만이고 뒷면이 영문자면 swap
         if (
             len(ocr_texts) == 2
-            and ocr_texts[0] and ocr_texts[1]
+            and ocr_texts[0]
+            and ocr_texts[1]
             and ocr_texts[0].replace(" ", "").isdigit()
             and any(c.isalpha() for c in ocr_texts[1])
         ):

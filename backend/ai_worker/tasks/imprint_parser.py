@@ -221,21 +221,33 @@ def parse_imprint_chunk(chunk_text: str) -> dict | None:
                 val = front_m.group(1).strip()
                 if "십자분할선" in val:
                     front_data = {
-                        "raw": val, "text": "", "normalized": "",
-                        "has_score_line": True, "is_cross": True,
-                        "score_line_direction": "십자", "tokens": [],
+                        "raw": val,
+                        "text": "",
+                        "normalized": "",
+                        "has_score_line": True,
+                        "is_cross": True,
+                        "score_line_direction": "십자",
+                        "tokens": [],
                     }
                 elif val == "분할선" or val.endswith("분할선"):
                     front_data = {
-                        "raw": val, "text": "", "normalized": "",
-                        "has_score_line": True, "is_cross": False,
-                        "score_line_direction": None, "tokens": [],
+                        "raw": val,
+                        "text": "",
+                        "normalized": "",
+                        "has_score_line": True,
+                        "is_cross": False,
+                        "score_line_direction": None,
+                        "tokens": [],
                     }
                 elif is_mark_text(val):
                     front_data = {
-                        "raw": val, "text": "마크", "normalized": "마크",
-                        "has_score_line": False, "is_cross": False,
-                        "score_line_direction": None, "tokens": [],
+                        "raw": val,
+                        "text": "마크",
+                        "normalized": "마크",
+                        "has_score_line": False,
+                        "is_cross": False,
+                        "score_line_direction": None,
+                        "tokens": [],
                     }
                 else:
                     front_data = _parse_imprint_side(val)
@@ -243,21 +255,33 @@ def parse_imprint_chunk(chunk_text: str) -> dict | None:
                 val = back_m.group(1).strip()
                 if "십자분할선" in val:
                     back_data = {
-                        "raw": val, "text": "", "normalized": "",
-                        "has_score_line": True, "is_cross": True,
-                        "score_line_direction": "십자", "tokens": [],
+                        "raw": val,
+                        "text": "",
+                        "normalized": "",
+                        "has_score_line": True,
+                        "is_cross": True,
+                        "score_line_direction": "십자",
+                        "tokens": [],
                     }
                 elif val == "분할선" or val.endswith("분할선"):
                     back_data = {
-                        "raw": val, "text": "", "normalized": "",
-                        "has_score_line": True, "is_cross": False,
-                        "score_line_direction": None, "tokens": [],
+                        "raw": val,
+                        "text": "",
+                        "normalized": "",
+                        "has_score_line": True,
+                        "is_cross": False,
+                        "score_line_direction": None,
+                        "tokens": [],
                     }
                 elif is_mark_text(val):
                     back_data = {
-                        "raw": val, "text": "마크", "normalized": "마크",
-                        "has_score_line": False, "is_cross": False,
-                        "score_line_direction": None, "tokens": [],
+                        "raw": val,
+                        "text": "마크",
+                        "normalized": "마크",
+                        "has_score_line": False,
+                        "is_cross": False,
+                        "score_line_direction": None,
+                        "tokens": [],
                     }
                 else:
                     back_data = _parse_imprint_side(val)
