@@ -147,12 +147,15 @@ INSERT INTO common_code (group_code, code, code_name, sort_order, is_used, creat
     ('MED_CATEGORY', 'HERBAL',       '한약',         4, TRUE, NOW()),
 
     -- MED_TIMING
-    ('MED_TIMING', 'BEFORE_MEAL',  '식전',      1, TRUE, NOW()),
-    ('MED_TIMING', 'AFTER_MEAL',   '식후',      2, TRUE, NOW()),
-    ('MED_TIMING', 'WITH_MEAL',    '식사 중',   3, TRUE, NOW()),
-    ('MED_TIMING', 'BEFORE_SLEEP', '취침 전',   4, TRUE, NOW()),
-    ('MED_TIMING', 'MORNING',      '기상 직후', 5, TRUE, NOW()),
-    ('MED_TIMING', 'AS_NEEDED',    '필요 시',   6, TRUE, NOW()),
+    ('MED_TIMING', 'BEFORE_MEAL',          '식전',        1, TRUE, NOW()),
+    ('MED_TIMING', 'BEFORE_MEAL_30',       '식전 30분',   2, TRUE, NOW()),
+    ('MED_TIMING', 'AFTER_MEAL',           '식후',        3, TRUE, NOW()),
+    ('MED_TIMING', 'AFTER_MEAL_IMMEDIATE', '식후 즉시',   4, TRUE, NOW()),
+    ('MED_TIMING', 'AFTER_MEAL_30',        '식후 30분',   5, TRUE, NOW()),
+    ('MED_TIMING', 'WITH_MEAL',            '식사 중',     6, TRUE, NOW()),
+    ('MED_TIMING', 'BEFORE_SLEEP',         '취침 전',     7, TRUE, NOW()),
+    ('MED_TIMING', 'MORNING',              '기상 직후',   8, TRUE, NOW()),
+    ('MED_TIMING', 'AS_NEEDED',            '필요 시',     9, TRUE, NOW()),
 
     -- RESULT_TYPE
     ('RESULT_TYPE', 'SUMMARY',        '종합 요약',    1, TRUE, NOW()),
