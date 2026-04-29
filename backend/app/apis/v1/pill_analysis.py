@@ -111,6 +111,7 @@ async def analyze_pill(
             fetch_drug_info_from_db,
             find_drug_by_imprint,
             preprocess_image,
+            refine_drug_info,
         )
 
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
@@ -172,6 +173,7 @@ async def analyze_pill(
                 )
 
             db_info = await fetch_drug_info_from_db(db_conn, matched_drug["item_seq"])
+            refined = await refine_drug_info(client, settings.OPENAI_MODEL, matched_drug["item_name"], db_info)
         finally:
             await db_conn.close()
 
@@ -179,9 +181,14 @@ async def analyze_pill(
             user=current_user,
             file=uploaded,
             product_name=matched_drug["item_name"],
-            active_ingredients=db_info.get("ingredient"),
-            efficacy=db_info.get("efficacy"),
-            caution=db_info.get("caution"),
+            active_ingredients=refined.get("active_ingredients"),
+            efficacy=refined.get("efficacy"),
+            usage_method=refined.get("usage_method"),
+            warning=refined.get("warning"),
+            caution=refined.get("caution"),
+            interactions=refined.get("interactions"),
+            side_effects=refined.get("side_effects"),
+            storage_method=refined.get("storage_method"),
             gpt_model_version=settings.OPENAI_MODEL,
         )
         return ResponseDTO(
