@@ -225,7 +225,8 @@ export default function DocsPage() {
         doc_result_id: result.doc_result_id,
         med_start_date: today,
       });
-      const guideId: number = guideData.data.guide_id;
+      // guide 엔드포인트는 래퍼 없이 { guide_id, title, ... } 직접 반환
+      const guideId: number = (guideData.data ?? guideData).guide_id;
 
       // ③ AI 가이드 생성
       await apiClient.post(`/api/v1/guides/${guideId}/ai-generate`, {
