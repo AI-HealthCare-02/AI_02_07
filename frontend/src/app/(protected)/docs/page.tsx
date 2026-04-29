@@ -442,7 +442,7 @@ export default function DocsPage() {
 
                       {/* 복용법 */}
                       <div className="mt-2">
-                        {(med.editingInstructions || (!med.instructions && lowConf)) ? (
+                        {med.editingInstructions ? (
                           <div className="space-y-2">
                             <p className="text-xs font-medium text-foreground">복용법 선택</p>
                             <div className="flex flex-wrap gap-2">
@@ -488,16 +488,22 @@ export default function DocsPage() {
                           </div>
                         ) : (
                           <div className="flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">
-                              복용법: {med.instructions ?? "-"}
-                              {!med.instructions && <span className="ml-1 text-red-500">⚠️ 미확인</span>}
-                            </span>
-                            {lowConf && (
+                            {med.instructions ? (
+                              <span className="text-xs text-muted-foreground">복용법: {med.instructions}</span>
+                            ) : (
+                              <button
+                                onClick={() => toggleEditInstructions(idx)}
+                                className="text-xs text-red-500 hover:text-red-400"
+                              >
+                                ⚠️ 미확인 — 탭하여 입력
+                              </button>
+                            )}
+                            {med.instructions && lowConf && (
                               <button
                                 onClick={() => toggleEditInstructions(idx)}
                                 className="text-xs text-teal-500 underline hover:text-teal-400"
                               >
-                                입력하기
+                                수정
                               </button>
                             )}
                           </div>
