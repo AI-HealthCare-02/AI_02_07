@@ -3,20 +3,23 @@
 # 의료 문서 분석 API — 이승원 담당
 #
 # 엔드포인트:
-#   POST /medical-doc/analyze       → 의료 문서 이미지 분석 + DB 저장
-#   GET  /medical-doc/results       → 분석 결과 목록 조회
-#   GET  /medical-doc/results/{id}  → 분석 결과 단건 조회
-#   DELETE /medical-doc/results/{id} → 분석 결과 삭제
+#   POST   /medical-doc/analyze           → 의료 문서 이미지 분석 + DB 저장
+#   GET    /medical-doc/results           → 분석 결과 목록 조회
+#   GET    /medical-doc/results/{id}      → 분석 결과 단건 조회
+#   PATCH  /medical-doc/results/{id}      → 분석 결과 미확인 항목 수정
+#   DELETE /medical-doc/results/{id}      → 분석 결과 삭제
 # ──────────────────────────────────────────────
 
 import logging
 import time
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel
 
 from ai_worker.tasks.medical_doc import analyze_medical_document
 from app.core.dependencies import get_current_user
 from app.dtos.common_dto import ResponseDTO
+from app.models.medical_doc import DocAnalysisResult
 from app.models.user import User
 from app.services import medical_doc_service
 
@@ -26,6 +29,23 @@ router = APIRouter()
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
 MAX_PDF_SIZE = 20 * 1024 * 1024
+
+
+# ============================================================
+# DTO (PATCH용)
+# ============================================================
+
+
+class MedicationUpdate(BaseModel):
+    medication_index: int  # medications 배열에서 몇 번째 약인지 (0부터 시작)
+    timing: str | None = None
+    frequency: str | None = None
+    dosage: str | None = None
+    instructions: str | None = None
+
+
+class DocResultPatchRequest(BaseModel):
+    medications: list[MedicationUpdate]
 
 
 # ============================================================
@@ -57,7 +77,6 @@ async def analyze_document(
 
     files = [f for f in [file1, file2, file3, file4, file5] if f is not None]
 
-    # 검진결과 제거 — 처방전 / 진료기록 / 약봉투 / 자동인식만 지원
     valid_doc_types = {"처방전", "진료기록", "약봉투", "자동인식"}
     if document_type not in valid_doc_types:
         raise HTTPException(
@@ -95,7 +114,6 @@ async def analyze_document(
             document_type=document_type,
         )
 
-        # 비의료 문서 감지 시 400 에러 반환
         if result.get("error") == "non_medical_document":
             await medical_doc_service.fail_analysis_job(job, result["message"])
             raise HTTPException(
@@ -196,6 +214,82 @@ async def get_analysis_result(
             "raw_summary": result.raw_summary,
             "ocr_raw_text": result.ocr_raw_text,
             "created_at": result.created_at.isoformat(),
+        },
+    )
+
+
+# ============================================================
+# 분석 결과 미확인 항목 수정 (PATCH)
+# ============================================================
+
+
+@router.patch(
+    "/results/{doc_result_id}",
+    response_model=ResponseDTO[dict],
+    summary="분석 결과 미확인 항목 수정",
+)
+async def patch_analysis_result(
+    doc_result_id: int,
+    req: DocResultPatchRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    분석 결과에서 미확인(null) 항목을 사용자가 직접 수정합니다.
+    확인 완료 버튼 클릭 전 호출하여 수정 내용을 저장합니다.
+
+    - **medication_index**: medications 배열 인덱스 (0부터 시작)
+    - **timing**: 복용법 (예: 식후, 식전, 취침 전)
+    - **frequency**: 복용 횟수 (예: 1일 2회)
+    - **dosage**: 용량 (예: 1정, 500mg)
+    - **instructions**: 기타 복용 지시사항
+    """
+    # 본인 소유 결과만 조회
+    result = await DocAnalysisResult.get_or_none(
+        doc_result_id=doc_result_id,
+        user_id=current_user.user_id,
+        is_deleted=False,
+    )
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="분석 결과를 찾을 수 없습니다.",
+        )
+
+    # analysis_json은 JSONField라 dict 그대로 사용 가능
+    analysis = result.analysis_json or {}
+    medications = analysis.get("medications", [])
+
+    updated_count = 0
+    for update in req.medications:
+        idx = update.medication_index
+        if not (0 <= idx < len(medications)):
+            logger.warning(f"잘못된 medication_index: {idx} (총 {len(medications)}개)")
+            continue
+
+        if update.timing is not None:
+            medications[idx]["timing"] = update.timing
+        if update.frequency is not None:
+            medications[idx]["frequency"] = update.frequency
+        if update.dosage is not None:
+            medications[idx]["dosage"] = update.dosage
+        if update.instructions is not None:
+            medications[idx]["instructions"] = update.instructions
+
+        updated_count += 1
+
+    analysis["medications"] = medications
+    result.analysis_json = analysis
+    await result.save()
+
+    logger.info(f"분석 결과 수정 완료: doc_result_id={doc_result_id}, 수정된 약물={updated_count}개")
+
+    return ResponseDTO(
+        success=True,
+        message=f"{updated_count}개 항목이 수정되었습니다.",
+        data={
+            "doc_result_id": doc_result_id,
+            "updated_count": updated_count,
+            "medications": medications,
         },
     )
 
