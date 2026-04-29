@@ -24,15 +24,27 @@ DISCLAIMER = (
     "복약 관련 문의는 반드시 의료 전문가에게 하시기 바랍니다."
 )
 
-# 기본 생성 목록 (RT_DRUG_DETAIL 은 요청 시에만 생성)
 ALL_RESULT_TYPES = ["RT_MEDICATION", "RT_LIFESTYLE", "RT_CAUTION"]
 
 
 class AiGuideService:
     def __init__(self) -> None:
         self._openai = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        # ✅ 수정: e약은요 API → RAG 서비스로 교체
         self._rag = get_rag_service()
+
+    # ──────────────────────────────────────────
+    # ✅ 추가: 마크다운 코드블록 제거 유틸
+    # ──────────────────────────────────────────
+    def _strip_markdown(self, raw: str) -> str:
+        """GPT가 ```json ... ``` 으로 감쌀 때 제거"""
+        raw = raw.strip()
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:])  # 첫 줄(```json) 제거
+            raw = raw.strip()
+            if raw.endswith("```"):
+                raw = raw[:-3].strip()  # 마지막 줄(```) 제거
+        return raw
 
     async def generate(
         self,
@@ -43,15 +55,9 @@ class AiGuideService:
         diagnosis_name: str,
         result_types: list[str] | None,
     ) -> dict[str, Any]:
-        """
-        요청된 result_types 생성 후 결과 반환.
-        result_types=None 이면 전체(RT_MEDICATION, RT_LIFESTYLE, RT_CAUTION) 생성.
-        RT_DRUG_DETAIL 은 명시적으로 요청해야 생성됨.
-        """
         types_to_gen = result_types or ALL_RESULT_TYPES
         med_names = [m["medication_name"] for m in medications]
 
-        # ✅ 수정: e약은요 API 대신 RAG로 약품 정보 검색
         rag_chunks_by_name: dict[str, dict] = {}
         for name in med_names:
             try:
@@ -85,9 +91,6 @@ class AiGuideService:
 
         return {"completed": completed, "failed": failed, "results": results}
 
-    # ──────────────────────────────────────────
-    # 유형별 생성 라우터
-    # ──────────────────────────────────────────
     async def _generate_one(
         self,
         result_type: str,
@@ -111,16 +114,12 @@ class AiGuideService:
             )
         raise ValueError(f"지원하지 않는 result_type: {result_type}")
 
-    # ──────────────────────────────────────────
-    # RAG 컨텍스트 빌더
-    # ──────────────────────────────────────────
     def _build_drug_context(
         self,
         rag_chunks_by_name: dict[str, dict],
         med_names: list[str],
         chunk_types: list[str],
     ) -> str:
-        """약품별 RAG 청크를 LLM 프롬프트용 텍스트로 변환"""
         lines = []
         for name in med_names:
             chunks = rag_chunks_by_name.get(name, {})
@@ -144,7 +143,6 @@ class AiGuideService:
         patient_gender: str,
         diagnosis_name: str,
     ) -> dict[str, Any]:
-        """RT_MEDICATION: RAG 약품 DB 데이터를 LLM이 복약 안내로 정리"""
         drug_context = self._build_drug_context(rag_chunks_by_name, med_names, ["efficacy", "caution"])
 
         warnings: list[str] = []
@@ -170,14 +168,14 @@ class AiGuideService:
 - 제공된 데이터에 없는 내용은 절대 추가하지 마세요.
 - 각 약물별로 JSON 배열 형식으로 정리하세요.
 - 형식: [{{"name": "약품명", "summary": "간단 설명", "how_to_take": "복용법 요약", "caution": "주의사항 요약"}}]
-- JSON만 반환하세요. 설명 문장 없이."""
+- 마크다운 코드블록(```) 없이 순수 JSON만 반환하세요."""
 
         response = await self._openai.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=[
                 {
                     "role": "system",
-                    "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요.",
+                    "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요. 마크다운 코드블록(```) 없이 순수 JSON만 반환하세요.",
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -186,8 +184,9 @@ class AiGuideService:
         )
 
         raw = response.choices[0].message.content or "[]"
+        raw = self._strip_markdown(raw)  # ✅ 마크다운 제거
         try:
-            med_list = json.loads(raw.strip())
+            med_list = json.loads(raw)
         except json.JSONDecodeError:
             logger.warning("RT_MEDICATION JSON 파싱 실패, raw: %s", raw[:200])
             med_list = []
@@ -205,7 +204,6 @@ class AiGuideService:
         patient_gender: str,
         diagnosis_name: str,
     ) -> dict[str, Any]:
-        """RT_LIFESTYLE: RAG 주의사항 데이터를 LLM이 생활습관 가이드로 정리"""
         drug_context = self._build_drug_context(rag_chunks_by_name, med_names, ["caution"])
 
         warnings: list[str] = []
@@ -226,14 +224,14 @@ class AiGuideService:
 - 제공된 데이터에 없는 내용은 절대 추가하지 마세요.
 - 카테고리: diet(식습관), exercise(운동), sleep(수면), alcohol(음주·흡연), interaction(약물-음식 상호작용)
 - 형식: [{{"category": "diet", "title": "제목", "content": "내용"}}]
-- JSON만 반환하세요."""
+- 마크다운 코드블록(```) 없이 순수 JSON만 반환하세요."""
 
         response = await self._openai.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=[
                 {
                     "role": "system",
-                    "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요.",
+                    "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 주어진 데이터 외의 내용을 생성하지 마세요. 마크다운 코드블록(```) 없이 순수 JSON만 반환하세요.",
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -242,8 +240,9 @@ class AiGuideService:
         )
 
         raw = response.choices[0].message.content or "[]"
+        raw = self._strip_markdown(raw)  # ✅ 마크다운 제거
         try:
-            lifestyle_list = json.loads(raw.strip())
+            lifestyle_list = json.loads(raw)
         except json.JSONDecodeError:
             logger.warning("RT_LIFESTYLE JSON 파싱 실패, raw: %s", raw[:200])
             lifestyle_list = []
@@ -258,7 +257,6 @@ class AiGuideService:
         rag_chunks_by_name: dict[str, dict],
         med_names: list[str],
     ) -> dict[str, Any]:
-        """RT_CAUTION: RAG 주의사항 원문 반환"""
         warnings: list[str] = []
         caution_list: list[dict] = []
 
@@ -294,7 +292,6 @@ class AiGuideService:
         patient_gender: str,
         diagnosis_name: str,
     ) -> dict[str, Any]:
-        """RT_DRUG_DETAIL: 약물별 상세 AI 가이드"""
         warnings: list[str] = []
         drugs: list[dict] = []
 
@@ -328,7 +325,7 @@ class AiGuideService:
   "warnings": ["주의사항1", "주의사항2"],
   "faq": [{{"q": "질문", "a": "답변"}}]
 }}
-- JSON 객체 하나만 반환하세요. 마크다운·설명 없이."""
+- 마크다운 코드블록(```) 없이 순수 JSON만 반환하세요."""
 
             try:
                 response = await self._openai.chat.completions.create(
@@ -336,7 +333,7 @@ class AiGuideService:
                     messages=[
                         {
                             "role": "system",
-                            "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 반드시 제공된 공식 데이터만 사용하고, 없는 내용은 추측하지 마세요.",
+                            "content": "당신은 공공 의약품 데이터를 정리하는 도우미입니다. 반드시 제공된 공식 데이터만 사용하고, 없는 내용은 추측하지 마세요. 마크다운 코드블록(```) 없이 순수 JSON만 반환하세요.",
                         },
                         {"role": "user", "content": prompt},
                     ],
@@ -344,7 +341,8 @@ class AiGuideService:
                     temperature=0.1,
                 )
                 raw = response.choices[0].message.content or "{}"
-                detail = json.loads(raw.strip())
+                raw = self._strip_markdown(raw)  # ✅ 마크다운 제거
+                detail = json.loads(raw)
             except json.JSONDecodeError:
                 logger.warning("RT_DRUG_DETAIL JSON 파싱 실패 [%s]", name)
                 detail = {"name": name, "error": "파싱 실패"}
