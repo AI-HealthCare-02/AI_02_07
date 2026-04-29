@@ -287,6 +287,34 @@ def parse_imprint_chunk(chunk_text: str) -> dict | None:
 
 
 # ── STEP 4: 이미지 분석 결과 정규화 ───────────
+
+
+def color_tokens(color: str) -> set[str]:
+    """"반투명" 포함 방어 처리 후 "/" 및 "," 기준 토큰 분리."""
+    tokens = set()
+    for t in re.split(r"[/,]", color):
+        t = t.strip()
+        if t == "반투명":
+            t = "투명"
+        if t:
+            tokens.add(t)
+    return tokens
+
+
+def shape_match_score(q_shape: str, c_shape: str) -> float:
+    """모양 유사 점수: 정확 일치 8점, 타원형↔장방형 5점, 원형↔타원형 3점."""
+    if not q_shape or not c_shape:
+        return 0.0
+    if q_shape == c_shape:
+        return 8.0
+    pair = frozenset([q_shape, c_shape])
+    if pair == frozenset(["타원형", "장방형"]):
+        return 5.0
+    if pair == frozenset(["원형", "타원형"]):
+        return 3.0
+    return 0.0
+
+
 def normalize_vision_result(vision: dict) -> dict:
     """
     GPT Vision 분석 결과를 검색용으로 정규화.
