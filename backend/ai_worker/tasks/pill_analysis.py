@@ -30,7 +30,6 @@ from ai_worker.core.s3_client import download_file_from_s3
 from ai_worker.tasks.imprint_parser import (
     candidate_side_has_mark,
     color_tokens,
-    is_mark_text,
     mark_match_score,
     normalize_vision_result,
     shape_match_score,
@@ -433,9 +432,10 @@ def _rerank_score(query: dict, candidate_meta: dict) -> float:
     def _side_score(qv: str, cv: str, meta: dict, side: str) -> float:
         if not qv:
             return 0.0  # unknown — 감점 안 함
-        # 마크 매칭
-        if is_mark_text(qv) and candidate_side_has_mark(meta, side):
-            return 35.0
+        # 마크 매칭 (정확 35점, suspicious 문자 18점)
+        ms = mark_match_score(qv, meta, side)
+        if ms > 0:
+            return ms
         if qv and cv and qv == cv:
             return 35.0
         return 0.0
