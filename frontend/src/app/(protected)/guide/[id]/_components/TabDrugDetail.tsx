@@ -63,7 +63,6 @@ export default function TabDrugDetail({
       .finally(() => setLoading(false));
   }, [guideId]);
 
-  // RT_DRUG_DETAIL 또는 RT_MEDICATION 에서 약물 상세 추출
   // RT_DRUG_DETAIL: { drugs: [{name, mechanism_summary, how_to_take, side_effects, food_interactions, warnings, faq}] }
   // RT_MEDICATION:   { medications: [{name, summary, how_to_take, caution}] }
   const drugDetailResult = aiResults.find((r) => r.result_type === "RT_DRUG_DETAIL");
@@ -71,23 +70,25 @@ export default function TabDrugDetail({
 
   // 선택된 약물에 해당하는 상세 데이터 추출
   const getDrugDetail = (): DrugDetail | null => {
-    if (drugDetailResult?.content) {
-      const drugs = (drugDetailResult.content.drugs ?? []) as DrugDetail[];
-      if (drugs.length === 0) return null;
-      if (selected) return drugs.find((d) => d.name?.includes(selected.medication_name.split(" ")[0])) ?? drugs[0];
-      return drugs[0];
-    }
-    return null;
+    if (!drugDetailResult?.content) return null;
+    const drugs = ((drugDetailResult.content as Record<string, unknown>).drugs ?? []) as DrugDetail[];
+    if (drugs.length === 0) return null;
+    if (selected)
+      return (
+        drugs.find((d) => d.name?.includes(selected.medication_name.split(" ")[0])) ?? drugs[0]
+      );
+    return drugs[0];
   };
 
   const getMedSummary = (): MedSummary | null => {
-    if (medicationResult?.content) {
-      const meds = (medicationResult.content.medications ?? []) as MedSummary[];
-      if (meds.length === 0) return null;
-      if (selected) return meds.find((m) => m.name?.includes(selected.medication_name.split(" ")[0])) ?? meds[0];
-      return meds[0];
-    }
-    return null;
+    if (!medicationResult?.content) return null;
+    const meds = ((medicationResult.content as Record<string, unknown>).medications ?? []) as MedSummary[];
+    if (meds.length === 0) return null;
+    if (selected)
+      return (
+        meds.find((m) => m.name?.includes(selected.medication_name.split(" ")[0])) ?? meds[0]
+      );
+    return meds[0];
   };
 
   const drugDetail = getDrugDetail();
