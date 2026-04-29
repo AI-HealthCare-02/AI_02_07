@@ -161,12 +161,15 @@ INSERT INTO common_code (group_code, code, code_name, sort_order, is_used, creat
     ('RESULT_TYPE', 'SIDE_EFFECT',    '부작용 안내',   4, TRUE, NOW()),
     ('RESULT_TYPE', 'EMERGENCY_SIGN', '응급 증상',     5, TRUE, NOW()),
 
-    -- REPEAT_TYPE
-    ('REPEAT_TYPE', 'ONCE',    '1회',         1, TRUE, NOW()),
-    ('REPEAT_TYPE', 'DAILY',   '매일',        2, TRUE, NOW()),
-    ('REPEAT_TYPE', 'WEEKLY',  '매주',        3, TRUE, NOW()),
-    ('REPEAT_TYPE', 'MONTHLY', '매월',        4, TRUE, NOW()),
-    ('REPEAT_TYPE', 'CUSTOM',  '사용자 지정', 5, TRUE, NOW()),
+    -- REPEAT_TYPE (기존 코드 + ✅ 추가: RPT_ 접두사 코드)
+    ('REPEAT_TYPE', 'ONCE',       '1회',         1, TRUE, NOW()),
+    ('REPEAT_TYPE', 'DAILY',      '매일',        2, TRUE, NOW()),
+    ('REPEAT_TYPE', 'WEEKLY',     '매주',        3, TRUE, NOW()),
+    ('REPEAT_TYPE', 'MONTHLY',    '매월',        4, TRUE, NOW()),
+    ('REPEAT_TYPE', 'CUSTOM',     '사용자 지정', 5, TRUE, NOW()),
+    ('REPEAT_TYPE', 'RPT_DAILY',   '매일(알림)',        6, TRUE, NOW()),
+    ('REPEAT_TYPE', 'RPT_WEEKDAY', '평일(알림)',        7, TRUE, NOW()),
+    ('REPEAT_TYPE', 'RPT_CUSTOM',  '사용자 지정(알림)', 8, TRUE, NOW()),
 
     -- PILL_SOURCE
     ('PILL_SOURCE', 'CAMERA',      '카메라 촬영', 1, TRUE, NOW()),

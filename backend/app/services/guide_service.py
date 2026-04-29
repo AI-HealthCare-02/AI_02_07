@@ -1,5 +1,4 @@
 import calendar
-import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 
@@ -52,14 +51,24 @@ TIMING_MAP = {
     "필요시": "AS_NEEDED",
 }
 
-# ✅ 추가: ai_guide_service RT_ 코드 → DB common_code 코드 변환 매핑
+# ✅ 추가: DB 코드 → 한글 역방향 매핑 (응답 시 사용)
+TIMING_DISPLAY_MAP = {
+    "BEFORE_MEAL": "식전",
+    "AFTER_MEAL": "식후",
+    "WITH_MEAL": "식사 중",
+    "BEFORE_SLEEP": "취침 전",
+    "MORNING": "기상 직후",
+    "AS_NEEDED": "필요 시",
+}
+
+# ── ai_guide_service RT_ 코드 → DB common_code 코드 변환 매핑 ──
 RESULT_TYPE_MAP = {
     "RT_MEDICATION": "SUMMARY",
     "RT_LIFESTYLE": "LIFESTYLE_TIP",
     "RT_CAUTION": "SIDE_EFFECT",
     "RT_DRUG_DETAIL": "EMERGENCY_SIGN",
 }
-# ✅ 추가: DB 코드 → RT_ 코드 역방향 매핑 (응답 시 사용)
+# ── DB 코드 → RT_ 코드 역방향 매핑 (응답 시 사용) ──
 RESULT_TYPE_REVERSE_MAP = {v: k for k, v in RESULT_TYPE_MAP.items()}
 
 
@@ -72,9 +81,15 @@ class GuideService:
     # 가이드 목록 조회
     # ──────────────────────────────────────────
     async def list_guides(
-        self, user_id: int, period: str | None, status: str | None, page: int, size: int
+        self,
+        user_id: int,
+        period: str | None,
+        status: str | None,
+        page: int,
+        size: int,
+        search: str | None = None,  # ✅ 추가: 검색 파라미터
     ) -> GuideListResponse:
-        total, guides = await self._repo.get_guides_by_user(user_id, period, status, page, size)
+        total, guides = await self._repo.get_guides_by_user(user_id, period, status, page, size, search=search)
 
         today = date.today()
         week_ago = today - timedelta(days=6)
@@ -94,7 +109,7 @@ class GuideService:
             weekly_rate: float | None = None
             if med_count_val > 0:
                 week_checks = await self._repo.get_med_checks_by_period(g.guide_id, week_ago, today)
-                days_elapsed = (today - max(week_ago, g.med_start_date)).days + 1
+                days_elapsed = (today - max(week_ago, g.med_start_date)).days + 1 if g.med_start_date else 0
                 if days_elapsed > 0:
                     possible = days_elapsed * med_count_val
                     taken = sum(1 for c in week_checks if c.is_taken)
@@ -177,7 +192,8 @@ class GuideService:
                     medication_name=m.medication_name,
                     dosage=m.dosage,
                     frequency=m.frequency,
-                    timing=m.timing_code,
+                    # ✅ 수정: DB 코드 → 한글로 변환하여 응답
+                    timing=TIMING_DISPLAY_MAP.get(m.timing_code, m.timing_code),
                     duration_days=m.duration_days,
                 )
                 for m in meds
@@ -258,7 +274,6 @@ class GuideService:
 
         saved_results = []
         for r in result["results"]:
-            # ✅ 수정: RT_ 코드 → DB 코드 변환 후 저장
             db_result_type = RESULT_TYPE_MAP.get(r["result_type"], r["result_type"])
             saved = await self._repo.create_ai_result(
                 guide_id=guide_id,
@@ -269,9 +284,9 @@ class GuideService:
             saved_results.append(
                 {
                     "ai_result_id": saved.ai_result_id,
-                    # ✅ 수정: 응답 시 RT_ 코드로 역변환
                     "result_type": RESULT_TYPE_REVERSE_MAP.get(saved.result_type_code, saved.result_type_code),
-                    "content": json.loads(saved.content) if saved.content else {},
+                    # ✅ 수정: JSONB로 변환 후 json.loads 불필요 → dict 그대로 사용
+                    "content": saved.content if isinstance(saved.content, dict) else {},
                     "status": "COMPLETED",
                 }
             )
@@ -284,15 +299,14 @@ class GuideService:
 
     async def get_ai_results(self, guide_id: int, user_id: int, result_type: str | None) -> list[AiResultDetailItem]:
         await self._get_guide_or_404(guide_id, user_id)
-        # ✅ 수정: 조회 시 RT_ 코드 → DB 코드 변환
         db_result_type = RESULT_TYPE_MAP.get(result_type, result_type) if result_type else None
         results = await self._repo.get_latest_ai_results(guide_id, db_result_type)
         return [
             AiResultDetailItem(
                 ai_result_id=r.ai_result_id,
-                # ✅ 수정: DB 코드 → RT_ 코드 역변환
                 result_type=RESULT_TYPE_REVERSE_MAP.get(r.result_type_code, r.result_type_code),
-                content=json.loads(r.content) if r.content else {},
+                # ✅ 수정: JSONB 변환 후 json.loads 불필요 → dict 그대로 사용
+                content=r.content if isinstance(r.content, dict) else {},
                 status="COMPLETED" if r.is_latest else "OLD",
                 version=r.version,
                 created_at=r.created_at,
@@ -310,7 +324,7 @@ class GuideService:
         checks = await self._repo.get_med_checks_by_date(guide_id, target_date)
         check_map = {c.guide_medication_id: c for c in checks}
 
-        day_count = (target_date - guide.med_start_date).days + 1
+        day_count = (target_date - guide.med_start_date).days + 1 if guide.med_start_date else 1
         taken_count = sum(1 for c in checks if c.is_taken)
         total = len(meds)
         progress = int(taken_count / total * 100) if total > 0 else 0
@@ -323,7 +337,8 @@ class GuideService:
                     check_id=c.check_id if c else None,
                     guide_medication_id=m.guide_medication_id,
                     medication_name=m.medication_name,
-                    timing=m.timing_code,
+                    # ✅ 수정: timing 코드 한글 변환
+                    timing=TIMING_DISPLAY_MAP.get(m.timing_code, m.timing_code),
                     is_taken=bool(c and c.is_taken),
                     taken_at=c.taken_at if c else None,
                 )
@@ -454,10 +469,12 @@ class GuideService:
         for c in checks_raw:
             checks_by_date.setdefault(c.check_date, []).append(c)
 
+        med_start = guide.med_start_date or month_start
+
         days: list[MedCheckDayItem] = []
         for day in range(1, last_day + 1):
             d = date(year, month, day)
-            if d > today or d < guide.med_start_date:
+            if d > today or d < med_start:
                 day_status = "future"
             elif d not in checks_by_date:
                 day_status = "missed"
@@ -484,13 +501,9 @@ class GuideService:
             return AiGenerateStatusResponse(status="pending", completed_types=[])
 
         completed_types = [
-            # ✅ 수정: DB 코드 → RT_ 코드로 역변환하여 반환
-            RESULT_TYPE_REVERSE_MAP.get(r.result_type_code, r.result_type_code)
-            for r in results
-            if r.is_latest
+            RESULT_TYPE_REVERSE_MAP.get(r.result_type_code, r.result_type_code) for r in results if r.is_latest
         ]
 
-        # ✅ 수정: DB 코드 기준으로 완료 여부 판단
         db_required = {"SUMMARY", "LIFESTYLE_TIP", "SIDE_EFFECT"}
         db_completed = {r.result_type_code for r in results if r.is_latest}
         if db_required.issubset(db_completed):

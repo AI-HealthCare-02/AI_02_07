@@ -331,11 +331,7 @@ EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
 
 -- ============================================================
--- 13. 의료문서 vLLM 분석 작업  ★ 수정: 파일 컬럼 제거
--- ============================================================
--- 기존 테이블이 있다면 DROP 후 재생성하거나,
--- 처음 생성이라면 아래를 사용합니다.
--- (운영 중이라면 ALTER TABLE로 컬럼 삭제하세요)
+-- 13. 의료문서 vLLM 분석 작업
 -- ============================================================
 CREATE TABLE IF NOT EXISTS doc_analysis_job (
     job_id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -349,9 +345,6 @@ CREATE TABLE IF NOT EXISTS doc_analysis_job (
     doc_type_grp    VARCHAR(20)  NOT NULL DEFAULT 'DOC_TYPE'
                         CHECK (doc_type_grp = 'DOC_TYPE'),
     doc_type_code   VARCHAR(20),
-
-    -- ★ file_name, file_path, file_size 제거
-    -- → uploaded_file + file_entity_map (entity_type_code = 'DOC_JOB') 으로 관리
 
     error_message   TEXT,
     processing_time FLOAT,
@@ -417,6 +410,17 @@ CREATE TABLE IF NOT EXISTS health_guide (
         REFERENCES common_code (group_code, code)
 );
 
+-- ✅ 추가: health_guide is_deleted / deleted_at 컬럼 (DB 재생성 불필요)
+DO $$ BEGIN
+    ALTER TABLE health_guide ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    ALTER TABLE health_guide ADD COLUMN deleted_at TIMESTAMPTZ;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_health_guide_user
     ON health_guide (user_id);
 
@@ -429,7 +433,7 @@ EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
 
 -- ============================================================
--- 15. 의료문서 분석 결과  ★ 수정: 파일 컬럼 제거
+-- 15. 의료문서 분석 결과
 -- ============================================================
 CREATE TABLE IF NOT EXISTS doc_analysis_result (
     doc_result_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -443,9 +447,6 @@ CREATE TABLE IF NOT EXISTS doc_analysis_result (
                            CHECK (doc_type_grp = 'DOC_TYPE'),
     doc_type_code      VARCHAR(20) NOT NULL,
 
-    -- ★ file_name, file_url, file_size 제거
-    -- → uploaded_file + file_entity_map (entity_type_code = 'DOC_RESULT') 으로 관리
-
     ocr_status_grp     VARCHAR(20) NOT NULL DEFAULT 'OCR_STATUS'
                            CHECK (ocr_status_grp = 'OCR_STATUS'),
     ocr_status_code    VARCHAR(20) NOT NULL DEFAULT 'OCR_PENDING',
@@ -454,7 +455,7 @@ CREATE TABLE IF NOT EXISTS doc_analysis_result (
     ocr_confidence     INT          CHECK (ocr_confidence BETWEEN 0 AND 100),
     overall_confidence FLOAT        CHECK (overall_confidence BETWEEN 0.0 AND 1.0),
     raw_summary        TEXT,
-    analysis_json      JSONB,        -- ← 추가
+    analysis_json      JSONB,
     is_deleted         BOOLEAN      NOT NULL DEFAULT FALSE,
     created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
@@ -464,17 +465,6 @@ CREATE TABLE IF NOT EXISTS doc_analysis_result (
         REFERENCES common_code (group_code, code)
 );
 
-DO $$ BEGIN
-    ALTER TABLE doc_analysis_result
-        ADD CONSTRAINT fk_doc_analysis_result_guide
-            FOREIGN KEY (guide_id) REFERENCES health_guide (guide_id) ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
-
-CREATE INDEX IF NOT EXISTS idx_doc_analysis_result_user
-    ON doc_analysis_result (user_id, is_deleted);
-
--- guide_id FK (health_guide 가 이 시점에 이미 존재)
 DO $$ BEGIN
     ALTER TABLE doc_analysis_result
         ADD CONSTRAINT fk_doc_analysis_result_guide
@@ -586,6 +576,12 @@ CREATE TABLE IF NOT EXISTS guide_ai_result (
     UNIQUE (guide_id, result_type_code, version)
 );
 
+-- ✅ 추가: guide_ai_result.content TEXT → JSONB 변환 (DB 재생성 불필요)
+DO $$ BEGIN
+    ALTER TABLE guide_ai_result ALTER COLUMN content TYPE JSONB USING content::jsonb;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
 -- ============================================================
 -- 20. 복약 체크 기록
 -- ============================================================
@@ -646,25 +642,21 @@ CREATE TABLE IF NOT EXISTS uploaded_file (
     user_id         BIGINT        NOT NULL
                         REFERENCES users (user_id) ON DELETE CASCADE,
 
-    -- S3 저장 정보
     original_name   VARCHAR(500)  NOT NULL,
     stored_name     VARCHAR(500)  NOT NULL,
     s3_bucket       VARCHAR(200)  NOT NULL,
     s3_key          VARCHAR(1000) NOT NULL,
     s3_url          VARCHAR(2000) NOT NULL,
 
-    -- 파일 메타
     content_type    VARCHAR(200),
     file_size       BIGINT        NOT NULL DEFAULT 0
                         CHECK (file_size >= 0),
     file_extension  VARCHAR(20),
 
-    -- 파일 용도 구분 (공통코드)
     file_category_grp  VARCHAR(20) NOT NULL DEFAULT 'FILE_CATEGORY'
                            CHECK (file_category_grp = 'FILE_CATEGORY'),
     file_category_code VARCHAR(20) NOT NULL,
 
-    -- 상태
     is_deleted      BOOLEAN       NOT NULL DEFAULT FALSE,
     deleted_at      TIMESTAMPTZ,
     created_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
@@ -680,12 +672,8 @@ CREATE INDEX IF NOT EXISTS idx_uploaded_file_category
 CREATE UNIQUE INDEX IF NOT EXISTS uix_uploaded_file_s3_key
     ON uploaded_file (s3_bucket, s3_key);
 
-
 -- ============================================================
 -- 24. 파일-엔티티 매핑 (다대다 — 멀티파일 지원)
--- ============================================================
--- entity_type: 어떤 테이블과 연결되는지 (DOC_JOB, DOC_RESULT, PILL_REQUEST, GUIDE, CHAT 등)
--- entity_id  : 해당 테이블의 PK 값
 -- ============================================================
 CREATE TABLE IF NOT EXISTS file_entity_map (
     map_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -704,7 +692,6 @@ CREATE TABLE IF NOT EXISTS file_entity_map (
     FOREIGN KEY (entity_type_grp, entity_type_code)
         REFERENCES common_code (group_code, code),
 
-    -- 같은 엔티티에 같은 파일 중복 매핑 방지
     UNIQUE (file_id, entity_type_code, entity_id)
 );
 
@@ -752,19 +739,18 @@ COMMENT ON COLUMN pill_analysis_history.storage_method IS '보관 방법';
 CREATE INDEX IF NOT EXISTS idx_pill_analysis_user ON pill_analysis_history (user_id);
 CREATE INDEX IF NOT EXISTS idx_pill_analysis_file ON pill_analysis_history (file_id);
 
-
 -- ============================================================
 -- 25. 약품 RAG 임베딩
 -- ============================================================
 CREATE TABLE IF NOT EXISTS drug_embeddings (
     id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    item_seq     VARCHAR(20)  NOT NULL,            -- 약품 고유코드
-    item_name    VARCHAR(500) NOT NULL,            -- 약품명
-    etc_otc_code VARCHAR(50),                      -- 전문/일반 구분
-    chunk_type   VARCHAR(20)  NOT NULL,            -- 'efficacy' | 'caution' | 'ingredient'
-    chunk_text   TEXT         NOT NULL,            -- 임베딩 원문
-    embedding    vector(1536),                     -- text-embedding-3-small
-    metadata     JSONB,                            -- 원본 전체 데이터
+    item_seq     VARCHAR(20)  NOT NULL,
+    item_name    VARCHAR(500) NOT NULL,
+    etc_otc_code VARCHAR(50),
+    chunk_type   VARCHAR(20)  NOT NULL,
+    chunk_text   TEXT         NOT NULL,
+    embedding    vector(1536),
+    metadata     JSONB,
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
     UNIQUE (item_seq, chunk_type)
@@ -773,14 +759,8 @@ CREATE TABLE IF NOT EXISTS drug_embeddings (
 CREATE INDEX IF NOT EXISTS idx_drug_emb_item_seq
     ON drug_embeddings (item_seq);
 
--- pg_trgm 인덱스: 약품명 유사도 검색 (오타 허용)
 CREATE INDEX IF NOT EXISTS idx_drug_name_trgm
     ON drug_embeddings USING gin (item_name gin_trgm_ops);
-
--- IVFFlat 인덱스: 임베딩 데이터가 충분히 쌓인 후 생성 (embed_drugs.py 실행 후)
--- CREATE INDEX idx_drug_emb_ivfflat
---     ON drug_embeddings USING ivfflat (embedding vector_cosine_ops)
---     WITH (lists = 100);
 
 -- ============================================================
 -- 완료 메시지

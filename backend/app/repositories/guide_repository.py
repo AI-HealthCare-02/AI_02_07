@@ -1,5 +1,6 @@
-import json
 from datetime import date, datetime, timedelta
+
+from tortoise.expressions import Q
 
 from app.models.guide import (
     Guide,
@@ -22,8 +23,10 @@ class GuideRepository:
         status: str | None,
         page: int,
         size: int,
+        search: str | None = None,  # ✅ 추가: 검색 파라미터
     ) -> tuple[int, list[Guide]]:
-        qs = Guide.filter(user_id=user_id)
+        # ✅ 수정: is_deleted=False 필터 추가
+        qs = Guide.filter(user_id=user_id, is_deleted=False)
 
         if status:
             qs = qs.filter(guide_status_code=status)
@@ -40,12 +43,17 @@ class GuideRepository:
                 cutoff = date(y, m - 3, 1)
             qs = qs.filter(created_at__date__gte=cutoff)
 
+        # ✅ 추가: 제목·병원명 검색
+        if search:
+            qs = qs.filter(Q(title__icontains=search) | Q(hospital_name__icontains=search))
+
         total = await qs.count()
         guides = await qs.order_by("-created_at").offset((page - 1) * size).limit(size)
         return total, guides
 
     async def get_guide_by_id(self, guide_id: int, user_id: int) -> Guide | None:
-        return await Guide.filter(guide_id=guide_id, user_id=user_id).first()
+        # ✅ 수정: is_deleted=False 필터 추가
+        return await Guide.filter(guide_id=guide_id, user_id=user_id, is_deleted=False).first()
 
     async def create_guide(self, user_id: int, data: dict) -> Guide:
         return await Guide.create(user_id=user_id, **data)
@@ -57,7 +65,8 @@ class GuideRepository:
         return guide
 
     async def soft_delete_guide(self, guide: Guide) -> None:
-        # ✅ 수정: is_deleted 없으므로 guide_status_code를 EXPIRED로 변경
+        # ✅ 수정: is_deleted 컬럼 추가됐으므로 실제 소프트 삭제로 변경
+        guide.is_deleted = True
         guide.guide_status_code = "EXPIRED"
         await guide.save()
 
@@ -90,14 +99,13 @@ class GuideRepository:
     # ──────────────────────────────────────────
     async def get_latest_ai_results(self, guide_id: int, result_type: str | None = None) -> list[GuideAiResult]:
         """result_type_code별 최신 버전만 반환"""
-        # ✅ 수정: is_latest=True 필터로 최신 결과만 조회
         qs = GuideAiResult.filter(guide_id=guide_id, is_latest=True)
         if result_type:
             qs = qs.filter(result_type_code=result_type)
         return await qs.order_by("-created_at")
 
     async def create_ai_result(self, guide_id: int, result_type: str, content: dict, status: str) -> GuideAiResult:
-        # ✅ 수정: 기존 is_latest=True 결과를 False로 변경 후 새 결과 저장
+        # 기존 is_latest=True 결과를 False로 변경 후 새 결과 저장
         await GuideAiResult.filter(
             guide_id=guide_id,
             result_type_code=result_type,
@@ -110,11 +118,11 @@ class GuideRepository:
         )
         version = (latest.version + 1) if latest else 1
 
-        # ✅ 수정: content dict → JSON 문자열로 저장, status 제거
+        # ✅ 수정: content JSONB 변환 후 json.dumps() 제거 → dict 그대로 저장
         return await GuideAiResult.create(
             guide_id=guide_id,
             result_type_code=result_type,
-            content=json.dumps(content, ensure_ascii=False),
+            content=content,
             version=version,
             is_latest=True,
         )
