@@ -3,7 +3,7 @@ AI 복약 가이드 생성 서비스 (동기 처리, Celery 없음)
 
 RT_MEDICATION  : RAG 약품 DB + gpt-4o-mini 복약 안내 정리
 RT_LIFESTYLE   : RAG 약품 DB + gpt-4o-mini 생활습관 가이드 정리
-RT_CAUTION     : RAG 약품 DB 주의사항 반환
+RT_CAUTION     : RAG 약품 DB + gpt-4o-mini 주의사항 요약 (✅ GPT 요약으로 개선)
 RT_DRUG_DETAIL : 약별 상세 AI 가이드
 """
 
@@ -247,7 +247,7 @@ class AiGuideService:
         return {"lifestyle": lifestyle_list, "warnings": warnings, "disclaimer": DISCLAIMER}
 
     # ──────────────────────────────────────────
-    # RT_CAUTION
+    # RT_CAUTION — ✅ GPT 요약으로 개선
     # ──────────────────────────────────────────
     async def _gen_caution(
         self,
@@ -255,21 +255,64 @@ class AiGuideService:
         med_names: list[str],
     ) -> dict[str, Any]:
         warnings: list[str] = []
-        caution_list: list[dict] = []
+        drug_context_lines = []
 
         for name in med_names:
             chunks = rag_chunks_by_name.get(name, {}).get("caution", [])
             if not chunks:
                 warnings.append(f"'{name}' — 약품 DB 정보를 찾을 수 없습니다.")
                 continue
+            drug_context_lines.append(f"[{name}]")
             for chunk in chunks:
-                caution_list.append(
+                drug_context_lines.append(f"  - {chunk.chunk_text}")
+
+        if not drug_context_lines:
+            return {"cautions": [], "warnings": warnings, "disclaimer": DISCLAIMER}
+
+        drug_context = "\n".join(drug_context_lines)
+
+        prompt = f"""아래는 약품 DB에서 가져온 공식 주의사항 원문입니다.
+
+[약품 주의사항 원문]
+{drug_context}
+
+위 원문을 바탕으로 환자가 읽기 쉽게 약물별 핵심 주의사항을 JSON 배열로 요약하세요.
+- 원문에 없는 내용은 절대 추가하지 마세요.
+- 각 약물별로 핵심 내용만 3~5개 항목으로 요약하세요.
+- 형식:
+[
+  {{
+    "medication_name": "약품명",
+    "emergency_signs": ["즉시 병원을 가야 하는 증상1", "증상2"],
+    "drug_interactions": ["병용 주의 약물 또는 음식1", "주의사항2"],
+    "age_restrictions": "연령 제한 또는 특수 환자 주의사항 (없으면 빈 문자열)",
+    "key_cautions": ["핵심 주의사항1", "핵심 주의사항2"]
+  }}
+]
+- 마크다운 코드블록(```) 없이 순수 JSON만 반환하세요."""
+
+        try:
+            response = await self._openai.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=[
                     {
-                        "medication_name": name,
-                        "caution_text": chunk.chunk_text,
-                        "similarity": round(chunk.similarity, 3),
-                    }
-                )
+                        "role": "system",
+                        "content": "당신은 공공 의약품 주의사항을 환자 눈높이에 맞게 요약하는 도우미입니다. 반드시 제공된 원문 데이터만 사용하고, 없는 내용은 추측하지 마세요. 마크다운 코드블록(```) 없이 순수 JSON만 반환하세요.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=2000,
+                temperature=0.1,
+            )
+            raw = response.choices[0].message.content or "[]"
+            raw = self._strip_markdown(raw)
+            caution_list = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("RT_CAUTION JSON 파싱 실패, raw: %s", raw[:200])
+            caution_list = []
+        except Exception as e:
+            logger.error("RT_CAUTION LLM 호출 실패: %s", e)
+            caution_list = []
 
         return {
             "source": "약품 DB (RAG)",
