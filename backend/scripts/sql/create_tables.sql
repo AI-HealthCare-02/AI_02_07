@@ -766,5 +766,10 @@ CREATE INDEX IF NOT EXISTS idx_drug_name_trgm
 -- 완료 메시지
 -- ============================================================
 DO $$ BEGIN
+    ALTER TABLE health_guide ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+DO $$ BEGIN
     RAISE NOTICE '=== AH_02_07 HealthGuide: 모든 테이블 생성/확인 완료 ===';
 END $$;

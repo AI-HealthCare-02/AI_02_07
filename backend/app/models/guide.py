@@ -24,6 +24,7 @@ class Guide(Model):
     guide_status_code = fields.CharField(max_length=20, default="ACTIVE")
     input_method_grp = fields.CharField(max_length=20, default="INPUT_METHOD")
     input_method_code = fields.CharField(max_length=20, default="MANUAL")
+    is_deleted = fields.BooleanField(default=False)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
 
