@@ -50,6 +50,42 @@ SECOND_PASS_THRESHOLD: float = getattr(settings, "SECOND_PASS_THRESHOLD", 0.55)
 SPECKLE_KEYWORDS = ["반점", "점박이", "검은 점", "갈색 점", "얼룩", "speckle", "spot", "dot"]
 AMBIGUOUS_MARK_CHARS: set[str] = {"5", "S", "JS", "J5", "1", "I", "L", "7"}
 
+# v5.1: 마크 오인 가능 각인 집합 (AMBIGUOUS_MARK_CHARS 확장)
+MARK_CONFUSABLE_IMPRINTS: set[str] = {"5", "S", "JS", "J5", "15", "1S", "I5", "IS", "J", "L5"}
+
+# v5.1: VLM color 정규화 alias
+_COLOR_ALIAS: dict[str, str] = {
+    "녹색": "초록",
+    "초록색": "초록",
+    "그린": "초록",
+    "green": "초록",
+    "흰색": "하양",
+    "백색": "하양",
+    "화이트": "하양",
+    "white": "하양",
+    "노란색": "노랑",
+    "황색": "노랑",
+    "yellow": "노랑",
+    "브라운": "갈색",
+    "brown": "갈색",
+    "검정색": "검정",
+    "black": "검정",
+}
+
+
+def normalize_color_name(color: str | None) -> str | None:
+    if not color:
+        return None
+    c = str(color).strip()
+    return _COLOR_ALIAS.get(c, c)
+
+
+def is_mark_confusable_imprint(text: str | None) -> bool:
+    if not text:
+        return False
+    t = str(text).strip().upper().replace(" ", "")
+    return t in MARK_CONFUSABLE_IMPRINTS
+
 
 # ── 이미지 전처리 ──────────────────────────────
 def preprocess_image(image_bytes: bytes) -> tuple[str, bytes]:
@@ -218,10 +254,44 @@ def normalize_multiple_pills_flag(vlm: dict) -> dict:
     return result
 
 
+def build_mark_hypothesis_variants(vlm: dict) -> list[str]:
+    """
+    VLM이 마크/로고를 JS, 5, S 등으로 잘못 읽은 경우를 대비해
+    '마크' 가설 RAG query를 생성한다.
+    VLM 결과 자체는 변경하지 않는다.
+    """
+    variants: list[str] = []
+    front = vlm.get("print_front")
+    back = vlm.get("print_back")
+    color = normalize_color_name(vlm.get("color"))
+    shape = vlm.get("shape")
+
+    def _add(parts: list) -> None:
+        q = " ".join(str(p) for p in parts if p)
+        if q and q not in variants:
+            variants.append(q)
+
+    if is_mark_confusable_imprint(front):
+        _add(["마크", back, color, shape])
+        _add([back, "마크", color, shape])
+        _add(["마크", color, shape])
+        if back:
+            _add([back, color, shape])
+
+    if is_mark_confusable_imprint(back):
+        _add([front, "마크", color, shape])
+        _add(["마크", front, color, shape])
+        _add(["마크", color, shape])
+        if front:
+            _add([front, color, shape])
+
+    return variants
+
+
 def build_rag_query_variants(vlm: dict) -> list[str]:
     """
-    Build search variants including single-side imprint queries.
-    Compensates for VLM misreading one side.
+    Build search variants including single-side imprint queries
+    and mark hypothesis variants (v5.1).
     """
     from ai_worker.tasks.imprint_parser import (
         _normalize_color,
@@ -231,7 +301,7 @@ def build_rag_query_variants(vlm: dict) -> list[str]:
 
     front = vlm.get("print_front")
     back = vlm.get("print_back")
-    color = vlm.get("color")
+    color = normalize_color_name(vlm.get("color"))
     shape = vlm.get("shape")
 
     fn = _normalize_imprint(front.strip().upper()) if front else None
@@ -247,11 +317,18 @@ def build_rag_query_variants(vlm: dict) -> list[str]:
         if q and q not in variants:
             variants.append(q)
 
+    # 기존 기본 variants
     _add([fn, bn, cs])
     _add([bn, fn, cs])
     _add([fn, cs])
     _add([bn, cs])
     _add([cs])
+
+    # v5.1: 마크 hypothesis variants
+    for q in build_mark_hypothesis_variants({**vlm, "color": color}):
+        if q not in variants:
+            variants.append(q)
+
     return variants
 
 
@@ -665,6 +742,22 @@ def should_return_match_failure(
         if best_score - second_score < 5 and imprint_conf < 0.6:
             return True, "상위 후보 간 점수 차이가 작고 각인이 불명확함"
 
+        # back imprint mismatch + color mismatch -> fail
+    # e.g. query JS/10/green vs DB JS/UX/red
+    sk = (best_candidate.get("metadata") or {}).get("search_keys") or {}
+    ap = (best_candidate.get("metadata") or {}).get("appearance") or {}
+
+    q_back = (vlm_result.get("print_back") or "").strip().upper()
+    c_back = (sk.get("back_norm") or "").upper()
+    q_color = (vlm_result.get("color") or "").strip()
+    c_color = (ap.get("color_normalized") or "").strip()
+
+    back_mismatch = bool(q_back and c_back and q_back != c_back)
+    color_mismatch = bool(q_color and c_color and q_color != c_color)
+
+    if back_mismatch and color_mismatch:
+        return True, (f"뒷면 각인 불일치({q_back}≠{c_back}) + 색상 불일치({q_color}≠{c_color})")
+
     return False, ""
 
 
@@ -691,6 +784,190 @@ def _split_combined_imprint(features: dict) -> dict:
 
 
 # ── 2단계: imprint RAG + rerank ───────────────
+# ── v5.1: candidate visual verification helpers ──────────────────────────
+_CANDIDATE_VISUAL_VERIFY_PROMPT = """
+너는 알약 이미지가 주어진 후보 의약품 metadata와 시각적으로 일치하는지 검증한다.
+반드시 JSON만 출력한다.
+
+[마크 검증 추가 규칙]
+- 후보 metadata에 "마크"가 있고 이미지 표시가 JS, 5, S, 15처럼 보이면,
+  그것이 실제 문자라기보다 로고/마크가 회전되어 보이는 것인지 판단하라.
+- 원형 알약의 로고/마크는 회전 방향에 따라 JS, 5, S처럼 보일 수 있다.
+- 후보가 "마크 + 10"이고 이미지 한 면이 10, 다른 면이 곡선형 로고라면
+  "마크 + 10" 후보를 지지할 수 있다.
+- 실제로 J와 S의 독립된 문자 획이 명확하지 않으면 "마크"로 보는 것이 안전하다.
+- 단, 후보 목록에 실제 "JS" 각인 후보가 있고 이미지에서 J와 S가 명확하면 JS 후보를 지지하라.
+
+후보 metadata를 보고 다음을 판단하라:
+1. 후보의 색상과 이미지 기본 색상이 맞는가?
+2. 후보의 모양과 이미지 모양이 맞는가?
+3. 후보의 각인/마크/분할선이 이미지에서 시각적으로 지지되는가?
+4. VLM이 읽은 문자보다 후보의 "마크" 해석이 더 자연스러운가?
+
+출력:
+{
+  "best_candidate_index": null,
+  "supported": false,
+  "confidence": 0.0,
+  "visual_findings": {
+    "front": null,
+    "back": null,
+    "front_is_mark": false,
+    "back_is_mark": false,
+    "color": null,
+    "shape": null
+  },
+  "reason": null,
+  "warnings": []
+}
+"""
+
+
+def compact_candidate_for_verify(candidate: dict, index: int) -> dict:
+    md = candidate.get("metadata") or {}
+    return {
+        "index": index,
+        "item_seq": md.get("item_seq") or candidate.get("item_seq"),
+        "item_name": md.get("item_name") or candidate.get("item_name"),
+        "print_front": md.get("print_front"),
+        "print_back": md.get("print_back"),
+        "front_raw": ((md.get("imprint") or {}).get("front") or {}).get("raw"),
+        "back_raw": ((md.get("imprint") or {}).get("back") or {}).get("raw"),
+        "front_norm": (md.get("search_keys") or {}).get("front_norm"),
+        "back_norm": (md.get("search_keys") or {}).get("back_norm"),
+        "color": (md.get("appearance") or {}).get("color_normalized"),
+        "shape": (md.get("appearance") or {}).get("shape_normalized"),
+        "size": (md.get("size") or {}).get("raw"),
+    }
+
+
+def should_force_mark_visual_verification(vlm: dict, candidates: list[dict]) -> bool:
+    """Part 6: 마크 hypothesis 후보가 있으면 visual verification 강제 실행."""
+    q_values = {
+        str(vlm.get("print_front") or "").strip().upper().replace(" ", ""),
+        str(vlm.get("print_back") or "").strip().upper().replace(" ", ""),
+    }
+    if not any(v in MARK_CONFUSABLE_IMPRINTS for v in q_values):
+        return False
+    for candidate in candidates[:10]:
+        metadata = candidate.get("metadata") or {}
+        if candidate_side_has_mark(metadata, "front") or candidate_side_has_mark(metadata, "back"):
+            return True
+    return False
+
+
+def apply_mark_hypothesis_if_verified(
+    vlm: dict,
+    verify: dict,
+    selected_candidate: dict,
+) -> dict:
+    """Part 8: verification 결과가 마크를 지지하면 VLM 결과 보정."""
+    result = dict(vlm)
+    if not verify or not verify.get("supported"):
+        return result
+    if float(verify.get("confidence") or 0) < 0.55:
+        return result
+
+    metadata = selected_candidate.get("metadata") or {}
+    findings = verify.get("visual_findings") or {}
+
+    if candidate_side_has_mark(metadata, "front") and findings.get("front_is_mark"):
+        result["print_front"] = "마크"
+    elif findings.get("front") and findings["front"] != "마크":
+        result["print_front"] = findings["front"]
+
+    if candidate_side_has_mark(metadata, "back") and findings.get("back_is_mark"):
+        result["print_back"] = "마크"
+    elif findings.get("back") and findings["back"] != "마크":
+        result["print_back"] = findings["back"]
+
+    result["imprint_confidence"] = min(
+        max(float(result.get("imprint_confidence") or 0), float(verify.get("confidence") or 0)),
+        0.85,
+    )
+    result["notes"] = _append_note(result.get("notes"), "마크 hypothesis verification으로 각인 보정")
+    return result
+
+
+def should_enable_mark_hypothesis(vlm: dict, exact_candidates: list[dict]) -> bool:
+    """Part 9: 정확한 JS 후보가 강하면 마크 hypothesis를 약하게만 사용."""
+    if not (is_mark_confusable_imprint(vlm.get("print_front")) or is_mark_confusable_imprint(vlm.get("print_back"))):
+        return False
+    if not exact_candidates:
+        return True
+    best_score = max(float(c.get("score") or c.get("vector_similarity") or 0) for c in exact_candidates)
+    return best_score < 0.75
+
+
+async def _run_candidate_visual_verification(
+    client,
+    model: str,
+    image_b64_list: list[str],
+    candidates: list[dict],
+) -> dict:
+    """Part 6: top 3~5 후보를 압축해서 VLM에 전달하고 visual verification 수행."""
+    compact = [compact_candidate_for_verify(c, i) for i, c in enumerate(candidates[:5])]
+    prompt = _CANDIDATE_VISUAL_VERIFY_PROMPT + "\n\n후보 목록:\n" + json.dumps(compact, ensure_ascii=False, indent=2)
+    return await _call_second_pass(client, model, image_b64_list, prompt, max_tokens=400)
+
+
+async def _search_mark_hypothesis_metadata(
+    conn,
+    vector_str: str,
+    stable_imprint: str,
+    color: str,
+    shape: str,
+    limit: int = 20,
+) -> list:
+    """
+    v5.1: DB metadata JSONB에서 마크 + stable_imprint + color + shape 조건으로 직접 검색.
+    DB schema 변경 없음. parameter binding 사용.
+    """
+    if not stable_imprint:
+        return []
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT item_seq, item_name, chunk_text, metadata,
+                   1 - (embedding <=> $1::vector) AS similarity
+            FROM drug_embeddings
+            WHERE chunk_type = 'imprint'
+              AND (
+                metadata->'search_keys'->>'front_norm' = '마크'
+                OR metadata->'search_keys'->>'back_norm' = '마크'
+                OR metadata->>'print_front' = '마크'
+                OR metadata->>'print_back' = '마크'
+              )
+              AND (
+                metadata->'search_keys'->>'front_norm' = $2
+                OR metadata->'search_keys'->>'back_norm' = $2
+                OR metadata->>'print_front' = $2
+                OR metadata->>'print_back' = $2
+              )
+              AND (
+                metadata->'appearance'->>'color_normalized' = $3
+                OR metadata->'source'->>'raw_color' = $3
+              )
+              AND (
+                metadata->'appearance'->>'shape_normalized' = $4
+                OR metadata->>'drug_shape' = $4
+              )
+              AND embedding IS NOT NULL
+            ORDER BY embedding <=> $1::vector
+            LIMIT $5
+            """,
+            vector_str,
+            stable_imprint,
+            color,
+            shape,
+            limit,
+        )
+        return list(rows)
+    except Exception as e:
+        logger.warning("v5.1 mark metadata fallback 실패 (무시): %s", e)
+        return []
+
+
 async def find_drug_by_imprint(
     conn: asyncpg.Connection,
     client: AsyncOpenAI,
@@ -720,14 +997,56 @@ async def find_drug_by_imprint(
     front_norm = norm["front_norm"] or ""
     back_norm = norm["back_norm"] or ""
 
+    # v5.1: 모든 RAG query variant 로그
+    rag_variants_for_search = build_rag_query_variants(features)
+    for _vq in rag_variants_for_search:
+        logger.info("v5.1 variant search query: %s", _vq)
+
     try:
+        # v5.1: 모든 variant로 검색하고 item_seq 기준 merge
+        seen_vector_seqs: set[str] = set()
+        vector_rows_merged: list = []
+        for _vq in rag_variants_for_search:
+            emb_response = await client.embeddings.create(
+                model="text-embedding-3-small",
+                input=_vq,
+            )
+            _vstr = "[" + ",".join(str(v) for v in emb_response.data[0].embedding) + "]"
+            _rows = await conn.fetch(
+                """
+                SELECT item_seq, item_name, chunk_text, metadata,
+                       1 - (embedding <=> $1::vector) AS similarity
+                FROM drug_embeddings
+                WHERE chunk_type = 'imprint' AND embedding IS NOT NULL
+                ORDER BY embedding <=> $1::vector
+                LIMIT 10
+                """,
+                _vstr,
+            )
+            for _r in _rows:
+                if _r["item_seq"] not in seen_vector_seqs:
+                    seen_vector_seqs.add(_r["item_seq"])
+                    vector_rows_merged.append(_r)
+                else:
+                    # 더 높은 similarity로 교체
+                    for _existing in vector_rows_merged:
+                        if _existing["item_seq"] == _r["item_seq"]:
+                            if float(_r["similarity"]) > float(_existing["similarity"]):
+                                vector_rows_merged.remove(_existing)
+                                vector_rows_merged.append(_r)
+                            break
+
+        vector_rows = vector_rows_merged
+        logger.info("v5.1 merged candidate count: %d", len(vector_rows))
+
+        # fallback: 기본 query_str으로도 검색 (기존 동작 유지)
         emb_response = await client.embeddings.create(
             model="text-embedding-3-small",
             input=query_str,
         )
         vector_str = "[" + ",".join(str(v) for v in emb_response.data[0].embedding) + "]"
 
-        vector_rows = await conn.fetch(
+        _fallback_rows = await conn.fetch(
             """
             SELECT item_seq, item_name, chunk_text, metadata,
                    1 - (embedding <=> $1::vector) AS similarity
@@ -738,6 +1057,11 @@ async def find_drug_by_imprint(
             """,
             vector_str,
         )
+        for _r in _fallback_rows:
+            if _r["item_seq"] not in seen_vector_seqs:
+                seen_vector_seqs.add(_r["item_seq"])
+                vector_rows_merged.append(_r)
+        vector_rows = vector_rows_merged
 
         exact_rows: list = []
         if front_norm or back_norm:
@@ -781,9 +1105,29 @@ async def find_drug_by_imprint(
                 )
                 exact_rows += list(swap_rows)
 
+        # v5.1: mark metadata fallback
+        mark_fallback_rows: list = []
+        if is_mark_confusable_imprint(features.get("print_front")):
+            stable = back_norm or ""
+            color_n = normalize_color_name(features.get("color")) or ""
+            shape_n = features.get("shape") or ""
+            if stable:
+                logger.info("v5.1 mark metadata fallback: stable=%s, color=%s, shape=%s", stable, color_n, shape_n)
+                mark_fallback_rows = await _search_mark_hypothesis_metadata(conn, vector_str, stable, color_n, shape_n)
+                logger.info("v5.1 mark metadata fallback candidates: %d", len(mark_fallback_rows))
+
+        if is_mark_confusable_imprint(features.get("print_back")):
+            stable = front_norm or ""
+            color_n = normalize_color_name(features.get("color")) or ""
+            shape_n = features.get("shape") or ""
+            if stable:
+                logger.info("v5.1 mark metadata fallback: stable=%s, color=%s, shape=%s", stable, color_n, shape_n)
+                mark_fallback_rows += await _search_mark_hypothesis_metadata(conn, vector_str, stable, color_n, shape_n)
+                logger.info("v5.1 mark metadata fallback candidates: %d", len(mark_fallback_rows))
+
         seen_seqs: set[str] = set()
         candidates: list[dict] = []
-        for r in list(exact_rows) + list(vector_rows):
+        for r in list(mark_fallback_rows) + list(exact_rows) + list(vector_rows):
             if r["item_seq"] not in seen_seqs:
                 seen_seqs.add(r["item_seq"])
                 meta = r["metadata"] or {}
@@ -851,6 +1195,29 @@ async def find_drug_by_imprint(
                     c["rerank_base"] = rerank
                 candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
                 logger.info("2차 VLM 후 재랭크 1위: %s", candidates[0]["item_name"] if candidates else "none")
+
+        # v5.1: mark hypothesis visual verification
+        if image_b64_list and ENABLE_SECOND_PASS and should_force_mark_visual_verification(features, candidates):
+            model_name_vv = await get_ai_model(conn)
+            verify_result = await _run_candidate_visual_verification(client, model_name_vv, image_b64_list, candidates)
+            logger.info("v5.1 candidate visual verification result: %s", verify_result)
+            if verify_result and verify_result.get("best_candidate_index") is not None:
+                idx_vv = int(verify_result["best_candidate_index"])
+                if 0 <= idx_vv < len(candidates):
+                    selected = candidates[idx_vv]
+                    features = apply_mark_hypothesis_if_verified(features, verify_result, selected)
+                    logger.info(
+                        "v5.1 after verification: print_front=%s, print_back=%s",
+                        features.get("print_front"),
+                        features.get("print_back"),
+                    )
+                    # 보정 후 재랭크
+                    norm = normalize_vision_result(features)
+                    for c in candidates:
+                        rerank = _rerank_score(norm, c["metadata"])
+                        c["rerank_score"] = rerank + c["vector_similarity"] * 10
+                        c["rerank_base"] = rerank
+                    candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
 
         best = candidates[0]
         second = candidates[1] if len(candidates) > 1 else None
@@ -1038,6 +1405,18 @@ async def process_pill_analysis(task_data: dict) -> dict:
 
         features = await extract_pill_features(client, image_b64_list, ocr_texts, model)
         logger.info("1단계 완료: %s", features)
+
+        # v5.1: color 정규화 (녹색→초록 등)
+        raw_color = features.get("color")
+        features["color"] = normalize_color_name(raw_color)
+        if raw_color and raw_color != features["color"]:
+            logger.info("v5.1 color normalized: %s -> %s", raw_color, features["color"])
+
+        # v5.1: mark-confusable 감지 로그
+        pf = str(features.get("print_front") or "").strip()
+        pb = str(features.get("print_back") or "").strip()
+        if is_mark_confusable_imprint(pf) or is_mark_confusable_imprint(pb):
+            logger.info("v5.1 mark-confusable imprint detected: front=%s, back=%s", pf, pb)
 
         # v5: multiple_pills 보정 + confidence 보정
         features = normalize_multiple_pills_flag(features)
