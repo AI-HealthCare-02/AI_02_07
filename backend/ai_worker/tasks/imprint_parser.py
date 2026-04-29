@@ -120,9 +120,36 @@ _UNICODE_TO_ASCII: dict[str, str] = {
 _UNICODE_RE = re.compile("|".join(re.escape(k) for k in _UNICODE_TO_ASCII))
 
 
+# ── 마크 텍스트 집합 ───────────────────────────
+MARK_TEXTS: set[str] = {"마크", "로고", "MARK", "LOGO", "mark", "logo", "symbol", "Symbol"}
+
+
+def is_mark_text(text: str | None) -> bool:
+    if not text:
+        return False
+    t = str(text).strip()
+    if t in MARK_TEXTS:
+        return True
+    return bool("마크" in t or "로고" in t)
+
+
+def normalize_mark_text(text: str | None) -> str | None:
+    if not text:
+        return None
+    t = str(text).strip()
+    if is_mark_text(t):
+        return "마크"
+    return None
+
+
 def _normalize_imprint(text: str) -> str:
-    """각인 텍스트 정규화: 비ASCII→ASCII, 분할선 제거, 대문자화, 공백/특수문자 제거."""
+    """각인 텍스트 정규화: 비ASCII→ASCII, 분할선/십자분할선 제거, 대문자화, 공백/특수문자 제거.
+    단, '마크'/'로고'는 보존한다."""
+    if is_mark_text(text):
+        return "마크"
     text = _UNICODE_RE.sub(lambda m: _UNICODE_TO_ASCII[m.group()], text)
+    # 십자분할선을 분할선보다 먼저 제거
+    text = re.sub(r"십자분할선", "", text)
     text = re.sub(r"분할선", "", text)
     text = re.sub(r"[\s|/\-_\\]", "", text)
     return text.upper().strip()
@@ -192,13 +219,33 @@ def parse_imprint_chunk(chunk_text: str) -> dict | None:
             back_m = re.search(r"뒷면\s+(.+?)$", raw_imprint)
             if front_m:
                 val = front_m.group(1).strip()
-                if val == "십자분할선":
+                if "십자분할선" in val:
                     front_data = {
                         "raw": val,
                         "text": "",
                         "normalized": "",
                         "has_score_line": True,
                         "is_cross": True,
+                        "score_line_direction": "십자",
+                        "tokens": [],
+                    }
+                elif val == "분할선" or val.endswith("분할선"):
+                    front_data = {
+                        "raw": val,
+                        "text": "",
+                        "normalized": "",
+                        "has_score_line": True,
+                        "is_cross": False,
+                        "score_line_direction": None,
+                        "tokens": [],
+                    }
+                elif is_mark_text(val):
+                    front_data = {
+                        "raw": val,
+                        "text": "마크",
+                        "normalized": "마크",
+                        "has_score_line": False,
+                        "is_cross": False,
                         "score_line_direction": None,
                         "tokens": [],
                     }
@@ -206,13 +253,33 @@ def parse_imprint_chunk(chunk_text: str) -> dict | None:
                     front_data = _parse_imprint_side(val)
             if back_m:
                 val = back_m.group(1).strip()
-                if val == "십자분할선":
+                if "십자분할선" in val:
                     back_data = {
                         "raw": val,
                         "text": "",
                         "normalized": "",
                         "has_score_line": True,
                         "is_cross": True,
+                        "score_line_direction": "십자",
+                        "tokens": [],
+                    }
+                elif val == "분할선" or val.endswith("분할선"):
+                    back_data = {
+                        "raw": val,
+                        "text": "",
+                        "normalized": "",
+                        "has_score_line": True,
+                        "is_cross": False,
+                        "score_line_direction": None,
+                        "tokens": [],
+                    }
+                elif is_mark_text(val):
+                    back_data = {
+                        "raw": val,
+                        "text": "마크",
+                        "normalized": "마크",
+                        "has_score_line": False,
+                        "is_cross": False,
                         "score_line_direction": None,
                         "tokens": [],
                     }
