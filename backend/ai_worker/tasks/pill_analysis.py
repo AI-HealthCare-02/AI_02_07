@@ -404,19 +404,9 @@ def _needs_recheck(vlm: dict, top_candidates: list[dict]) -> dict:
     is_transparent = vlm.get("is_transparent", False)
     dosage_hint = vlm.get("dosage_form_hint") or ""
 
-    cross_count = sum(
-        1
-        for c in top_candidates
-        if _candidate_has_cross_score_line(c.get("metadata") or {})
-    )
-    score_line_count = sum(
-        1
-        for c in top_candidates
-        if _candidate_has_score_line(c.get("metadata") or {})
-    )
-    candidate_has_imprint = any(
-        _candidate_has_any_imprint(c.get("metadata") or {}) for c in top_candidates
-    )
+    cross_count = sum(1 for c in top_candidates if _candidate_has_cross_score_line(c.get("metadata") or {}))
+    score_line_count = sum(1 for c in top_candidates if _candidate_has_score_line(c.get("metadata") or {}))
+    candidate_has_imprint = any(_candidate_has_any_imprint(c.get("metadata") or {}) for c in top_candidates)
 
     vlm_front_type = vlm.get("score_line_front_type") or "없음"
     vlm_back_type = vlm.get("score_line_back_type") or "없음"
@@ -895,9 +885,9 @@ async def refine_drug_info(
 일반 사용자가 이해하기 쉬운 한국어로 정리해주세요.
 
 [원본 데이터]
-- 유효성분: {raw_ingredient or '없음'}
-- 효능효과: {raw_efficacy or '없음'}
-- 주의사항: {raw_caution or '없음'}
+- 유효성분: {raw_ingredient or "없음"}
+- 효능효과: {raw_efficacy or "없음"}
+- 주의사항: {raw_caution or "없음"}
 
 [출력 규칙]
 - 반드시 JSON만 출력하세요. 설명/마크다운/코드블록 금지.

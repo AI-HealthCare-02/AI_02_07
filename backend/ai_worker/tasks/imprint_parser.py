@@ -290,7 +290,7 @@ def parse_imprint_chunk(chunk_text: str) -> dict | None:
 
 
 def color_tokens(color: str) -> set[str]:
-    """"반투명" 포함 방어 처리 후 "/" 및 "," 기준 토큰 분리."""
+    """ "반투명" 포함 방어 처리 후 "/" 및 "," 기준 토큰 분리."""
     tokens = set()
     for t in re.split(r"[/,]", color):
         t = t.strip()
