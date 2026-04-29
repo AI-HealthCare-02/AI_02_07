@@ -32,18 +32,15 @@ class AiGuideService:
         self._openai = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         self._rag = get_rag_service()
 
-    # ──────────────────────────────────────────
-    # ✅ 추가: 마크다운 코드블록 제거 유틸
-    # ──────────────────────────────────────────
     def _strip_markdown(self, raw: str) -> str:
         """GPT가 ```json ... ``` 으로 감쌀 때 제거"""
         raw = raw.strip()
         if raw.startswith("```"):
             lines = raw.split("\n")
-            raw = "\n".join(lines[1:])  # 첫 줄(```json) 제거
+            raw = "\n".join(lines[1:])
             raw = raw.strip()
             if raw.endswith("```"):
-                raw = raw[:-3].strip()  # 마지막 줄(```) 제거
+                raw = raw[:-3].strip()
         return raw
 
     async def generate(
@@ -184,7 +181,7 @@ class AiGuideService:
         )
 
         raw = response.choices[0].message.content or "[]"
-        raw = self._strip_markdown(raw)  # ✅ 마크다운 제거
+        raw = self._strip_markdown(raw)
         try:
             med_list = json.loads(raw)
         except json.JSONDecodeError:
@@ -240,7 +237,7 @@ class AiGuideService:
         )
 
         raw = response.choices[0].message.content or "[]"
-        raw = self._strip_markdown(raw)  # ✅ 마크다운 제거
+        raw = self._strip_markdown(raw)
         try:
             lifestyle_list = json.loads(raw)
         except json.JSONDecodeError:
@@ -317,6 +314,7 @@ class AiGuideService:
 - 형식:
 {{
   "name": "약품명",
+  "category": "약물 분류 (예: 혈압채널차단제, 항생제, 소염진통제 등. 데이터에 없으면 빈 문자열)",
   "mechanism_summary": "작용 원리를 환자 눈높이로 1~2문장 요약 (데이터에 없으면 빈 문자열)",
   "how_to_take": "복용법 상세",
   "side_effects": ["부작용1", "부작용2"],
@@ -341,7 +339,7 @@ class AiGuideService:
                     temperature=0.1,
                 )
                 raw = response.choices[0].message.content or "{}"
-                raw = self._strip_markdown(raw)  # ✅ 마크다운 제거
+                raw = self._strip_markdown(raw)
                 detail = json.loads(raw)
             except json.JSONDecodeError:
                 logger.warning("RT_DRUG_DETAIL JSON 파싱 실패 [%s]", name)
