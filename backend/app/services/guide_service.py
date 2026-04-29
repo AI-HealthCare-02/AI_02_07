@@ -43,39 +43,45 @@ logger = logging.getLogger(__name__)
 TIMING_MAP = {
     # 식후
     "식후": "AFTER_MEAL",
-    "식후 30분": "AFTER_MEAL",  # ✅ 추가
-    "식후30분": "AFTER_MEAL",  # ✅ 추가
-    "식후 즉시": "AFTER_MEAL",  # ✅ 추가
-    "식후즉시": "AFTER_MEAL",  # ✅ 추가 (프론트 버튼)
-    "밥 먹고": "AFTER_MEAL",  # ✅ 추가
+    "밥 먹고": "AFTER_MEAL",
+    # 식후 즉시
+    "식후 즉시": "AFTER_MEAL_IMMEDIATE",
+    "식후즉시": "AFTER_MEAL_IMMEDIATE",  # 프론트 버튼
+    # 식후 30분
+    "식후 30분": "AFTER_MEAL_30",
+    "식후30분": "AFTER_MEAL_30",  # 프론트 버튼
     # 식전
     "식전": "BEFORE_MEAL",
-    "식전 30분": "BEFORE_MEAL",  # ✅ 추가
-    "식전30분": "BEFORE_MEAL",  # ✅ 추가
-    "밥 먹기 전": "BEFORE_MEAL",  # ✅ 추가
+    "밥 먹기 전": "BEFORE_MEAL",
+    # 식전 30분
+    "식전 30분": "BEFORE_MEAL_30",
+    "식전30분": "BEFORE_MEAL_30",
     # 식사 중
     "식사 중": "WITH_MEAL",
     "식사중": "WITH_MEAL",
-    "식사와 함께": "WITH_MEAL",  # ✅ 추가
+    "식사와 함께": "WITH_MEAL",
     # 취침 전
     "취침 전": "BEFORE_SLEEP",
-    "취침전": "BEFORE_SLEEP",
-    "자기 전": "BEFORE_SLEEP",  # ✅ 추가
-    "자기전": "BEFORE_SLEEP",  # ✅ 추가
+    "취침전": "BEFORE_SLEEP",  # 프론트 버튼
+    "자기 전": "BEFORE_SLEEP",
+    "자기전": "BEFORE_SLEEP",
     # 아침
     "아침": "MORNING",
-    "기상 후": "MORNING",  # ✅ 추가
-    "기상후": "MORNING",  # ✅ 추가
+    "기상 후": "MORNING",
+    "기상후": "MORNING",
     # 필요 시
     "필요 시": "AS_NEEDED",
     "필요시": "AS_NEEDED",
-    "필요할 때": "AS_NEEDED",  # ✅ 추가
+    "필요할 때": "AS_NEEDED",
 }
 
-# ✅ DB 코드 → 한글 역방향 매핑 (응답 시 사용)
+# ── DB 코드 → 한글 역방향 매핑 (응답 시 사용) ──
 TIMING_DISPLAY_MAP = {
     "BEFORE_MEAL": "식전",
+    "BEFORE_MEAL_30": "식전 30분",
     "AFTER_MEAL": "식후",
+    "AFTER_MEAL_IMMEDIATE": "식후 즉시",
+    "AFTER_MEAL_30": "식후 30분",
     "WITH_MEAL": "식사 중",
     "BEFORE_SLEEP": "취침 전",
     "MORNING": "기상 직후",
