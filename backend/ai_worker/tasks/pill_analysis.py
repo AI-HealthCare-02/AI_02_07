@@ -131,9 +131,7 @@ def should_pass_ocr_to_llm(text: str | None) -> bool:
     t = str(text).strip()
     if not t or len(t) <= 1:
         return False
-    if t in {"-", "_", "|", "/", "\\", ".", ",", "·", "ㆍ"}:
-        return False
-    return True
+    return t not in {"-", "_", "|", "/", "\\", ".", ",", "·", "ㆍ"}
 
 
 def build_ocr_hint(text: str | None) -> str:

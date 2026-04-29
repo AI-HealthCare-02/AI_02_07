@@ -130,9 +130,7 @@ def is_mark_text(text: str | None) -> bool:
     t = str(text).strip()
     if t in MARK_TEXTS:
         return True
-    if "마크" in t or "로고" in t:
-        return True
-    return False
+    return bool("마크" in t or "로고" in t)
 
 
 def normalize_mark_text(text: str | None) -> str | None:
