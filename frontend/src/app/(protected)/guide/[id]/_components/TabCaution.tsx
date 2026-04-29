@@ -1,24 +1,38 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import apiClient from "@/lib/axios";
+
 interface CautionItem {
-  drug_name: string;
-  content: string;
-  note: string;
+  medication_name: string;
+  caution_text: string;
+  similarity: number;
 }
 
-const MOCK_CAUTIONS: CautionItem[] = [
-  { drug_name: "아모디핀정 5mg",      content: "자몽 주스와 병용 시 혈중 농도 상승",  note: "자몽 주스 섭취 금지" },
-  { drug_name: "로수바스타틴정 10mg", content: "근육독성 위험 증가 (피브레이트 계열)", note: "의사 처방 필수"       },
-];
+interface CautionContent {
+  cautions: CautionItem[];
+  warnings: string[];
+  disclaimer: string;
+}
 
 export default function TabCaution({ guideId }: { guideId: number }) {
+  const [data, setData] = useState<CautionContent | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiClient
+      .get(`/api/v1/guides/${guideId}/ai-results?result_type=RT_CAUTION`)
+      .then(({ data: res }) => {
+        const results = Array.isArray(res) ? res : [];
+        const r = results[0];
+        if (r?.content) setData(r.content as CautionContent);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [guideId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="space-y-4">
-      {/* 출처 */}
-      <p className="text-xs text-muted-foreground">
-        출처: 식품의약품안전처 의약품 안전사용 서비스
-      </p>
-
       {/* 응급 상황 */}
       <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4">
         <p className="mb-2 text-sm font-bold text-red-400">🚨 응급 상황 안내</p>
@@ -29,45 +43,45 @@ export default function TabCaution({ guideId }: { guideId: number }) {
         </ul>
       </div>
 
-      {/* 병용 주의 */}
+      {/* AI 주의사항 */}
       <div className="rounded-2xl border border-border bg-card overflow-hidden">
-        <div className="border-b border-border px-4 py-3">
-          <p className="text-sm font-semibold text-foreground">🚫 병용 주의</p>
+        <div className="border-b border-border px-4 py-3 flex items-center justify-between">
+          <p className="text-sm font-semibold text-foreground">⚠️ 약물별 주의사항</p>
+          <span className="text-[10px] text-muted-foreground">출처: 약품 DB (RAG)</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/30">
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">약물명</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">주의 내용</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">비고</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {MOCK_CAUTIONS.map((c, i) => (
-                <tr key={i} className="hover:bg-muted/20">
-                  <td className="px-4 py-3 text-xs font-medium text-foreground">{c.drug_name}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{c.content}</td>
-                  <td className="px-4 py-3 text-xs text-orange-400">{c.note}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-400" />
+          </div>
+        ) : data?.cautions && data.cautions.length > 0 ? (
+          <div className="divide-y divide-border">
+            {data.cautions.map((c, i) => (
+              <div key={i} className="px-4 py-3">
+                <p className="mb-1 text-xs font-semibold text-teal-400">{c.medication_name}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{c.caution_text}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="px-4 py-6 text-sm text-muted-foreground">AI 주의사항이 아직 생성되지 않았습니다.</p>
+        )}
       </div>
 
-      {/* 연령·임부 */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {[
-          { label: "✅ 연령 제한", value: "해당 없음" },
-          { label: "✅ 임부 주의", value: "해당 없음" },
-        ].map(({ label, value }) => (
-          <div key={label} className="rounded-2xl border border-border bg-card px-4 py-3">
-            <p className="text-xs font-semibold text-teal-400">{label}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{value}</p>
-          </div>
-        ))}
-      </div>
+      {/* DB에서 못 찾은 약물 경고 */}
+      {data?.warnings && data.warnings.length > 0 && (
+        <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/5 p-4">
+          <p className="mb-2 text-xs font-semibold text-yellow-500">⚠️ 약품 DB 미조회 항목</p>
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {data.warnings.map((w, i) => <li key={i}>• {w}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {/* 면책 */}
+      {data?.disclaimer && (
+        <p className="text-[11px] text-muted-foreground leading-relaxed">{data.disclaimer}</p>
+      )}
     </div>
   );
 }
