@@ -415,7 +415,7 @@ def mark_match_score(query_value: str | None, candidate_metadata: dict, side: st
     if is_mark_text(qv):
         return 35.0 if candidate_side_has_mark(candidate_metadata, side) else 0.0
     if qv in _SUSPICIOUS_MARK_CHARS and candidate_side_has_mark(candidate_metadata, side):
-        return 18.0
+        return 20.0  # v5.1: 18 -> 20
     return 0.0
 
 
