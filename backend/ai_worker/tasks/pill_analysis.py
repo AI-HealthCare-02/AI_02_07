@@ -752,20 +752,6 @@ def should_return_match_failure(
         return True, "RAG 후보 없음"
 
     imprint_conf = float(vlm_result.get("imprint_confidence") or 0)
-    color_conf = float(vlm_result.get("color_confidence") or 0)
-    shape_conf = float(vlm_result.get("shape_confidence") or 0)
-
-    if best_score < 45:
-        return True, "최종 매칭 점수가 낮음"
-    if imprint_conf < 0.45 and color_conf < 0.6 and shape_conf < 0.6:
-        return True, "이미지 특징이 불명확함"
-    if second_candidate:
-        second_score = float(second_candidate.get("rerank_score") or 0)
-        if best_score - second_score < 5 and imprint_conf < 0.6:
-            return True, "상위 후보 간 점수 차이가 작고 각인이 불명확함"
-
-        # back imprint mismatch + color mismatch -> fail
-    # e.g. query JS/10/green vs DB JS/UX/red
     sk = (best_candidate.get("metadata") or {}).get("search_keys") or {}
     ap = (best_candidate.get("metadata") or {}).get("appearance") or {}
 
@@ -775,18 +761,28 @@ def should_return_match_failure(
     c_color = (ap.get("color_normalized") or "").strip()
 
     back_mismatch = bool(q_back and c_back and q_back != c_back)
-    # 색상 그룹 기반 불일치 판단 — 유사 색상(노랑↔갈색 등)은 불일치로 보지 않음
+
     color_conf = float(vlm_result.get("color_confidence") or 0)
     color_clearly_different = (
         bool(q_color and c_color) and not _is_color_similar(q_color, c_color) and color_conf >= 0.7
     )
 
+    shape_conf = float(vlm_result.get("shape_confidence") or 0)
+    q_shape = (vlm_result.get("shape") or "").strip()
+    c_shape = (ap.get("shape_normalized") or "").strip()
+    shape_clearly_different = (
+        bool(q_shape and c_shape)
+        and q_shape != c_shape
+        and shape_match_score(q_shape, c_shape) == 0.0
+        and shape_conf >= 0.7
+    )
+
     if back_mismatch and color_clearly_different:
         return True, (f"뒷면 각인 불일치({q_back}≠{c_back}) + 색상 불일치({q_color}≠{c_color})")
 
-    # 각인 양쪽 일치해도 색상이 명확히 다른 그룹이면 실패
-    if color_clearly_different:
-        return True, (f"색상 불일치({q_color}≠{c_color}) — 다른 색상 그룹")
+    # 색상 + 모양 동시 불일치 실패
+    if color_clearly_different and shape_clearly_different:
+        return True, (f"색상 불일치({q_color}≠{c_color}) + 모양 불일치({q_shape}≠{c_shape})")
 
     return False, ""
 
