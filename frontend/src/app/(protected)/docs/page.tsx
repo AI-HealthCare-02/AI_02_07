@@ -84,6 +84,7 @@ export default function DocsPage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -200,6 +201,45 @@ export default function DocsPage() {
       meds[idx] = { ...meds[idx], editingInstructions: !meds[idx].editingInstructions, editValue: meds[idx].instructions ?? "" };
       return { ...prev, medications: meds };
     });
+  };
+
+  // ── 확인 완료: PATCH → from-doc → ai-generate → /guide/{id} ──
+  const confirmAndGenerate = async () => {
+    if (!result) return;
+    setConfirming(true);
+    try {
+      // ① 수정된 항목만 PATCH (미확인이었다가 입력된 것)
+      const edited = result.medications
+        .map((m, i) => ({ medication_index: i, timing: m.instructions }))
+        .filter((m) => m.timing != null && m.timing !== "");
+
+      if (edited.length > 0) {
+        await apiClient.patch(`/api/v1/medical-doc/results/${result.doc_result_id}`, {
+          medications: edited,
+        });
+      }
+
+      // ② 가이드 생성
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: guideData } = await apiClient.post("/api/v1/guides/from-doc", {
+        doc_result_id: result.doc_result_id,
+        med_start_date: today,
+      });
+      // guide 엔드포인트는 래퍼 없이 { guide_id, title, ... } 직접 반환
+      const guideId: number = (guideData.data ?? guideData).guide_id;
+
+      // ③ AI 가이드 생성
+      await apiClient.post(`/api/v1/guides/${guideId}/ai-generate`, {
+        result_types: null,
+      });
+
+      // ④ 가이드 페이지로 이동
+      router.push(`/guide/${guideId}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "가이드 생성에 실패했습니다.";
+      showToast(msg);
+      setConfirming(false);
+    }
   };
 
   const saveInstructions = (idx: number, value: string) => {
@@ -449,16 +489,22 @@ export default function DocsPage() {
                           </div>
                         ) : (
                           <div className="flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">
-                              복용법: {med.instructions ?? "-"}
-                              {!med.instructions && <span className="ml-1 text-red-500">⚠️ 미확인</span>}
-                            </span>
-                            {lowConf && (
+                            {med.instructions ? (
+                              <span className="text-xs text-muted-foreground">복용법: {med.instructions}</span>
+                            ) : (
+                              <button
+                                onClick={() => toggleEditInstructions(idx)}
+                                className="text-xs text-red-500 hover:text-red-400"
+                              >
+                                ⚠️ 미확인 — 탭하여 입력
+                              </button>
+                            )}
+                            {med.instructions && lowConf && (
                               <button
                                 onClick={() => toggleEditInstructions(idx)}
                                 className="text-xs text-teal-500 underline hover:text-teal-400"
                               >
-                                입력하기
+                                수정
                               </button>
                             )}
                           </div>
@@ -493,15 +539,22 @@ export default function DocsPage() {
           <div className="flex gap-3">
             <button
               onClick={resetAll}
-              className="flex-1 rounded-xl border border-border py-3 text-sm font-medium text-muted-foreground transition hover:border-teal-500/40 hover:text-foreground"
+              disabled={confirming}
+              className="flex-1 rounded-xl border border-border py-3 text-sm font-medium text-muted-foreground transition hover:border-teal-500/40 hover:text-foreground disabled:opacity-40"
             >
               다시 분석
             </button>
             <button
-              onClick={() => router.push("/docs/results")}
-              className="flex-1 rounded-xl bg-teal-600 py-3 text-sm font-semibold text-white transition hover:bg-teal-500"
+              onClick={confirmAndGenerate}
+              disabled={confirming}
+              className="flex-1 rounded-xl bg-teal-600 py-3 text-sm font-semibold text-white transition hover:bg-teal-500 disabled:opacity-50"
             >
-              확인 완료 →
+              {confirming ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  가이드 생성 중...
+                </span>
+              ) : "확인 완료 →"}
             </button>
           </div>
         </div>

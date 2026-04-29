@@ -1,148 +1,219 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import apiClient from "@/lib/axios";
 
-interface Drug {
-  id: number;
-  name: string;
-  category: string;
-  warnings: string[];
-  description: string;
-  dosage: string;
-  side_effects: string;
-  food_interaction: string;
-  faq: { q: string; a: string }[];
+function Section({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-semibold text-teal-400">{label}</p>
+      <p className="text-muted-foreground leading-relaxed">{value}</p>
+    </div>
+  );
 }
 
-const MOCK_DRUGS: Drug[] = [
-  {
-    id: 1,
-    name: "아모디핀정 5mg",
-    category: "칼슘채널차단제",
-    warnings: ["병용 주의"],
-    description: "혈압을 낮추고 협심증을 치료하는 칼슘채널차단제입니다. 혈관을 이완시켜 혈압을 조절합니다.",
-    dosage: "1일 1회 1정, 식사와 무관하게 복용",
-    side_effects: "두통, 안면홍조, 발목 부종이 나타날 수 있습니다. 심한 경우 의사와 상담하세요.",
-    food_interaction: "자몽 주스와 함께 복용 시 약물 농도가 높아질 수 있으므로 피하세요.",
-    faq: [
-      { q: "약을 먹고 발목이 부었어요?", a: "경미한 부종은 흔한 부작용입니다. 심하거나 지속되면 의사와 상담하세요." },
-      { q: "혈압이 정상이 되면 약을 끊어도 되나요?", a: "임의로 중단하지 마세요. 반드시 의사와 상담 후 결정하세요." },
-    ],
-  },
-  {
-    id: 2,
-    name: "오메프라졸캡슐 20mg",
-    category: "양성자펌프억제제",
-    warnings: [],
-    description: "위산 분비를 억제하여 위궤양, 역류성 식도염을 치료합니다.",
-    dosage: "1일 1회 1캡슐, 식전 30분 복용",
-    side_effects: "두통, 설사, 복통이 드물게 나타날 수 있습니다.",
-    food_interaction: "특별한 음식 제한은 없으나 식전 복용을 권장합니다.",
-    faq: [
-      { q: "식후에 먹어도 되나요?", a: "식전 30분 복용이 효과적이지만, 잊었다면 식후에 복용하세요." },
-    ],
-  },
-  {
-    id: 3,
-    name: "로수바스타틴정 10mg",
-    category: "스타틴계",
-    warnings: ["연령 제한 없음"],
-    description: "콜레스테롤 합성을 억제하여 고지혈증을 치료합니다.",
-    dosage: "1일 1회 1정, 저녁 식후 복용",
-    side_effects: "근육통, 간 수치 상승이 드물게 나타날 수 있습니다.",
-    food_interaction: "자몽 주스는 피하세요.",
-    faq: [
-      { q: "근육이 아픈데 약 때문인가요?", a: "스타틴 계열 약물의 드문 부작용입니다. 심하면 즉시 의사와 상담하세요." },
-    ],
-  },
-];
+interface Medication {
+  guide_medication_id: number;
+  medication_name: string;
+  dosage: string | null;
+  frequency: string | null;
+  timing: string | null;
+}
 
-export default function TabDrugDetail({ guideId }: { guideId: number }) {
-  const [selected, setSelected] = useState<Drug>(MOCK_DRUGS[0]);
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
+interface AiResult {
+  result_type: string;
+  content: Record<string, unknown>;
+}
+
+interface DrugDetail {
+  name: string;
+  mechanism_summary?: string;
+  how_to_take?: string;
+  side_effects?: string[];
+  side_effect_tips?: string;
+  food_interactions?: string;
+  warnings?: string[];
+  faq?: { q: string; a: string }[];
+  error?: string;
+}
+
+interface LifestyleItem {
+  category: string;
+  title: string;
+  content: string;
+}
+
+interface MedSummary {
+  name: string;
+  summary?: string;
+  how_to_take?: string;
+  caution?: string;
+}
+
+export default function TabDrugDetail({
+  guideId,
+  medications,
+}: {
+  guideId: number;
+  medications: Medication[];
+}) {
+  const [selected, setSelected] = useState<Medication | null>(medications[0] ?? null);
+  const [aiResults, setAiResults] = useState<AiResult[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiClient
+      .get(`/api/v1/guides/${guideId}/ai-results`)
+      .then(({ data }) => setAiResults(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [guideId]);
+
+  // RT_DRUG_DETAIL: { drugs: [{name, mechanism_summary, how_to_take, side_effects, food_interactions, warnings, faq}] }
+  // RT_MEDICATION:   { medications: [{name, summary, how_to_take, caution}] }
+  const drugDetailResult = aiResults.find((r) => r.result_type === "RT_DRUG_DETAIL");
+  const medicationResult = aiResults.find((r) => r.result_type === "RT_MEDICATION");
+  const lifestyleResult  = aiResults.find((r) => r.result_type === "RT_LIFESTYLE");
+
+  // 선택된 약물에 해당하는 상세 데이터 추출
+  const getDrugDetail = (): DrugDetail | null => {
+    if (!drugDetailResult?.content) return null;
+    const drugs = ((drugDetailResult.content as Record<string, unknown>).drugs ?? []) as DrugDetail[];
+    if (drugs.length === 0) return null;
+    if (selected)
+      return (
+        drugs.find((d) => d.name?.includes(selected.medication_name.split(" ")[0])) ?? drugs[0]
+      );
+    return drugs[0];
+  };
+
+  const getMedSummary = (): MedSummary | null => {
+    if (!medicationResult?.content) return null;
+    const meds = ((medicationResult.content as Record<string, unknown>).medications ?? []) as MedSummary[];
+    if (meds.length === 0) return null;
+    if (selected)
+      return (
+        meds.find((m) => m.name?.includes(selected.medication_name.split(" ")[0])) ?? meds[0]
+      );
+    return meds[0];
+  };
+
+  const drugDetail = getDrugDetail();
+  const medSummary = getMedSummary();
+  const lifestyleItems = lifestyleResult?.content
+    ? ((lifestyleResult.content as Record<string, unknown>).lifestyle ?? []) as LifestyleItem[]
+    : [];
 
   return (
     <div className="space-y-4">
       {/* 약물 선택 탭 */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {MOCK_DRUGS.map((d) => (
-          <button
-            key={d.id}
-            onClick={() => { setSelected(d); setOpenFaq(null); }}
-            className={`shrink-0 rounded-xl border px-3 py-1.5 text-xs font-medium transition ${
-              selected.id === d.id
-                ? "border-teal-500/50 bg-teal-500/10 text-teal-400"
-                : "border-border bg-card text-muted-foreground hover:border-teal-500/30"
-            }`}
-          >
-            {d.name}
-          </button>
-        ))}
-      </div>
+      {medications.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {medications.map((m) => (
+            <button
+              key={m.guide_medication_id}
+              onClick={() => setSelected(m)}
+              className={`shrink-0 rounded-xl border px-3 py-1.5 text-xs font-medium transition ${
+                selected?.guide_medication_id === m.guide_medication_id
+                  ? "border-teal-500/50 bg-teal-500/10 text-teal-400"
+                  : "border-border bg-card text-muted-foreground hover:border-teal-500/30"
+              }`}
+            >
+              {m.medication_name}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* 약물 카드 */}
-      <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
-        {/* 헤더 */}
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <h3 className="text-base font-bold text-foreground">{selected.name}</h3>
-            <span className="mt-1 inline-flex items-center rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium text-cyan-400">
-              {selected.category}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1 text-right">
-            {selected.warnings.length > 0 ? (
-              selected.warnings.map((w) => (
-                <span key={w} className="inline-flex items-center rounded-full bg-orange-500/10 px-2 py-0.5 text-[10px] text-orange-400">
-                  ⚠️ {w}
-                </span>
-              ))
-            ) : (
-              <span className="inline-flex items-center rounded-full bg-teal-500/10 px-2 py-0.5 text-[10px] text-teal-400">
-                ✅ 주의사항 없음
-              </span>
-            )}
+      {/* 선택된 약물 기본 정보 */}
+      {selected && (
+        <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
+          <h3 className="text-base font-bold text-foreground">{selected.medication_name}</h3>
+          <div className="space-y-1.5 text-sm">
+            {selected.dosage    && <p className="text-muted-foreground">용량: {selected.dosage}</p>}
+            {selected.frequency && <p className="text-muted-foreground">횟수: {selected.frequency}</p>}
+            {selected.timing    && <p className="text-muted-foreground">복용 시점: {selected.timing}</p>}
           </div>
         </div>
+      )}
 
-        {/* 상세 정보 */}
-        {[
-          { label: "작용 원리", value: selected.description },
-          { label: "복용법",   value: selected.dosage },
-          { label: "부작용",   value: selected.side_effects },
-          { label: "식품 상호작용", value: selected.food_interaction },
-        ].map(({ label, value }) => (
-          <div key={label}>
-            <p className="mb-1 text-xs font-semibold text-teal-400">{label}</p>
-            <p className="text-sm text-muted-foreground leading-relaxed">{value}</p>
+      {/* AI 생성 약물 상세 */}
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <p className="mb-3 text-xs font-semibold text-teal-400">💬 AI 생성 약물 가이드</p>
+        {loading ? (
+          <div className="flex justify-center py-6">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-400" />
           </div>
-        ))}
-
-        {/* FAQ */}
-        {selected.faq.length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-semibold text-foreground">💬 자주 묻는 질문 (AI 생성)</p>
-            <div className="space-y-2">
-              {selected.faq.map((f, i) => (
-                <div key={i} className="rounded-xl border border-border overflow-hidden">
-                  <button
-                    onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-foreground hover:bg-muted/30"
-                  >
-                    <span>Q. {f.q}</span>
-                    <span className="text-muted-foreground">{openFaq === i ? "▲" : "▼"}</span>
-                  </button>
-                  {openFaq === i && (
-                    <div className="border-t border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                      A. {f.a}
+        ) : drugDetail ? (
+          <div className="space-y-4 text-sm">
+            {drugDetail.mechanism_summary && (
+              <Section label="작용 원리" value={String(drugDetail.mechanism_summary)} />
+            )}
+            {drugDetail.how_to_take && (
+              <Section label="복용법" value={String(drugDetail.how_to_take)} />
+            )}
+            {Array.isArray(drugDetail.side_effects) && drugDetail.side_effects.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-semibold text-teal-400">부작용</p>
+                <ul className="space-y-1">
+                  {(drugDetail.side_effects as string[]).map((s, i) => (
+                    <li key={i} className="text-muted-foreground">• {s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {drugDetail.food_interactions && (
+              <Section label="식품 상호작용" value={String(drugDetail.food_interactions)} />
+            )}
+            {Array.isArray(drugDetail.warnings) && drugDetail.warnings.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-semibold text-teal-400">주의사항</p>
+                <ul className="space-y-1">
+                  {(drugDetail.warnings as string[]).map((w, i) => (
+                    <li key={i} className="text-muted-foreground">• {w}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {Array.isArray(drugDetail.faq) && drugDetail.faq.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-semibold text-foreground">💬 자주 묻는 질문</p>
+                <div className="space-y-2">
+                  {(drugDetail.faq as {q: string; a: string}[]).map((f, i) => (
+                    <div key={i} className="rounded-xl border border-border p-3">
+                      <p className="text-xs font-medium text-foreground">Q. {f.q}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">A. {f.a}</p>
                     </div>
-                  )}
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
+        ) : medSummary ? (
+          <div className="space-y-3 text-sm">
+            {medSummary.summary && <Section label="요약" value={String(medSummary.summary)} />}
+            {medSummary.how_to_take && <Section label="복용법" value={String(medSummary.how_to_take)} />}
+            {medSummary.caution && <Section label="주의사항" value={String(medSummary.caution)} />}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">AI 가이드가 아직 생성되지 않았습니다.</p>
         )}
       </div>
+
+      {/* RT_LIFESTYLE 생활습관 가이드 */}
+      {lifestyleItems.length > 0 && (
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="mb-3 text-xs font-semibold text-teal-400">🌿 생활습관 가이드</p>
+          <div className="space-y-3">
+            {lifestyleItems.map((item, i) => (
+              <div key={i} className="rounded-xl border border-border p-3">
+                <p className="mb-1 text-xs font-semibold text-foreground">{item.title}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{item.content}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

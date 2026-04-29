@@ -1,18 +1,12 @@
 # ai_worker/tasks/pill_analysis.py
 # ──────────────────────────────────────────────
-# 알약 분석 작업 핸들러 — 안은지 담당
+# 알약 분석 작업 핸들러 — v4 반영
 #
 # [3단계 흐름]
-#
-# 1단계: Clova OCR (각인 텍스트 추출) +
-#        GPT Vision detail:low (색상/모양만 추출)
-#
-# 2단계: imprint RAG
-#   → metadata exact/swapped match + vector search 통합
-#   → STEP 6 rerank 점수로 최종 순위 결정
-#
-# 3단계: 허가정보 DB 직접 조회 (GPT 재호출 없음)
-#   → item_seq로 efficacy/caution/ingredient 조회
+# 1단계: Clova OCR (각인 텍스트 추출) + GPT Vision
+# 2단계: imprint RAG (metadata exact/swapped + vector)
+#        → rerank → 조건부 2차 VLM
+# 3단계: 허가정보 DB 직접 조회 + LLM 정제
 # ──────────────────────────────────────────────
 
 import asyncio
@@ -33,7 +27,12 @@ except ImportError:
 from ai_worker.core.config import get_worker_settings
 from ai_worker.core.logger import setup_logger
 from ai_worker.core.s3_client import download_file_from_s3
-from ai_worker.tasks.imprint_parser import normalize_vision_result
+from ai_worker.tasks.imprint_parser import (
+    color_tokens,
+    is_mark_text,
+    normalize_vision_result,
+    shape_match_score,
+)
 
 logger = setup_logger("task.pill_analysis")
 settings = get_worker_settings()
@@ -41,6 +40,14 @@ settings = get_worker_settings()
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 TARGET_SIZE = 1024
 IMPRINT_SIMILARITY_THRESHOLD = 0.55
+
+# v4 설정값 (config에 없으면 기본값 사용)
+VLM_MAX_TOKENS: int = getattr(settings, "VLM_MAX_TOKENS", 700)
+ENABLE_SECOND_PASS: bool = getattr(settings, "ENABLE_SECOND_PASS", False)
+SECOND_PASS_THRESHOLD: float = getattr(settings, "SECOND_PASS_THRESHOLD", 0.55)
+
+SPECKLE_KEYWORDS = ["반점", "점박이", "검은 점", "갈색 점", "얼룩", "speckle", "spot", "dot"]
+AMBIGUOUS_MARK_CHARS: set[str] = {"5", "S", "JS", "J5", "1", "I", "L", "7"}
 
 
 # ── 이미지 전처리 ──────────────────────────────
@@ -50,7 +57,6 @@ def preprocess_image(image_bytes: bytes) -> tuple[str, bytes]:
         raise ValueError(f"이미지 용량이 5MB를 초과합니다: {len(image_bytes) / 1024 / 1024:.1f}MB")
 
     img = Image.open(io.BytesIO(image_bytes))
-
     try:
         from PIL import ImageOps
 
@@ -72,9 +78,8 @@ def preprocess_image(image_bytes: bytes) -> tuple[str, bytes]:
     return base64.b64encode(img_bytes).decode("utf-8"), img_bytes
 
 
-# ── Clova OCR - 각인 텍스트 추출 ──────────────
+# ── Clova OCR ─────────────────────────────────
 async def _ocr_request(client: httpx.AsyncClient, image_bytes: bytes) -> str:
-    """단일 이미지 OCR 요청, 인식된 텍스트 반환 (없으면 빈 문자열)."""
     payload = {
         "version": "V2",
         "requestId": str(uuid.uuid4()),
@@ -96,13 +101,9 @@ def _rotate_180(image_bytes: bytes) -> bytes:
 
 
 async def extract_imprint_ocr(image_bytes: bytes) -> str | None:
-    """
-    원본 + 180도 회전 OCR을 모두 실행하고 결과를 합산 반환.
-    분할선 양쪽 각인이 방향에 따라 한쪽만 잡히는 문제를 완화.
-    """
+    """원본 + 180도 회전 OCR 병합 반환."""
     if not settings.OCR_INVOKE_URL or not settings.OCR_SECRET_KEY:
         return None
-
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             normal, rotated = await asyncio.gather(
@@ -110,18 +111,12 @@ async def extract_imprint_ocr(image_bytes: bytes) -> str | None:
                 _ocr_request(client, _rotate_180(image_bytes)),
             )
         logger.info("Clova OCR 결과: normal=%s, rotated=%s", normal, rotated)
-
-        # 두 결과를 토큰 단위로 합산 — 중복 제거 후 병합
-        # 분할선 기준 한쪽만 잡히는 경우를 보완
-        normal_tokens = normal.split() if normal else []
-        rotated_tokens = rotated.split() if rotated else []
         seen: set[str] = set()
         merged: list[str] = []
-        for t in normal_tokens + rotated_tokens:
+        for t in (normal.split() if normal else []) + (rotated.split() if rotated else []):
             if t not in seen:
                 seen.add(t)
                 merged.append(t)
-
         result = " ".join(merged) or None
         logger.info("Clova OCR 병합 결과: %s", result)
         return result
@@ -130,7 +125,134 @@ async def extract_imprint_ocr(image_bytes: bytes) -> str | None:
         return None
 
 
-# ── 1단계: GPT Vision ─────────────────────────
+# ── OCR 힌트 약화 (v4) ────────────────────────
+def should_pass_ocr_to_llm(text: str | None) -> bool:
+    if not text:
+        return False
+    t = str(text).strip()
+    if not t or len(t) <= 1:
+        return False
+    return t not in {"-", "_", "|", "/", "\\", ".", ",", "·", "ㆍ"}
+
+
+def build_ocr_hint(text: str | None) -> str:
+    if not should_pass_ocr_to_llm(text):
+        return "OCR 없음 또는 불완전"
+    return (
+        f"OCR 참고값: {text}. "
+        "OCR은 분할선, 십자분할선, 마크, 희미한 각인, 반점이 있는 알약에서 틀릴 수 있다. "
+        "이미지를 우선 판단하라."
+    )
+
+
+# ── 반점/마크 helper (v4) ─────────────────────
+def has_speckle_hint(vlm_result: dict) -> bool:
+    text = " ".join(
+        [
+            str(vlm_result.get("color_detail") or ""),
+            str(vlm_result.get("notes") or ""),
+        ]
+    )
+    return any(kw in text for kw in SPECKLE_KEYWORDS)
+
+
+def candidate_side_has_mark(metadata: dict, side: str) -> bool:
+    if not metadata:
+        return False
+    imprint = (metadata.get("imprint") or {}).get(side) or {}
+    values = [
+        imprint.get("raw"),
+        imprint.get("text"),
+        imprint.get("normalized"),
+        metadata.get(f"print_{side}"),
+    ]
+    values.extend(imprint.get("tokens") or [])
+    sk = metadata.get("search_keys") or {}
+    values.append(sk.get(f"{side}_norm"))
+    return any(is_mark_text(v) for v in values)
+
+
+# ── 1차 VLM 프롬프트 (v4) ─────────────────────
+PILL_VISION_PROMPT = """
+너는 알약 이미지에서 각인, 색상, 모양, 분할선을 추출한다.
+반드시 JSON만 출력한다. 마크다운, 설명문, 코드블록 금지.
+
+[기본 원칙]
+- OCR은 참고값일 뿐이며 이미지가 우선이다.
+- 보이는 것만 기록하고 추측하지 않는다.
+- 확실하지 않은 각인은 null로 두거나 낮은 confidence로 기록한다.
+- 제조사 로고, 심볼, 비문자 도안은 "마크"로 기록한다.
+- 점, 얼룩, 반점, 점박이 무늬, 재질 무늬는 각인이 아니다. color_detail 또는 notes에만 기록한다.
+
+[각인 판독]
+- print_front/print_back에는 실제 문자, 숫자, 또는 "마크"만 기록한다.
+- "분할선", "십자분할선"이라는 단어는 print_front/print_back에 넣지 않는다.
+- 분할선 주변에 문자가 있으면 해당 문자는 print_* 및 left/right/top/bottom 필드에 기록한다.
+- 예: 1분할선3처럼 보이면 print는 "1 3", left_text="1", right_text="3".
+- 마크가 5, S, JS, 곡선 문자처럼 보여도 문자로 확실하지 않으면 "마크"로 기록한다.
+- 원형 알약은 회전 때문에 문자 방향이 애매할 수 있으므로 0/90/180/270도 방향을 고려한다.
+
+[OCR 혼동 보정]
+- 다음 혼동은 이미지에서 명확할 때만 보정한다: H↔N, 0↔O, 1↔I↔L, 5↔S, 6↔G, 8↔B, 2↔Z.
+- OCR 결과가 한 글자이거나 기호뿐이면 신뢰하지 않는다.
+
+[분할선]
+- 선 하나가 있으면 "분할선"이다.
+- 세로 분할선이면 left/right, 가로 분할선이면 top/bottom을 확인한다.
+- 분할선 양쪽에 문자가 있을 수 있으므로 한쪽만 읽고 끝내지 않는다.
+- 분할선은 각인 문자가 아니므로 print_*에 "분할선"을 넣지 않는다.
+
+[십자분할선]
+- + 모양으로 가로선과 세로선이 함께 있으면 "십자분할선"이다.
+- 십자분할선은 텍스트가 없어도 반드시 기록한다.
+- 십자분할선이 있으면 direction은 "십자"로 둔다.
+- 점, 얼룩, 그림자, 알약 가장자리 선은 십자분할선이 아니다.
+
+[색상]
+- color는 알약 본체의 기본 색상이다.
+- 반점, 검은 점, 갈색 점, 얼룩은 color_detail에만 기록한다.
+- 예: 노란 알약에 검정/갈색 반점이 있으면 color="노랑", color_detail="검정/갈색 반점 있음".
+- 두 색 경질캡슐은 "/"로 기록. 예: "갈색/하양".
+- 투명 연질캡슐은 ", 투명"으로 기록. 예: "갈색, 투명".
+- "반투명"은 쓰지 말고 "투명"으로만 기록한다.
+
+[모양]
+- shape는 아래 중 하나만 선택한다: "원형", "타원형", "장방형", "삼각형", "사각형", "기타", "판독불가".
+- "캡슐형"은 shape로 쓰지 않는다. 캡슐 여부는 dosage_form_hint에 기록한다.
+- 긴 직선 측면이면 "장방형", 전체가 연속 곡선이면 "타원형", 원에 가까우면 "원형".
+- 타원형과 장방형은 자주 혼동되므로 외곽 윤곽을 우선한다.
+
+[출력 JSON]
+{
+  "is_pill": true,
+  "multiple_pills": false,
+  "print_front": null,
+  "print_back": null,
+  "score_line_front_type": "없음|분할선|십자분할선|판독불가",
+  "score_line_back_type": "없음|분할선|십자분할선|판독불가",
+  "score_line_front_direction": "없음|세로|가로|십자|판독불가",
+  "score_line_back_direction": "없음|세로|가로|십자|판독불가",
+  "front_left_text": null,
+  "front_right_text": null,
+  "front_top_text": null,
+  "front_bottom_text": null,
+  "back_left_text": null,
+  "back_right_text": null,
+  "back_top_text": null,
+  "back_bottom_text": null,
+  "color": null,
+  "color_detail": null,
+  "shape": null,
+  "dosage_form_hint": "정제|경질캡슐|연질캡슐|판독불가",
+  "imprint_confidence": 0.0,
+  "score_line_confidence": 0.0,
+  "color_confidence": 0.0,
+  "shape_confidence": 0.0,
+  "notes": null
+}
+"""
+
+
 async def extract_pill_features(
     client: AsyncOpenAI,
     image_b64_list: list[str],
@@ -140,166 +262,21 @@ async def extract_pill_features(
     image_contents = []
     for i, b64 in enumerate(image_b64_list):
         face = "앞면" if i == 0 else "뒷면"
-        ocr_hint = f" (OCR 각인: {ocr_texts[i]})" if i < len(ocr_texts) and ocr_texts[i] else ""
-        # detail:high — 각인 판독 정확도 향상 목적. low 대비 토큰 비용 약 3~4배 증가.
+        ocr_hint = build_ocr_hint(ocr_texts[i] if i < len(ocr_texts) else None)
+        # detail:high — 각인 판독 정확도 향상. low 대비 토큰 비용 약 3~4배 증가.
         image_contents.append(
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}}
         )
-        image_contents.append({"type": "text", "text": f"위 이미지는 알약의 {face}입니다.{ocr_hint}"})
+        image_contents.append({"type": "text", "text": f"위 이미지는 알약의 {face}입니다. {ocr_hint}"})
 
-    ocr_front = ocr_texts[0] if ocr_texts else None
-    ocr_back = ocr_texts[1] if len(ocr_texts) > 1 else None
-
-    prompt = f"""
-당신은 알약 이미지에서 각인, 분할선, 십자분할선, 색상, 모양을 추출하는 분석기입니다.
-반드시 JSON만 출력하세요. 설명/마크다운/코드블록은 금지입니다.
-
-[핵심 원칙]
-- OCR은 정답이 아니라 참고값입니다. 최종 판단은 이미지에서 보이는 내용을 우선하세요.
-- OCR은 분할선, 십자분할선, 분할선 반대편 문자/숫자를 누락할 수 있습니다.
-- OCR이 한 글자 또는 일부 문자열만 제공되어도 전체 각인이라고 확정하지 마세요.
-- 이미지에 없는 문자/숫자/기호를 임의로 만들지 마세요.
-- 실제 약품명처럼 보이도록 무리하게 보정하지 마세요.
-- 분할선/십자분할선은 각인이 아니므로 print_front/print_back에 "분할선"이라는 단어를 넣지 마세요.
-- 하지만 분할선 주변 또는 분할된 영역 안의 문자/숫자는 각인입니다.
-
-OCR 참고값:
-- 앞면 OCR: {ocr_front or "없음 또는 불완전"}
-- 뒷면 OCR: {ocr_back or "없음 또는 불완전"}
-
-[업로드 패턴]
-- 첫 번째 이미지=앞면 후보, 두 번째 이미지=뒷면 후보입니다.
-- 앞뒤가 바뀌었을 수 있으므로 이미지의 각인/분할선/OCR을 종합해 판단하세요.
-- 한 이미지에 같은 알약의 앞뒷면이 같이 있으면 각각 구분하세요. 이 경우 multiple_pills=false입니다.
-- 서로 다른 알약이 여러 개 있으면 multiple_pills=true입니다.
-
-[각인 판독]
-- 알약 표면의 문자, 숫자, 로고, 기호만 기록하세요.
-- 공백이 보이면 유지하세요.
-- 같은 면에 "HL"과 "PGN300"이 보이면 "HL PGN300"처럼 출력하세요.
-- 각인이 없거나 판독 불가능하면 null입니다.
-- 혼동 주의: O/0, I/1/L, S/5, B/8, G/6, Z/2, H/N, M/W/N, C/G, P/R.
-- 혼동 문자는 이미지에서 명확할 때만 교정하세요.
-
-[분할선 판단 - 매우 중요]
-score_line_type 값:
-- "없음"
-- "분할선": 한 줄짜리 분할선. 세로/가로/대각선 포함
-- "십자분할선": 가로선과 세로선이 교차하는 십자 모양
-- "판독불가"
-
-score_line_direction 값:
-- "없음"
-- "세로"
-- "가로"
-- "대각선"
-- "십자"
-- "판독불가"
-
-[십자분할선 판단 기준 - 특히 주의]
-- 알약 표면에 가로선과 세로선이 동시에 보이면 반드시 "십자분할선"으로 판단하세요.
-- 십자분할선은 알약을 4등분하는 선입니다. 원형 알약에서 자주 보입니다.
-- 조명/각도에 따라 한 선만 보일 수 있어도, 알약을 돌려보면서 십자 패턴이 확인되면 "십자분할선"으로 판단하세요.
-- "분할선"(한 줄)과 "십자분할선"(두 줄 교차)을 혼동하지 마세요.
-- 십자분할선이 있는 면에 각인이 없으면: print=null, score_line_type="십자분할선"
-- 십자분할선이 있는 면에 각인이 있으면: 각 영역(top/bottom/left/right)에서 각인 확인
-
-분할선이 있으면 각인을 한 덩어리로 읽지 말고 영역별로 확인하세요.
-- 세로 분할선: left_text, right_text 확인. 예: ID|25 -> print="ID 25", raw="ID|25"
-- 가로 분할선: top_text, bottom_text 확인. 예: ID/25 -> print="ID 25", raw="ID/25"
-- 각 영역은 한 글자일 수도 있고 여러 글자일 수도 있습니다.
-- 십자분할선만 있고 텍스트가 없으면 print는 null입니다.
-- DB에는 세로/가로 구분 없이 "분할선"만 있을 수 있지만, 이미지 분석에서는 보이는 방향을 기록하세요.
-
-[색상 판단]
-- 배경/그림자/반사는 제외하고 알약 본체 색만 판단하세요.
-- 표준 색상명 사용: 하양, 아이보리, 노랑, 주황, 분홍, 빨강, 갈색, 연두, 초록, 파랑, 보라, 회색, 검정, 투명.
-- "반투명"은 사용하지 말고, 투명해 보이면 "투명"으로만 기록하세요.
-- 단색이면 예: "하양", "갈색"
-- 두 가지 불투명 색으로 나뉜 경질캡슐이면 "/" 사용. 예: "갈색/하양", "초록/하양"
-- 투명한 연질캡슐이면 ", 투명" 사용. 예: "갈색, 투명", "노랑, 투명"
-- 투명이 보이면 is_transparent=true로 설정하세요.
-
-[모양/제형 판단]
-shape는 반드시 아래 중 하나만 사용하세요. "캡슐형"은 사용하지 마세요.
-- 원형, 타원형, 장방형, 반원형, 삼각형, 사각형, 마름모형, 오각형, 육각형, 팔각형, 기타, 판독불가
-
-dosage_form_hint 값:
-- "정제"
-- "경질캡슐"
-- "연질캡슐"
-- "판독불가"
-
-캡슐 기준:
-- 경질캡슐: 두 개의 캡슐 껍질이 결합된 형태, 중앙 결합선 또는 두 색 구역이 보일 수 있음. 대부분 shape="장방형".
-- 연질캡슐: 매끈한 젤라틴 캡슐, 투명하거나 내부 액상 느낌이 보일 수 있음. shape는 타원형/장방형/삼각형 가능.
-- 캡슐 여부는 shape가 아니라 dosage_form_hint에 기록하세요.
-
-[원형/타원형/장방형 구분 - 매우 중요]
-- 원형: 가로와 세로가 거의 같음. 외곽이 원에 가까움.
-- 타원형: 전체 외곽이 매끄러운 달걀형/타원형. 중앙부에 긴 직선 구간이 거의 없음.
-- 장방형: 가로가 세로보다 뚜렷하게 김. 가운데 몸통 부분이 직선에 가깝고, 양 끝만 둥글게 처리된 긴 직사각형 형태.
-- 중앙부가 직선처럼 길게 뻗어 있으면 장방형. 전체가 연속된 곡선으로 둥글게 이어지면 타원형.
-- 애매하면 notes에 "타원형/장방형 혼동 가능"이라고 적으세요.
-
-[출력 JSON]
-{{
-  "is_pill": true,
-  "multiple_pills": false,
-
-  "print_front": null,
-  "print_front_raw": null,
-  "score_line_front_type": "없음 | 분할선 | 십자분할선 | 판독불가",
-  "score_line_front_direction": "없음 | 세로 | 가로 | 대각선 | 십자 | 판독불가",
-  "front_left_text": null,
-  "front_right_text": null,
-  "front_top_text": null,
-  "front_bottom_text": null,
-
-  "print_back": null,
-  "print_back_raw": null,
-  "score_line_back_type": "없음 | 분할선 | 십자분할선 | 판독불가",
-  "score_line_back_direction": "없음 | 세로 | 가로 | 대각선 | 십자 | 판독불가",
-  "back_left_text": null,
-  "back_right_text": null,
-  "back_top_text": null,
-  "back_bottom_text": null,
-
-  "color": "예: 하양, 갈색/하양, 갈색, 투명",
-  "color_count": 1,
-  "color_detail": "짧은 색상 설명",
-  "is_transparent": false,
-
-  "shape": "원형 | 타원형 | 장방형 | 반원형 | 삼각형 | 사각형 | 마름모형 | 오각형 | 육각형 | 팔각형 | 기타 | 판독불가",
-  "dosage_form_hint": "정제 | 경질캡슐 | 연질캡슐 | 판독불가",
-
-  "confidence": 0.0,
-  "imprint_confidence": 0.0,
-  "score_line_confidence": 0.0,
-  "color_confidence": 0.0,
-  "shape_confidence": 0.0,
-  "notes": null
-}}
-
-예시:
-- ID|25가 보이면 print_front="ID 25", print_front_raw="ID|25", score_line_front_type="분할선"
-- 1|3이 보이면 print_back="1 3", print_back_raw="1|3", score_line_back_type="분할선"
-- 십자분할선만 있고 글자가 없으면 print=null, score_line_type="십자분할선"
-- 원형 알약에 가로선+세로선이 보이면 반드시 score_line_type="십자분할선" ("분할선" 아님)
-- 갈색/하양 경질캡슐이면 color="갈색/하양", shape="장방형", dosage_form_hint="경질캡슐"
-- 갈색 투명 연질캡슐이면 color="갈색, 투명", dosage_form_hint="연질캡슐", shape는 외곽에 따라 타원형 또는 장방형
-
-알약이 아니면 is_pill=false.
-서로 다른 알약이 여러 개면 multiple_pills=true.
-"""
-
-    contents = image_contents + [{"type": "text", "text": prompt}]
+    contents = image_contents + [{"type": "text", "text": PILL_VISION_PROMPT}]
 
     try:
         response = await client.chat.completions.create(
             model=model,
-            max_tokens=600,
+            max_tokens=VLM_MAX_TOKENS,
             temperature=0,
+            response_format={"type": "json_object"},
             messages=[{"role": "user", "content": contents}],
         )
         raw = response.choices[0].message.content.strip()
@@ -314,12 +291,51 @@ dosage_form_hint 값:
         return {"is_pill": False}
 
 
-# ── STEP 6: rerank 점수 계산 (순수 함수) ───────
+# ── candidate helpers (v4) ────────────────────
+def _candidate_has_score_line(meta: dict, side: str | None = None) -> bool:
+    imp = meta.get("imprint") or {}
+    sides = [side] if side else ["front", "back"]
+    for s in sides:
+        sd = imp.get(s) or {}
+        if sd.get("has_score_line"):
+            return True
+        raw = sd.get("raw") or ""
+        if "분할선" in raw:
+            return True
+        if meta.get(f"print_{s}") and "분할선" in str(meta.get(f"print_{s}")):
+            return True
+    return False
+
+
+def _candidate_has_cross_score_line(meta: dict, side: str | None = None) -> bool:
+    imp = meta.get("imprint") or {}
+    sides = [side] if side else ["front", "back"]
+    for s in sides:
+        sd = imp.get(s) or {}
+        if sd.get("is_cross"):
+            return True
+        raw = sd.get("raw") or ""
+        if "십자분할선" in raw:
+            return True
+        if meta.get(f"print_{s}") and "십자분할선" in str(meta.get(f"print_{s}")):
+            return True
+    return False
+
+
+def _candidate_has_any_imprint(meta: dict) -> bool:
+    sk = meta.get("search_keys") or {}
+    return bool(sk.get("front_norm") or sk.get("back_norm"))
+
+
+# ── rerank 점수 계산 (v4 보강) ────────────────
 def _rerank_score(query: dict, candidate_meta: dict) -> float:
     """
     query: normalize_vision_result 결과
     candidate_meta: DB metadata jsonb
-    반환: 0~100 점수
+    - query null 필드는 unknown → 감점 안 함
+    - 마크 매칭 포함
+    - 십자분할선/분할선 점수 보강
+    - 색상 토큰 비교, 모양 유사 점수
     """
     score = 0.0
     sk = candidate_meta.get("search_keys") or {}
@@ -330,64 +346,250 @@ def _rerank_score(query: dict, candidate_meta: dict) -> float:
     c_front = (sk.get("front_norm") or "").upper()
     c_back = (sk.get("back_norm") or "").upper()
 
-    def _imprint_score(qf: str, qb: str, cf: str, cb: str) -> float:
-        s = 0.0
-        if qf and cf and qf == cf:
-            s += 35.0
-        if qb and cb and qb == cb:
-            s += 35.0
-        return s
+    def _side_score(qv: str, cv: str, meta: dict, side: str) -> float:
+        if not qv:
+            return 0.0  # unknown — 감점 안 함
+        # 마크 매칭
+        if is_mark_text(qv) and candidate_side_has_mark(meta, side):
+            return 35.0
+        if qv and cv and qv == cv:
+            return 35.0
+        return 0.0
 
-    direct = _imprint_score(q_front, q_back, c_front, c_back)
-    swapped = _imprint_score(q_front, q_back, c_back, c_front)
+    direct = _side_score(q_front, c_front, candidate_meta, "front") + _side_score(
+        q_back, c_back, candidate_meta, "back"
+    )
+    swapped = _side_score(q_front, c_back, candidate_meta, "back") + _side_score(
+        q_back, c_front, candidate_meta, "front"
+    )
     score += max(direct, swapped)
 
-    # 분할선 (12점)
-    imprint = candidate_meta.get("imprint") or {}
-    for side_key, score_line_key in [("front", "score_line_front_type"), ("back", "score_line_back_type")]:
-        side = imprint.get(side_key) or {}
-        q_type = query.get(score_line_key) or "없음"
-        q_has = q_type != "없음"
-        q_cross = q_type == "십자분할선"
-        c_has = side.get("has_score_line", False)
-        c_cross = side.get("is_cross", False)
-        if q_cross and c_cross:
-            score += 6.0
-        elif q_has == c_has:
+    # 분할선/십자분할선 점수 (v4: 방향 강제 안 함, 존재 여부 중심)
+    q_front_type = query.get("score_line_front_type") or "없음"
+    q_back_type = query.get("score_line_back_type") or "없음"
+    q_has_cross = "십자분할선" in (q_front_type, q_back_type)
+    q_has_line = q_front_type != "없음" or q_back_type != "없음"
+
+    c_has_cross = _candidate_has_cross_score_line(candidate_meta)
+    c_has_line = _candidate_has_score_line(candidate_meta)
+
+    if q_has_cross and c_has_cross:
+        score += 12.0
+    elif q_has_cross and c_has_line:
+        score += 6.0
+    elif q_has_line and c_has_line:
+        score += 8.0
+
+    # 색상 (8점) — 토큰 세트 비교, 반점 색상 제외
+    q_color = query.get("color_norm") or ""
+    c_color = ap.get("color_normalized") or ""
+    if q_color and c_color:
+        q_ctok = color_tokens(q_color)
+        c_ctok = color_tokens(c_color)
+        if q_ctok == c_ctok:
+            score += 8.0
+        elif q_ctok & c_ctok:
             score += 4.0
-        else:
-            # 분할선 유무 불일치 패널티
-            # 예: 쿼리가 분할선 있는데 DB는 없으면 -4점
-            score -= 4.0
 
-    # 색상 (8점)
-    if query.get("color_norm") and ap.get("color_normalized") == query["color_norm"]:
-        score += 8.0
-
-    # 모양 (8점)
-    if query.get("shape_norm") and ap.get("shape_normalized") == query["shape_norm"]:
-        score += 8.0
+    # 모양 (8점) — 유사 점수 포함
+    score += shape_match_score(query.get("shape_norm") or "", ap.get("shape_normalized") or "")
 
     return score
 
 
-# ── STEP 5: metadata 기반 후보 검색 + rerank ───
-def _split_combined_imprint(features: dict) -> dict:
-    """
-    GPT가 앞뒷면을 한 면으로 합쳐서 반환한 경우를 보정.
+# ── needs_recheck (v4) ────────────────────────
+def _needs_recheck(vlm: dict, top_candidates: list[dict]) -> dict:
+    flags: dict[str, bool] = {
+        "faint_imprint_recheck": False,
+        "scoreline_recheck": False,
+        "cross_scoreline_recheck": False,
+        "mark_recheck": False,
+    }
 
-    조건:
-    - print_back이 없고
-    - print_front에 공백으로 구분된 토큰이 정확히 2개이고
-    - front_left_text/front_right_text 힌트가 각 토큰과 일치하며
-    - score_line_front_type이 "없음" 또는 누락인 경우만 분리
-      (분할선이 있는 경우는 한 면의 각인이 맞으므로 분리 금지)
-    """
+    front_norm = (vlm.get("print_front") or "").replace(" ", "")
+    back_norm = (vlm.get("print_back") or "").replace(" ", "")
+    total_len = len(front_norm) + len(back_norm)
+    imprint_conf = float(vlm.get("imprint_confidence") or 0.0)
+    score_line_conf = float(vlm.get("score_line_confidence") or 0.0)
+
+    vlm_front_type = vlm.get("score_line_front_type") or "없음"
+    vlm_back_type = vlm.get("score_line_back_type") or "없음"
+    vlm_has_cross = "십자분할선" in (vlm_front_type, vlm_back_type)
+    vlm_has_line = vlm_front_type != "없음" or vlm_back_type != "없음"
+
+    cross_count = sum(1 for c in top_candidates if _candidate_has_cross_score_line(c.get("metadata") or {}))
+    line_count = sum(1 for c in top_candidates if _candidate_has_score_line(c.get("metadata") or {}))
+    candidate_has_imprint = any(_candidate_has_any_imprint(c.get("metadata") or {}) for c in top_candidates)
+    candidate_has_mark = any(
+        candidate_side_has_mark(c.get("metadata") or {}, s) for c in top_candidates for s in ("front", "back")
+    )
+
+    if cross_count >= 1 and not vlm_has_cross:
+        flags["cross_scoreline_recheck"] = True
+    if line_count >= 2 and (not vlm_has_line or score_line_conf < 0.6):
+        flags["scoreline_recheck"] = True
+    if (total_len <= 2 and candidate_has_imprint) or imprint_conf < 0.65:
+        flags["faint_imprint_recheck"] = True
+    if has_speckle_hint(vlm):
+        flags["faint_imprint_recheck"] = True
+    # 마크 재검사: 후보에 마크가 있는데 VLM이 애매한 문자로 읽은 경우
+    q_vals = {str(vlm.get("print_front") or "").strip(), str(vlm.get("print_back") or "").strip()}
+    if candidate_has_mark and bool(q_vals & AMBIGUOUS_MARK_CHARS):
+        flags["mark_recheck"] = True
+
+    return flags
+
+
+# ── 2차 VLM 프롬프트 ──────────────────────────
+_SCORELINE_RECHECK_PROMPT = """알약의 분할선만 다시 확인한다. 각인/색상/모양은 무시한다.
+반드시 JSON만 출력한다.
+규칙: 직선 하나는 "분할선", + 모양은 "십자분할선". 십자분할선은 텍스트가 없어도 반드시 기록한다.
+{
+  "front_score_line_type": "없음|분할선|십자분할선|판독불가",
+  "back_score_line_type": "없음|분할선|십자분할선|판독불가",
+  "front_direction": "없음|세로|가로|십자|판독불가",
+  "back_direction": "없음|세로|가로|십자|판독불가",
+  "front_left_text": null, "front_right_text": null,
+  "front_top_text": null, "front_bottom_text": null,
+  "back_left_text": null, "back_right_text": null,
+  "back_top_text": null, "back_bottom_text": null,
+  "score_line_confidence": 0.0,
+  "notes": null
+}"""
+
+_FAINT_IMPRINT_RECHECK_PROMPT = """알약의 희미한 각인만 다시 확인한다. 색상/모양은 무시한다.
+반드시 JSON만 출력한다.
+규칙: 반점/얼룩/점박이 무늬는 각인이 아니다. 눌린 자국, 음각/양각 문자만 각인이다.
+문자/숫자가 확실하지 않으면 null. 로고/심볼이면 "마크".
+{
+  "print_front": null, "print_back": null,
+  "front_candidates": [], "back_candidates": [],
+  "imprint_confidence": 0.0,
+  "notes": null
+}"""
+
+_MARK_RECHECK_PROMPT = """알약 표면 표시가 문자/숫자인지 마크/로고인지 확인한다.
+반드시 JSON만 출력한다.
+규칙: 곡선, 심볼, 회사 로고처럼 보이고 문자로 확정할 수 없으면 "마크"로 기록한다.
+원형 알약의 곡선 마크는 5, S, JS처럼 보일 수 있다. 확실하지 않으면 "마크"로 둔다.
+{
+  "print_front": null, "print_back": null,
+  "front_is_mark": false, "back_is_mark": false,
+  "confidence": 0.0,
+  "notes": null
+}"""
+
+
+async def _call_second_pass(
+    client: AsyncOpenAI,
+    model: str,
+    image_b64_list: list[str],
+    prompt: str,
+    max_tokens: int = 300,
+) -> dict:
+    """공통 2차 VLM 호출."""
+    contents: list[dict] = []
+    for i, b64 in enumerate(image_b64_list):
+        face = "앞면" if i == 0 else "뒷면"
+        contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}})
+        contents.append({"type": "text", "text": f"위 이미지는 알약의 {face}입니다."})
+    contents.append({"type": "text", "text": prompt})
+    try:
+        resp = await client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=0,
+            messages=[{"role": "user", "content": contents}],
+        )
+        raw = resp.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        return json.loads(raw)
+    except Exception as e:
+        logger.warning("2차 VLM 호출 실패: %s", e)
+        return {}
+
+
+def merge_recheck_result(base: dict, recheck: dict, kind: str, threshold: float = 0.55) -> dict:
+    """2차 VLM 결과를 confidence 기준으로 1차 결과에 병합."""
+    result = dict(base)
+
+    if kind == "faint_imprint":
+        conf = float(recheck.get("imprint_confidence") or 0)
+        base_conf = float(base.get("imprint_confidence") or 0)
+        if conf >= threshold and conf >= base_conf:
+            if recheck.get("print_front") and not result.get("print_front"):
+                result["print_front"] = recheck["print_front"]
+            if recheck.get("print_back") and not result.get("print_back"):
+                result["print_back"] = recheck["print_back"]
+            result["imprint_confidence"] = conf
+
+    elif kind == "scoreline":
+        conf = float(recheck.get("score_line_confidence") or 0)
+        if conf >= threshold:
+            result["score_line_front_type"] = recheck.get("front_score_line_type", result.get("score_line_front_type"))
+            result["score_line_back_type"] = recheck.get("back_score_line_type", result.get("score_line_back_type"))
+            result["score_line_front_direction"] = recheck.get(
+                "front_direction", result.get("score_line_front_direction")
+            )
+            result["score_line_back_direction"] = recheck.get("back_direction", result.get("score_line_back_direction"))
+            result["score_line_confidence"] = conf
+
+    elif kind == "mark":
+        conf = float(recheck.get("confidence") or 0)
+        if conf >= threshold:
+            if recheck.get("front_is_mark"):
+                result["print_front"] = "마크"
+            elif recheck.get("print_front"):
+                result["print_front"] = recheck["print_front"]
+            if recheck.get("back_is_mark"):
+                result["print_back"] = "마크"
+            elif recheck.get("print_back"):
+                result["print_back"] = recheck["print_back"]
+            result["imprint_confidence"] = max(float(result.get("imprint_confidence") or 0), conf)
+
+    notes = []
+    if base.get("notes"):
+        notes.append(str(base["notes"]))
+    if recheck.get("notes"):
+        notes.append(f"{kind}: {recheck['notes']}")
+    result["notes"] = " / ".join(notes) if notes else None
+
+    return result
+
+
+# ── 매칭 실패 판단 (v4) ───────────────────────
+def should_return_match_failure(
+    best_candidate: dict | None,
+    second_candidate: dict | None,
+    vlm_result: dict,
+    best_score: float,
+) -> tuple[bool, str]:
+    if not best_candidate:
+        return True, "RAG 후보 없음"
+
+    imprint_conf = float(vlm_result.get("imprint_confidence") or 0)
+    color_conf = float(vlm_result.get("color_confidence") or 0)
+    shape_conf = float(vlm_result.get("shape_confidence") or 0)
+
+    if best_score < 45:
+        return True, "최종 매칭 점수가 낮음"
+    if imprint_conf < 0.45 and color_conf < 0.6 and shape_conf < 0.6:
+        return True, "이미지 특징이 불명확함"
+    if second_candidate:
+        second_score = float(second_candidate.get("rerank_score") or 0)
+        if best_score - second_score < 5 and imprint_conf < 0.6:
+            return True, "상위 후보 간 점수 차이가 작고 각인이 불명확함"
+
+    return False, ""
+
+
+# ── 앞뒷면 합산 각인 분리 보정 ────────────────
+def _split_combined_imprint(features: dict) -> dict:
     front = features.get("print_front") or ""
     back = features.get("print_back") or ""
     score_line_type = features.get("score_line_front_type") or "없음"
 
-    # 뒷면이 있거나, 앞면에 분할선이 있으면 분리 안 함
     if back or not front or score_line_type not in ("없음", ""):
         return features
 
@@ -395,37 +597,34 @@ def _split_combined_imprint(features: dict) -> dict:
     if len(tokens) != 2:
         return features
 
-    # left_text/right_text 힌트가 각 토큰과 일치하면 분리 확정
     left = (features.get("front_left_text") or "").strip()
     right = (features.get("front_right_text") or "").strip()
     if left == tokens[0] and right == tokens[1]:
-        logger.info(
-            "앞뒷면 합산 각인 감지 → 분리: front=%s, back=%s",
-            tokens[0],
-            tokens[1],
-        )
+        logger.info("앞뒷면 합산 각인 감지 → 분리: front=%s, back=%s", tokens[0], tokens[1])
         return {**features, "print_front": tokens[0], "print_back": tokens[1]}
 
     return features
 
 
+# ── 2단계: imprint RAG + rerank ───────────────
 async def find_drug_by_imprint(
     conn: asyncpg.Connection,
     client: AsyncOpenAI,
     features: dict,
+    image_b64_list: list[str] | None = None,
 ) -> dict | None:
-    # GPT가 앞뒷면을 한 면으로 합쳐서 반환한 경우 보정
     features = _split_combined_imprint(features)
 
-    parts = []
-    if features.get("print_front"):
-        parts.append(features["print_front"])
-    if features.get("print_back"):
-        parts.append(features["print_back"])
-    if features.get("color"):
-        parts.append(features["color"])
-    if features.get("shape"):
-        parts.append(features["shape"])
+    parts = [
+        v
+        for v in [
+            features.get("print_front"),
+            features.get("print_back"),
+            features.get("color"),
+            features.get("shape"),
+        ]
+        if v
+    ]
 
     if not parts:
         return None
@@ -438,7 +637,6 @@ async def find_drug_by_imprint(
     back_norm = norm["back_norm"] or ""
 
     try:
-        # vector 검색 (fallback 포함)
         emb_response = await client.embeddings.create(
             model="text-embedding-3-small",
             input=query_str,
@@ -450,15 +648,13 @@ async def find_drug_by_imprint(
             SELECT item_seq, item_name, chunk_text, metadata,
                    1 - (embedding <=> $1::vector) AS similarity
             FROM drug_embeddings
-            WHERE chunk_type = 'imprint'
-              AND embedding IS NOT NULL
+            WHERE chunk_type = 'imprint' AND embedding IS NOT NULL
             ORDER BY embedding <=> $1::vector
             LIMIT 20
             """,
             vector_str,
         )
 
-        # metadata exact match 후보
         exact_rows: list = []
         if front_norm or back_norm:
             conditions = []
@@ -469,24 +665,20 @@ async def find_drug_by_imprint(
             if back_norm:
                 params.append(back_norm)
                 conditions.append(f"metadata->'search_keys'->>'back_norm' = ${len(params)}")
-
             if conditions:
                 exact_rows = list(
                     await conn.fetch(
                         f"""
-                        SELECT item_seq, item_name, chunk_text, metadata,
-                               1 - (embedding <=> $1::vector) AS similarity
-                        FROM drug_embeddings
-                        WHERE chunk_type = 'imprint'
-                          AND ({" AND ".join(conditions)})
-                          AND embedding IS NOT NULL
-                        LIMIT 10
-                        """,
+                    SELECT item_seq, item_name, chunk_text, metadata,
+                           1 - (embedding <=> $1::vector) AS similarity
+                    FROM drug_embeddings
+                    WHERE chunk_type = 'imprint'
+                      AND ({" AND ".join(conditions)}) AND embedding IS NOT NULL
+                    LIMIT 10
+                    """,
                         *params,
                     )
                 )
-
-            # swapped match
             if front_norm and back_norm:
                 swap_rows = await conn.fetch(
                     """
@@ -505,7 +697,6 @@ async def find_drug_by_imprint(
                 )
                 exact_rows += list(swap_rows)
 
-        # 후보 통합 + item_seq 기준 중복 제거
         seen_seqs: set[str] = set()
         candidates: list[dict] = []
         for r in list(exact_rows) + list(vector_rows):
@@ -531,39 +722,69 @@ async def find_drug_by_imprint(
             logger.info("imprint 데이터 없음 (임베딩 미구축)")
             return None
 
-        # STEP 6: rerank
         for c in candidates:
             rerank = _rerank_score(norm, c["metadata"])
             c["rerank_score"] = rerank + c["vector_similarity"] * 10
             c["rerank_base"] = rerank
 
         candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
-
-        top5 = ", ".join(
-            f"{c['item_name']}(rerank={c['rerank_base']:.0f}, vec={c['vector_similarity']:.3f})" for c in candidates[:5]
+        logger.info(
+            "imprint 상위 5개: %s",
+            ", ".join(
+                f"{c['item_name']}(r={c['rerank_base']:.0f},v={c['vector_similarity']:.3f})" for c in candidates[:5]
+            ),
         )
-        logger.info("imprint 상위 5개 후보 (rerank 내림차순): %s", top5)
+
+        # 조건부 2차 VLM
+        if image_b64_list and ENABLE_SECOND_PASS:
+            recheck = _needs_recheck(features, candidates[:5])
+            logger.info("needs_recheck: %s", recheck)
+            model_name = await get_ai_model(conn)
+
+            if recheck.get("faint_imprint_recheck"):
+                r2 = await _call_second_pass(client, model_name, image_b64_list, _FAINT_IMPRINT_RECHECK_PROMPT)
+                if r2:
+                    features = merge_recheck_result(features, r2, "faint_imprint", SECOND_PASS_THRESHOLD)
+                    logger.info("2차 VLM faint_imprint 병합: %s", r2)
+
+            if recheck.get("cross_scoreline_recheck") or recheck.get("scoreline_recheck"):
+                r2 = await _call_second_pass(client, model_name, image_b64_list, _SCORELINE_RECHECK_PROMPT)
+                if r2:
+                    features = merge_recheck_result(features, r2, "scoreline", SECOND_PASS_THRESHOLD)
+                    logger.info("2차 VLM scoreline 병합: %s", r2)
+
+            if recheck.get("mark_recheck"):
+                r2 = await _call_second_pass(client, model_name, image_b64_list, _MARK_RECHECK_PROMPT)
+                if r2:
+                    features = merge_recheck_result(features, r2, "mark", SECOND_PASS_THRESHOLD)
+                    logger.info("2차 VLM mark 병합: %s", r2)
+
+            if any(recheck.values()):
+                norm = normalize_vision_result(features)
+                for c in candidates:
+                    rerank = _rerank_score(norm, c["metadata"])
+                    c["rerank_score"] = rerank + c["vector_similarity"] * 10
+                    c["rerank_base"] = rerank
+                candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
+                logger.info("2차 VLM 후 재랭크 1위: %s", candidates[0]["item_name"] if candidates else "none")
 
         best = candidates[0]
+        second = candidates[1] if len(candidates) > 1 else None
 
-        # 임계값: rerank 10점 이상 OR vector 유사도 0.55 이상
-        if best["rerank_base"] < 10.0 and best["vector_similarity"] < IMPRINT_SIMILARITY_THRESHOLD:
+        # v4 매칭 실패 판단
+        fail, reason = should_return_match_failure(best, second, features, best["rerank_score"])
+        if fail:
             logger.info(
-                "imprint 매칭 실패 - rerank=%.1f, vec=%.3f\n  쿼리: %s\n  최유사 DB: %s",
-                best["rerank_base"],
-                best["vector_similarity"],
-                query_str,
-                best["chunk_text"],
+                "imprint 매칭 실패 (%s) - rerank=%.1f, vec=%.3f", reason, best["rerank_base"], best["vector_similarity"]
             )
             return None
 
         logger.info(
-            "imprint 매칭 성공: '%s' → '%s' (rerank=%.1f, vec=%.3f)\n  DB chunk: %s",
+            "imprint 매칭 성공: '%s' → '%s' (rerank=%.1f, vec=%.3f)",
             query_str,
             best["item_name"],
             best["rerank_base"],
             best["vector_similarity"],
-            best["chunk_text"],
         )
         return {
             "item_seq": best["item_seq"],
@@ -577,28 +798,80 @@ async def find_drug_by_imprint(
 
 
 # ── 3단계: 허가정보 DB 직접 조회 ──────────────
-async def fetch_drug_info_from_db(
-    conn: asyncpg.Connection,
-    item_seq: str,
-) -> dict:
+async def fetch_drug_info_from_db(conn: asyncpg.Connection, item_seq: str) -> dict:
     rows = await conn.fetch(
         """
-        SELECT chunk_type, chunk_text
-        FROM drug_embeddings
-        WHERE item_seq = $1
-          AND chunk_type IN ('efficacy', 'caution', 'ingredient')
+        SELECT chunk_type, chunk_text FROM drug_embeddings
+        WHERE item_seq = $1 AND chunk_type IN ('efficacy', 'caution', 'ingredient')
         """,
         item_seq,
     )
-
     db_info: dict[str, str] = {}
     for r in rows:
         text = r["chunk_text"]
         if ": " in text:
-            content = text.split(": ", 1)[1].strip()
-            db_info[r["chunk_type"]] = content
-
+            db_info[r["chunk_type"]] = text.split(": ", 1)[1].strip()
     return db_info
+
+
+async def refine_drug_info(client: AsyncOpenAI, model: str, item_name: str, db_info: dict) -> dict:
+    raw_efficacy = db_info.get("efficacy") or ""
+    raw_caution = db_info.get("caution") or ""
+    raw_ingredient = db_info.get("ingredient") or ""
+
+    if not any([raw_efficacy, raw_caution, raw_ingredient]):
+        return {}
+
+    prompt = f"""아래는 '{item_name}'의 의약품 허가정보 원문입니다.
+일반 사용자가 이해하기 쉬운 한국어로 정리해주세요.
+
+[원본 데이터]
+- 유효성분: {raw_ingredient or "없음"}
+- 효능효과: {raw_efficacy or "없음"}
+- 주의사항: {raw_caution or "없음"}
+
+[출력 규칙]
+- 반드시 JSON만 출력하세요. 설명/마크다운/코드블록 금지.
+- 각 항목은 2~4문장 이내로 요약하세요.
+- 정보가 없는 항목은 null로 두세요.
+- 원본에 없는 내용을 임의로 만들지 마세요.
+
+{{
+  "active_ingredients": "유효성분명 및 함량 요약",
+  "efficacy": "이 약의 주요 효능과 효과",
+  "usage_method": "복용법 및 용량",
+  "warning": "복용 전 반드시 확인해야 할 경고 사항",
+  "caution": "일반 주의사항",
+  "interactions": "함께 복용 시 주의할 약물",
+  "side_effects": "발생 가능한 부작용",
+  "storage_method": "보관 방법"
+}}"""
+
+    try:
+        resp = await client.chat.completions.create(
+            model=model,
+            max_tokens=800,
+            temperature=0,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        refined = json.loads(raw)
+        logger.info("약품정보 LLM 정제 완료: %s", item_name)
+        return refined
+    except Exception as e:
+        logger.warning("약품정보 LLM 정제 실패 (원본 사용): %s", e)
+        return {
+            "active_ingredients": raw_ingredient or None,
+            "efficacy": raw_efficacy or None,
+            "usage_method": None,
+            "warning": None,
+            "caution": raw_caution or None,
+            "interactions": None,
+            "side_effects": None,
+            "storage_method": None,
+        }
 
 
 # ── ai_settings 조회 ───────────────────────────
@@ -608,12 +881,7 @@ async def get_ai_model(conn: asyncpg.Connection) -> str:
 
 
 # ── DB 저장 ────────────────────────────────────
-async def save_analysis_result(
-    conn: asyncpg.Connection,
-    user_id: int,
-    file_id: int,
-    result: dict,
-) -> int:
+async def save_analysis_result(conn: asyncpg.Connection, user_id: int, file_id: int, result: dict) -> int:
     row = await conn.fetchrow(
         """
         INSERT INTO pill_analysis_history (
@@ -654,7 +922,6 @@ async def process_pill_analysis(task_data: dict) -> dict:
         model = await get_ai_model(conn)
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
-        # 이미지 다운로드 + 전처리
         image_b64_list: list[str] = []
         image_bytes_list: list[bytes] = []
         for s3_key in s3_keys[:2]:
@@ -666,10 +933,9 @@ async def process_pill_analysis(task_data: dict) -> dict:
         if not image_b64_list:
             raise ValueError("처리할 이미지가 없습니다.")
 
-        # Clova OCR - 각인 텍스트 추출
         ocr_texts: list[str | None] = list(await asyncio.gather(*[extract_imprint_ocr(b) for b in image_bytes_list]))
 
-        # 앞면이 숫자만이고 뒷면이 영문자면 앞뒤 swap
+        # 앞면이 숫자만이고 뒷면이 영문자면 swap
         if (
             len(ocr_texts) == 2
             and ocr_texts[0]
@@ -686,53 +952,58 @@ async def process_pill_analysis(task_data: dict) -> dict:
             ocr_texts[1] if len(ocr_texts) > 1 else None,
         )
 
-        # 1단계: GPT Vision - 색상/모양 추출
         features = await extract_pill_features(client, image_b64_list, ocr_texts, model)
         logger.info("1단계 완료: %s", features)
 
         if not features.get("is_pill", True):
-            logger.info("알약 이미지가 아님 → 식별 불가 반환")
             result = {"product_name": "알약 이미지가 아닙니다", "gpt_model_version": model}
             analysis_id = await save_analysis_result(conn, user_id, file_id, result)
             return {"analysis_id": analysis_id, "product_name": result["product_name"], "result": result}
 
         if features.get("multiple_pills"):
-            logger.info("여러 알약 감지 → 분석 실패 반환")
             result = {"product_name": "여러 알약 감지 - 분석 실패", "gpt_model_version": model}
             analysis_id = await save_analysis_result(conn, user_id, file_id, result)
             return {"analysis_id": analysis_id, "product_name": result["product_name"], "result": result}
 
-        # 2단계: imprint RAG + rerank
-        matched_drug = await find_drug_by_imprint(conn, client, features)
+        matched_drug = await find_drug_by_imprint(conn, client, features, image_b64_list)
 
         if matched_drug is None:
-            logger.info("2단계 매칭 실패 → 각인 정보만 저장")
             parts = [v for v in [features.get("print_front"), features.get("print_back")] if v]
             product_name = f"각인: {', '.join(parts)} (DB 미매칭)" if parts else "식별 불가"
-            result = {"product_name": product_name, "gpt_model_version": model}
+            result = {
+                "product_name": product_name,
+                "gpt_model_version": model,
+                "vision_result": {
+                    "print_front": features.get("print_front"),
+                    "print_back": features.get("print_back"),
+                    "color": features.get("color"),
+                    "shape": features.get("shape"),
+                    "imprint_confidence": features.get("imprint_confidence"),
+                },
+            }
             analysis_id = await save_analysis_result(conn, user_id, file_id, result)
             return {"analysis_id": analysis_id, "product_name": result["product_name"], "result": result}
 
-        # 3단계: 허가정보 DB 직접 조회
         db_info = await fetch_drug_info_from_db(conn, matched_drug["item_seq"])
         logger.info("3단계 완료: item_seq=%s, 조회 필드=%s", matched_drug["item_seq"], list(db_info.keys()))
 
+        refined = await refine_drug_info(client, model, matched_drug["item_name"], db_info)
+
         result = {
             "product_name": matched_drug["item_name"],
-            "active_ingredients": db_info.get("ingredient"),
-            "efficacy": db_info.get("efficacy"),
-            "usage_method": None,
-            "warning": None,
-            "caution": db_info.get("caution"),
-            "interactions": None,
-            "side_effects": None,
-            "storage_method": None,
+            "active_ingredients": refined.get("active_ingredients"),
+            "efficacy": refined.get("efficacy"),
+            "usage_method": refined.get("usage_method"),
+            "warning": refined.get("warning"),
+            "caution": refined.get("caution"),
+            "interactions": refined.get("interactions"),
+            "side_effects": refined.get("side_effects"),
+            "storage_method": refined.get("storage_method"),
             "gpt_model_version": model,
         }
 
         analysis_id = await save_analysis_result(conn, user_id, file_id, result)
         logger.info("분석 완료: analysis_id=%s, product_name=%s", analysis_id, result["product_name"])
-
         return {"analysis_id": analysis_id, "product_name": result["product_name"], "result": result}
 
     finally:
