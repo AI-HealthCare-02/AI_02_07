@@ -1,4 +1,5 @@
 import calendar
+import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 
@@ -281,12 +282,23 @@ class GuideService:
                 content=r["content"],
                 status=r.get("status", "COMPLETED"),
             )
+            # ✅ 수정: TEXT/JSONB 모두 대응
+            content_raw = saved.content
+            if isinstance(content_raw, dict):
+                content = content_raw
+            elif isinstance(content_raw, str):
+                try:
+                    content = json.loads(content_raw)
+                except Exception:
+                    content = {}
+            else:
+                content = {}
+
             saved_results.append(
                 {
                     "ai_result_id": saved.ai_result_id,
                     "result_type": RESULT_TYPE_REVERSE_MAP.get(saved.result_type_code, saved.result_type_code),
-                    # ✅ 수정: JSONB로 변환 후 json.loads 불필요 → dict 그대로 사용
-                    "content": saved.content if isinstance(saved.content, dict) else {},
+                    "content": content,
                     "status": "COMPLETED",
                 }
             )
@@ -301,12 +313,23 @@ class GuideService:
         await self._get_guide_or_404(guide_id, user_id)
         db_result_type = RESULT_TYPE_MAP.get(result_type, result_type) if result_type else None
         results = await self._repo.get_latest_ai_results(guide_id, db_result_type)
+
+        def _parse_content(raw):
+            # ✅ 수정: TEXT/JSONB 모두 대응
+            if isinstance(raw, dict):
+                return raw
+            if isinstance(raw, str):
+                try:
+                    return json.loads(raw)
+                except Exception:
+                    return {}
+            return {}
+
         return [
             AiResultDetailItem(
                 ai_result_id=r.ai_result_id,
                 result_type=RESULT_TYPE_REVERSE_MAP.get(r.result_type_code, r.result_type_code),
-                # ✅ 수정: JSONB 변환 후 json.loads 불필요 → dict 그대로 사용
-                content=r.content if isinstance(r.content, dict) else {},
+                content=_parse_content(r.content),
                 status="COMPLETED" if r.is_latest else "OLD",
                 version=r.version,
                 created_at=r.created_at,
