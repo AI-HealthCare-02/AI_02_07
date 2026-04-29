@@ -142,23 +142,6 @@ def normalize_mark_text(text: str | None) -> str | None:
     return None
 
 
-def candidate_side_has_mark(metadata: dict, side: str) -> bool:
-    """기존 metadata 구조에서 마크 여부를 판단. DB 구조 변경 없음."""
-    if not metadata:
-        return False
-    imprint = (metadata.get("imprint") or {}).get(side) or {}
-    values = [
-        imprint.get("raw"),
-        imprint.get("text"),
-        imprint.get("normalized"),
-        metadata.get(f"print_{side}"),
-    ]
-    values.extend(imprint.get("tokens") or [])
-    sk = metadata.get("search_keys") or {}
-    values.append(sk.get(f"{side}_norm"))
-    return any(is_mark_text(v) for v in values)
-
-
 def _normalize_imprint(text: str) -> str:
     """각인 텍스트 정규화: 비ASCII→ASCII, 분할선/십자분할선 제거, 대문자화, 공백/특수문자 제거.
     단, '마크'/'로고'는 보존한다."""
@@ -396,26 +379,6 @@ def shape_match_score(q_shape: str, c_shape: str) -> float:
         return 5.0
     if pair == frozenset(["원형", "타원형"]):
         return 3.0
-    return 0.0
-
-
-# suspicious 짧은 문자 — 마크 오인 가능성이 높은 값
-_SUSPICIOUS_MARK_CHARS: set[str] = {"5", "S", "JS", "J5", "15", "1S", "I5"}
-
-
-def mark_match_score(query_value: str | None, candidate_metadata: dict, side: str) -> float:
-    """
-    마크 매칭 점수.
-    - query가 "마크"이고 candidate도 마크: 35점
-    - query가 suspicious 문자이고 candidate가 마크: 18점 (약한 점수)
-    """
-    if not query_value:
-        return 0.0
-    qv = str(query_value).strip()
-    if is_mark_text(qv):
-        return 35.0 if candidate_side_has_mark(candidate_metadata, side) else 0.0
-    if qv in _SUSPICIOUS_MARK_CHARS and candidate_side_has_mark(candidate_metadata, side):
-        return 18.0
     return 0.0
 
 
