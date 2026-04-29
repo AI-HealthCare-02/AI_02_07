@@ -152,7 +152,6 @@ export default function NewGuidePage() {
     setMeds((p) => p.map((m) => m.id === id ? { ...m, [field]: value } : m));
 
   // ── AI 가이드 생성 ──
-  // TODO: POST /api/v1/guides, POST /api/v1/guides/{id}/ai-generate API 구현 후 연동 필요
   const generate = async () => {
     const validMeds = meds.filter((m) => m.name.trim());
     if (validMeds.length === 0) { showToast("약물명을 최소 1개 입력해주세요."); return; }
@@ -164,38 +163,29 @@ export default function NewGuidePage() {
     window.scrollTo(0, 0);
 
     try {
+      // 백엔드 GuideCreateRequest 필드명에 맞춰 전송
       const payload = {
-        title: title.trim(),
-        visit_date: step1.visit_date,
+        title: title.trim() || null,
+        diagnosis_name: step1.diagnoses.join(", ") || null,
         hospital_name: step1.hospital_name || null,
-        department: step1.department || null,
-        input_method: step1.input_method,
-        diagnoses: step1.diagnoses,
-        memo: step1.memo || null,
+        visit_date: step1.visit_date || null,
+        med_start_date: step1.visit_date, // 진료일을 복약 시작일로 사용
         medications: validMeds.map((m) => ({
-          name: m.name.trim(),
+          medication_name: m.name.trim(),
           dosage: m.dosage || null,
           frequency: m.frequency || null,
           duration_days: m.duration_days ? parseInt(m.duration_days) : null,
-          time_slots: m.time_slots,
+          timing: m.time_slots[0] ?? null, // 첫 번째 시점을 timing으로
         })),
       };
 
-      // ── API 연동 (백엔드 구현 후 아래 주석 해제) ──
-      // const { data } = await apiClient.post("/api/v1/guides", payload);
-      // const guideId = data?.data?.guide_id;
-      // if (guideId) {
-      //   await apiClient.post(`/api/v1/guides/${guideId}/ai-generate`);
-      //   router.replace(`/guide/${guideId}`);
-      // } else {
-      //   router.replace("/guide");
-      // }
+      const { data: guideData } = await apiClient.post("/api/v1/guides", payload);
+      const guideId: number = (guideData.data ?? guideData).guide_id;
 
-      // ── Mock: API 미구현 상태 — 생성 애니메이션 후 목록으로 이동 ──
-      console.log("[가이드 생성 payload]", payload);
-      await new Promise((res) => setTimeout(res, 22000));
+      await apiClient.post(`/api/v1/guides/${guideId}/ai-generate`, { result_types: null });
+
       clearInterval(t);
-      router.replace("/guide");
+      router.replace(`/guide/${guideId}`);
     } catch (e: unknown) {
       clearInterval(t);
       showToast(e instanceof Error ? e.message : "가이드 생성에 실패했습니다.", "err");

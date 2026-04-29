@@ -2,18 +2,23 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-// import apiClient from "@/lib/axios";
+import apiClient from "@/lib/axios";
 
-// ── 타입 ──────────────────────────────────────────────────
+// ── 백엔드 GuideListItem 실제 필드명 기준 ──────────────────
 interface Guide {
   guide_id: number;
   title: string;
   hospital_name: string | null;
-  visit_date: string;
-  guide_status_code: string;
-  remaining_days: number | null;
+  visit_date: string | null;
+  med_start_date: string;
+  med_end_date: string | null;
+  d_day: number | null;
+  medication_count: number;
+  guide_status: string;   // "ACTIVE" | "COMPLETED" 등
+  input_method: string;
   weekly_compliance_rate: number | null;
-  today_progress: { done: number; total: number };
+  today_progress_done: number;
+  today_progress_total: number;
 }
 
 // ── 공통 컴포넌트 ──────────────────────────────────────────
@@ -31,7 +36,7 @@ function Toast({ msg, type, onClose }: { msg: string; type: "ok" | "err"; onClos
 }
 
 function Badge({ status }: { status: string }) {
-  const isActive = status === "GS_ACTIVE";
+  const isActive = status === "ACTIVE";
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
       isActive ? "bg-teal-500/15 text-teal-400" : "bg-muted text-muted-foreground"
@@ -42,9 +47,9 @@ function Badge({ status }: { status: string }) {
 }
 
 function GuideCard({ guide, onClick }: { guide: Guide; onClick: () => void }) {
-  const pct = guide.today_progress.total > 0
-    ? Math.round((guide.today_progress.done / guide.today_progress.total) * 100)
-    : 0;
+  const done  = guide.today_progress_done;
+  const total = guide.today_progress_total;
+  const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
 
   return (
     <button
@@ -59,24 +64,25 @@ function GuideCard({ guide, onClick }: { guide: Guide; onClick: () => void }) {
 
       <div className="mb-2 flex items-start justify-between gap-2">
         <p className="text-sm font-semibold leading-snug text-foreground line-clamp-2">{guide.title}</p>
-        <Badge status={guide.guide_status_code} />
+        <Badge status={guide.guide_status} />
       </div>
 
       <p className="mb-2 text-[11px] text-muted-foreground">
-        {guide.visit_date}{guide.hospital_name ? ` · ${guide.hospital_name}` : ""}
+        {guide.visit_date ?? guide.med_start_date}
+        {guide.hospital_name ? ` · ${guide.hospital_name}` : ""}
       </p>
 
-      {guide.guide_status_code === "GS_ACTIVE" && guide.remaining_days !== null && (
+      {guide.guide_status === "ACTIVE" && guide.d_day !== null && (
         <span className="mb-3 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
           style={{ background: "rgba(251,146,60,0.12)", color: "#fb923c" }}>
-          D-{guide.remaining_days}
+          D-{guide.d_day}
         </span>
       )}
 
       <div className="mt-3">
         <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
           <span>오늘 복약</span>
-          <span className="font-medium text-foreground">{guide.today_progress.done}/{guide.today_progress.total} · {pct}%</span>
+          <span className="font-medium text-foreground">{done}/{total} · {pct}%</span>
         </div>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div className="h-full rounded-full transition-all duration-700"
@@ -87,27 +93,20 @@ function GuideCard({ guide, onClick }: { guide: Guide; onClick: () => void }) {
   );
 }
 
-// ── Mock 데이터 ────────────────────────────────────────────
-const MOCK_GUIDES: Guide[] = [
-  { guide_id: 1, title: "고혈압·고지혈증 관리 가이드", hospital_name: "서울대학교병원", visit_date: "2026-03-20", guide_status_code: "GS_ACTIVE", remaining_days: 24, weekly_compliance_rate: 0.87, today_progress: { done: 2, total: 3 } },
-  { guide_id: 2, title: "비타민D + 철분제", hospital_name: null, visit_date: "2026-01-10", guide_status_code: "GS_ACTIVE", remaining_days: null, weekly_compliance_rate: 0.80, today_progress: { done: 1, total: 1 } },
-  { guide_id: 3, title: "감기·소화불량 처방", hospital_name: "서울나우병원", visit_date: "2026-02-05", guide_status_code: "GS_DONE", remaining_days: 0, weekly_compliance_rate: 1.0, today_progress: { done: 0, total: 0 } },
-  { guide_id: 4, title: "당뇨 관리 가이드", hospital_name: "강남세브란스병원", visit_date: "2026-04-01", guide_status_code: "GS_ACTIVE", remaining_days: 60, weekly_compliance_rate: 0.75, today_progress: { done: 0, total: 2 } },
-];
-
 // ── 메인 ──────────────────────────────────────────────────
 export default function GuidePage() {
   const router = useRouter();
-  const [guides, setGuides] = useState<Guide[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [guides, setGuides]         = useState<Guide[]>([]);
+  const [loading, setLoading]       = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [search, setSearch] = useState("");
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage]             = useState(1);
+  const [hasMore, setHasMore]       = useState(false);
+  const [search, setSearch]         = useState("");
   const [statusFilter, setStatusFilter] = useState("전체");
-  const [toast, setToast] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
+  const [toast, setToast]           = useState<{ msg: string; type: "ok" | "err" } | null>(null);
   const observerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cursorRef = useRef<number | null>(null);
 
   const showToast = (msg: string, type: "ok" | "err" = "ok") => {
     setToast({ msg, type });
@@ -115,50 +114,52 @@ export default function GuidePage() {
   };
 
   const fetchGuides = useCallback(async (reset = true) => {
-    if (reset) {
-      setLoading(true);
-      cursorRef.current = null;
-    } else {
-      setLoadingMore(true);
-    }
+    if (reset) setLoading(true);
+    else setLoadingMore(true);
+
+    const nextPage = reset ? 1 : page + 1;
 
     try {
-      // ── 실제 API ──
-      // const params: Record<string, string | number> = { size: 10 };
-      // if (statusFilter !== "전체") params.status = statusFilter === "복약 중" ? "GS_ACTIVE" : "GS_DONE";
-      // if (search) params.search = search;
-      // if (!reset && cursorRef.current) params.cursor = cursorRef.current;
-      // const { data } = await apiClient.get("/api/v1/guides", { params });
-      // const res = data.data;
-      // if (reset) setGuides(res.guides ?? []);
-      // else setGuides((p) => [...p, ...(res.guides ?? [])]);
-      // cursorRef.current = res.next_cursor ?? null;
-      // setHasMore(res.has_more ?? false);
+      const params: Record<string, string | number> = { page: nextPage, size: 12 };
+      if (statusFilter === "복약 중") params.status = "ACTIVE";
+      else if (statusFilter === "완료") params.status = "COMPLETED";
 
-      // ── Mock ──
-      await new Promise((r) => setTimeout(r, 400));
-      let filtered = MOCK_GUIDES;
-      if (statusFilter !== "전체") filtered = filtered.filter((g) => statusFilter === "복약 중" ? g.guide_status_code === "GS_ACTIVE" : g.guide_status_code === "GS_DONE");
-      if (search) filtered = filtered.filter((g) => g.title.includes(search) || g.hospital_name?.includes(search));
-      if (reset) setGuides(filtered);
-      else setGuides((p) => [...p, ...filtered]);
-      setHasMore(false);
+      const { data } = await apiClient.get("/api/v1/guides", { params });
+      const res: { guides: Guide[]; total_count: number; page: number } = data;
+
+      // 검색은 클라이언트 필터링 (백엔드 search 파라미터 미구현 시 대비)
+      const filtered = search
+        ? (res.guides ?? []).filter((g) =>
+            g.title.includes(search) || g.hospital_name?.includes(search)
+          )
+        : (res.guides ?? []);
+
+      if (reset) {
+        setGuides(filtered);
+        setPage(1);
+      } else {
+        setGuides((prev) => [...prev, ...filtered]);
+        setPage(nextPage);
+      }
+
+      setTotalCount(res.total_count ?? 0);
+      setHasMore((res.guides ?? []).length === 12);
     } catch {
       showToast("가이드 목록을 불러오지 못했습니다.", "err");
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [statusFilter, search]);
+  }, [statusFilter, search, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 검색 debounce
+  // 검색·필터 변경 시 debounce
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => fetchGuides(true), 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search, statusFilter, fetchGuides]);
+  }, [search, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 무한 스크롤 IntersectionObserver
+  // 무한 스크롤
   useEffect(() => {
     const el = observerRef.current;
     if (!el) return;
@@ -170,17 +171,17 @@ export default function GuidePage() {
     return () => observer.disconnect();
   }, [hasMore, loadingMore, fetchGuides]);
 
-  const today = new Date();
+  const today    = new Date();
   const todayStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
-  const activeGuides = guides.filter((g) => g.guide_status_code === "GS_ACTIVE");
-  const todayDone = activeGuides.reduce((s, g) => s + g.today_progress.done, 0);
-  const todayTotal = activeGuides.reduce((s, g) => s + g.today_progress.total, 0);
-  const totalPct = todayTotal > 0 ? Math.round((todayDone / todayTotal) * 100) : 0;
+  const activeGuides  = guides.filter((g) => g.guide_status === "ACTIVE");
+  const todayDone     = activeGuides.reduce((s, g) => s + g.today_progress_done, 0);
+  const todayTotal    = activeGuides.reduce((s, g) => s + g.today_progress_total, 0);
+  const totalPct      = todayTotal > 0 ? Math.round((todayDone / todayTotal) * 100) : 0;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 pb-24 lg:pb-8">
 
-      {/* ── 오늘 현황 배너 ── */}
+      {/* 오늘 현황 배너 */}
       <div className="relative mb-6 overflow-hidden rounded-2xl border border-border bg-card p-5">
         <div className="pointer-events-none absolute left-0 right-0 top-0 h-0.5"
           style={{ background: "linear-gradient(90deg, #14b8a6, #06b6d4)" }} />
@@ -190,7 +191,7 @@ export default function GuidePage() {
             <p className="mt-0.5 text-base font-bold text-foreground">
               💊 맞춤 건강 가이드
               <span className="ml-2 text-sm font-normal text-muted-foreground">
-                오늘 {todayDone}/{todayTotal} 완료
+                {loading ? "로딩 중..." : `총 ${totalCount}개 · 오늘 ${todayDone}/${todayTotal} 완료`}
               </span>
             </p>
           </div>
@@ -207,7 +208,7 @@ export default function GuidePage() {
         </div>
       </div>
 
-      {/* ── 검색 + 필터 + 새 가이드 ── */}
+      {/* 검색 + 필터 + 새 가이드 */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[180px]">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">🔍</span>
@@ -234,7 +235,7 @@ export default function GuidePage() {
         </button>
       </div>
 
-      {/* ── 가이드 카드 그리드 ── */}
+      {/* 가이드 카드 그리드 */}
       {loading ? (
         <div className="flex h-40 items-center justify-center">
           <span className="h-8 w-8 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-400" />
@@ -267,7 +268,6 @@ export default function GuidePage() {
         </div>
       )}
 
-      {/* 면책 고지 */}
       <p className="mt-8 text-center text-[11px] text-muted-foreground">
         ⚠️ 본 서비스는 건강 정보 제공 목적이며, 진단·치료·처방 변경을 대신하지 않습니다. 의료적 판단은 반드시 담당 의사 또는 약사와 상담하세요.
       </p>
