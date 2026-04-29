@@ -25,6 +25,25 @@ interface AiResult {
   content: Record<string, unknown>;
 }
 
+interface DrugDetail {
+  name: string;
+  mechanism_summary?: string;
+  how_to_take?: string;
+  side_effects?: string[];
+  side_effect_tips?: string;
+  food_interactions?: string;
+  warnings?: string[];
+  faq?: { q: string; a: string }[];
+  error?: string;
+}
+
+interface MedSummary {
+  name: string;
+  summary?: string;
+  how_to_take?: string;
+  caution?: string;
+}
+
 export default function TabDrugDetail({
   guideId,
   medications,
@@ -51,18 +70,22 @@ export default function TabDrugDetail({
   const medicationResult = aiResults.find((r) => r.result_type === "RT_MEDICATION");
 
   // 선택된 약물에 해당하는 상세 데이터 추출
-  const getDrugDetail = () => {
+  const getDrugDetail = (): DrugDetail | null => {
     if (drugDetailResult?.content) {
-      const drugs = (drugDetailResult.content as Record<string, unknown>).drugs as Record<string, unknown>[] | undefined;
-      if (drugs && selected) return drugs.find((d) => String(d.name).includes(selected.medication_name.split(" ")[0])) ?? drugs[0];
+      const drugs = (drugDetailResult.content.drugs ?? []) as DrugDetail[];
+      if (drugs.length === 0) return null;
+      if (selected) return drugs.find((d) => d.name?.includes(selected.medication_name.split(" ")[0])) ?? drugs[0];
+      return drugs[0];
     }
     return null;
   };
 
-  const getMedSummary = () => {
+  const getMedSummary = (): MedSummary | null => {
     if (medicationResult?.content) {
-      const meds = (medicationResult.content as Record<string, unknown>).medications as Record<string, unknown>[] | undefined;
-      if (meds && selected) return meds.find((m) => String(m.name).includes(selected.medication_name.split(" ")[0])) ?? meds[0];
+      const meds = (medicationResult.content.medications ?? []) as MedSummary[];
+      if (meds.length === 0) return null;
+      if (selected) return meds.find((m) => m.name?.includes(selected.medication_name.split(" ")[0])) ?? meds[0];
+      return meds[0];
     }
     return null;
   };
