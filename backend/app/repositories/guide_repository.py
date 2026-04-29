@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime, timedelta
 
 from tortoise.expressions import Q
@@ -122,7 +123,7 @@ class GuideRepository:
         return await GuideAiResult.create(
             guide_id=guide_id,
             result_type_code=result_type,
-            content=content,
+            content=json.dumps(content, ensure_ascii=False),
             version=version,
             is_latest=True,
         )
