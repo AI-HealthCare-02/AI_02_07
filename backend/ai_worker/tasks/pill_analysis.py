@@ -720,6 +720,28 @@ def merge_recheck_result(base: dict, recheck: dict, kind: str, threshold: float 
 
 
 # ── 매칭 실패 판단 (v4) ───────────────────────
+# 색상 유사 그룹 — 같은 그룹 내면 유사 색상으로 처리
+_COLOR_GROUPS: list[set[str]] = [
+    {"하양", "아이보리"},
+    {"노랑", "연노랑", "아이보리", "갈색", "주황"},
+    {"분홍", "빨강", "주황"},
+    {"초록", "연두"},
+    {"파랑", "보라"},
+    {"회색", "검정", "하양"},
+]
+
+
+def _is_color_similar(c1: str, c2: str) -> bool:
+    """두 색상이 같거나 같은 유사 그룹에 속하면 True.
+    GPT가 노랑을 연한 갈색으로 보는 등의 케이스를 허용.
+    """
+    if not c1 or not c2:
+        return True  # 한쪽이 없으면 판단 보류
+    if c1 == c2:
+        return True
+    return any(c1 in group and c2 in group for group in _COLOR_GROUPS)
+
+
 def should_return_match_failure(
     best_candidate: dict | None,
     second_candidate: dict | None,
@@ -730,20 +752,6 @@ def should_return_match_failure(
         return True, "RAG 후보 없음"
 
     imprint_conf = float(vlm_result.get("imprint_confidence") or 0)
-    color_conf = float(vlm_result.get("color_confidence") or 0)
-    shape_conf = float(vlm_result.get("shape_confidence") or 0)
-
-    if best_score < 45:
-        return True, "최종 매칭 점수가 낮음"
-    if imprint_conf < 0.45 and color_conf < 0.6 and shape_conf < 0.6:
-        return True, "이미지 특징이 불명확함"
-    if second_candidate:
-        second_score = float(second_candidate.get("rerank_score") or 0)
-        if best_score - second_score < 5 and imprint_conf < 0.6:
-            return True, "상위 후보 간 점수 차이가 작고 각인이 불명확함"
-
-        # back imprint mismatch + color mismatch -> fail
-    # e.g. query JS/10/green vs DB JS/UX/red
     sk = (best_candidate.get("metadata") or {}).get("search_keys") or {}
     ap = (best_candidate.get("metadata") or {}).get("appearance") or {}
 
@@ -753,10 +761,28 @@ def should_return_match_failure(
     c_color = (ap.get("color_normalized") or "").strip()
 
     back_mismatch = bool(q_back and c_back and q_back != c_back)
-    color_mismatch = bool(q_color and c_color and q_color != c_color)
 
-    if back_mismatch and color_mismatch:
+    color_conf = float(vlm_result.get("color_confidence") or 0)
+    color_clearly_different = (
+        bool(q_color and c_color) and not _is_color_similar(q_color, c_color) and color_conf >= 0.7
+    )
+
+    shape_conf = float(vlm_result.get("shape_confidence") or 0)
+    q_shape = (vlm_result.get("shape") or "").strip()
+    c_shape = (ap.get("shape_normalized") or "").strip()
+    shape_clearly_different = (
+        bool(q_shape and c_shape)
+        and q_shape != c_shape
+        and shape_match_score(q_shape, c_shape) == 0.0
+        and shape_conf >= 0.7
+    )
+
+    if back_mismatch and color_clearly_different:
         return True, (f"뒷면 각인 불일치({q_back}≠{c_back}) + 색상 불일치({q_color}≠{c_color})")
+
+    # 색상 + 모양 동시 불일치 실패
+    if color_clearly_different and shape_clearly_different:
+        return True, (f"색상 불일치({q_color}≠{c_color}) + 모양 불일치({q_shape}≠{c_shape})")
 
     return False, ""
 
