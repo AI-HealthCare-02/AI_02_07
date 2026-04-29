@@ -665,6 +665,22 @@ def should_return_match_failure(
         if best_score - second_score < 5 and imprint_conf < 0.6:
             return True, "상위 후보 간 점수 차이가 작고 각인이 불명확함"
 
+        # back imprint mismatch + color mismatch -> fail
+    # e.g. query JS/10/green vs DB JS/UX/red
+    sk = (best_candidate.get("metadata") or {}).get("search_keys") or {}
+    ap = (best_candidate.get("metadata") or {}).get("appearance") or {}
+
+    q_back = (vlm_result.get("print_back") or "").strip().upper()
+    c_back = (sk.get("back_norm") or "").upper()
+    q_color = (vlm_result.get("color") or "").strip()
+    c_color = (ap.get("color_normalized") or "").strip()
+
+    back_mismatch = bool(q_back and c_back and q_back != c_back)
+    color_mismatch = bool(q_color and c_color and q_color != c_color)
+
+    if back_mismatch and color_mismatch:
+        return True, (f"뒷면 각인 불일치({q_back}≠{c_back}) + 색상 불일치({q_color}≠{c_color})")
+
     return False, ""
 
 
