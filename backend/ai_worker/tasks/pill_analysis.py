@@ -720,6 +720,28 @@ def merge_recheck_result(base: dict, recheck: dict, kind: str, threshold: float 
 
 
 # ── 매칭 실패 판단 (v4) ───────────────────────
+# 색상 유사 그룹 — 같은 그룹 내면 유사 색상으로 처리
+_COLOR_GROUPS: list[set[str]] = [
+    {"하양", "아이보리"},
+    {"노랑", "연노랑", "아이보리", "갈색", "주황"},
+    {"분홍", "빨강", "주황"},
+    {"초록", "연두"},
+    {"파랑", "보라"},
+    {"회색", "검정", "하양"},
+]
+
+
+def _is_color_similar(c1: str, c2: str) -> bool:
+    """두 색상이 같거나 같은 유사 그룹에 속하면 True.
+    GPT가 노랑을 연한 갈색으로 보는 등의 케이스를 허용.
+    """
+    if not c1 or not c2:
+        return True  # 한쪽이 없으면 판단 보류
+    if c1 == c2:
+        return True
+    return any(c1 in group and c2 in group for group in _COLOR_GROUPS)
+
+
 def should_return_match_failure(
     best_candidate: dict | None,
     second_candidate: dict | None,
@@ -753,10 +775,18 @@ def should_return_match_failure(
     c_color = (ap.get("color_normalized") or "").strip()
 
     back_mismatch = bool(q_back and c_back and q_back != c_back)
-    color_mismatch = bool(q_color and c_color and q_color != c_color)
+    # 색상 그룹 기반 불일치 판단 — 유사 색상(노랑↔갈색 등)은 불일치로 보지 않음
+    color_conf = float(vlm_result.get("color_confidence") or 0)
+    color_clearly_different = (
+        bool(q_color and c_color) and not _is_color_similar(q_color, c_color) and color_conf >= 0.7
+    )
 
-    if back_mismatch and color_mismatch:
+    if back_mismatch and color_clearly_different:
         return True, (f"뒷면 각인 불일치({q_back}≠{c_back}) + 색상 불일치({q_color}≠{c_color})")
+
+    # 각인 양쪽 일치해도 색상이 명확히 다른 그룹이면 실패
+    if color_clearly_different:
+        return True, (f"색상 불일치({q_color}≠{c_color}) — 다른 색상 그룹")
 
     return False, ""
 
