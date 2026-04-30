@@ -212,13 +212,33 @@ class DrugRAGService:
         similarity_threshold: float = 0.3,
     ) -> list[DrugChunk]:
         """
-        약품명으로 검색합니다. pg_trgm 유사도 기반으로 오타도 허용합니다.
+        약품명으로 검색합니다.
+
+        1단계: pg_trgm 유사도 기반으로 오타도 허용합니다.
+        2단계: 결과 없으면 ILIKE 포함 검색으로 fallback
+               (예: "넥실렌정" → DB의 "넥실렌정500mg" 매칭)
 
         Parameters
         ----------
         similarity_threshold : float
             trgm 유사도 임계값 (0~1, 기본 0.3 — 낮을수록 더 많이 허용)
         """
+        results = await self._search_by_name_trgm(item_name, chunk_type, similarity_threshold)
+
+        # ✅ 추가: trgm 결과 없으면 ILIKE 포함 검색으로 fallback
+        if not results:
+            logger.info(f"trgm 검색 결과 없음 [{item_name}] → ILIKE 포함 검색 시도")
+            results = await self._search_by_name_ilike(item_name, chunk_type)
+
+        return results
+
+    async def _search_by_name_trgm(
+        self,
+        item_name: str,
+        chunk_type: ChunkType | None = None,
+        similarity_threshold: float = 0.3,
+    ) -> list[DrugChunk]:
+        """pg_trgm similarity 기반 약품명 검색."""
         conditions = ["similarity(item_name, $1) > $2"]
         params: list = [item_name, similarity_threshold]
 
@@ -239,6 +259,51 @@ class DrugRAGService:
 
         conn = Tortoise.get_connection("default")
         rows = await conn.execute_query_dict(sql, params)
+
+        return [
+            DrugChunk(
+                item_seq=row["item_seq"],
+                item_name=row["item_name"],
+                etc_otc_code=row["etc_otc_code"],
+                chunk_type=row["chunk_type"],
+                chunk_text=row["chunk_text"],
+                similarity=float(row["similarity"]),
+            )
+            for row in rows
+        ]
+
+    async def _search_by_name_ilike(
+        self,
+        item_name: str,
+        chunk_type: ChunkType | None = None,
+    ) -> list[DrugChunk]:
+        """
+        ✅ 추가: ILIKE 포함 검색.
+        DB에 "넥실렌정500mg" 형태로 저장돼 있어도 "넥실렌정"으로 매칭 가능.
+        """
+        conditions = ["item_name ILIKE $1"]
+        params: list = [f"%{item_name}%"]
+
+        if chunk_type:
+            conditions.append(f"chunk_type = ${len(params) + 1}")
+            params.append(chunk_type)
+
+        where_clause = " AND ".join(conditions)
+        sql = f"""
+            SELECT
+                item_seq, item_name, etc_otc_code, chunk_type, chunk_text,
+                1.0 AS similarity
+            FROM drug_embeddings
+            WHERE {where_clause}
+            ORDER BY item_name
+            LIMIT 10
+        """
+
+        conn = Tortoise.get_connection("default")
+        rows = await conn.execute_query_dict(sql, params)
+
+        if rows:
+            logger.info(f"ILIKE 검색 성공 [{item_name}] → {len(rows)}개 결과")
 
         return [
             DrugChunk(
