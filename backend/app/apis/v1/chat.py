@@ -71,6 +71,24 @@ async def delete_session(room_id: int, user: User = Depends(get_current_user)):
     return ResponseDTO(success=True, message="대화가 삭제되었습니다.")
 
 
+@router.patch(
+    "/sessions/{room_id}/title",
+    response_model=ResponseDTO,
+    summary="대화 세션 이름 변경",
+)
+async def rename_session(
+    room_id: int,
+    body: dict,
+    user: User = Depends(get_current_user),
+):
+    title = (body.get("title") or "").strip()
+    if not title:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="제목을 입력해주세요.")
+    await chat_service.rename_session(user, room_id, title)
+    return ResponseDTO(success=True, message="이름이 변경되었습니다.")
+
+
 # ── 메시지 전송 (SSE) ─────────────────────────────────────────────────────────
 
 
@@ -126,3 +144,37 @@ async def add_bookmark(message_id: int, user: User = Depends(get_current_user)):
 async def remove_bookmark(message_id: int, user: User = Depends(get_current_user)):
     data = await chat_service.remove_bookmark(user, message_id)
     return ResponseDTO(success=True, message="북마크가 해제되었습니다.", data=data)
+
+
+@router.get(
+    "/bookmarks",
+    response_model=ResponseDTO,
+    summary="북마크 목록 조회",
+)
+async def list_bookmarks(
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=50),
+    user: User = Depends(get_current_user),
+):
+    data = await chat_service.list_bookmarks(user, page, size)
+    return ResponseDTO(success=True, message="조회 성공", data=data.model_dump())
+
+
+@router.get(
+    "/bookmarks/{bookmark_id}",
+    response_model=ResponseDTO,
+    summary="북마크 단건 조회",
+)
+async def get_bookmark(bookmark_id: int, user: User = Depends(get_current_user)):
+    data = await chat_service.get_bookmark(user, bookmark_id)
+    return ResponseDTO(success=True, message="조회 성공", data=data.model_dump())
+
+
+@router.delete(
+    "/bookmarks/{bookmark_id}",
+    response_model=ResponseDTO,
+    summary="북마크 직접 삭제",
+)
+async def delete_bookmark_by_id(bookmark_id: int, user: User = Depends(get_current_user)):
+    await chat_service.delete_bookmark_by_id(user, bookmark_id)
+    return ResponseDTO(success=True, message="북마크가 해제되었습니다.")
