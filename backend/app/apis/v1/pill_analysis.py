@@ -297,9 +297,25 @@ async def delete_pill_analysis(
         raise HTTPException(status_code=404, detail="분석 결과를 찾을 수 없습니다.")
 
     uploaded = await UploadedFile.get_or_none(file_id=row.file_id)
-    if uploaded:
-        await delete_file(uploaded.s3_key)
-        await uploaded.delete()
+    s3_key = uploaded.s3_key if uploaded else None
 
-    await row.delete()
+    # DB 삭제를 트랜잭션으로 묶어 원자적으로 처리
+    # FK 제약: pill_analysis_history → uploaded_file 순서로 삭제해야 함
+    from tortoise.transactions import in_transaction
+
+    try:
+        async with in_transaction():
+            await row.delete()
+            if uploaded:
+                await uploaded.delete()
+    except Exception as e:
+        logger.error("[PillAnalysis] DB 삭제 실패 analysis_id=%s: %s", analysis_id, e)
+        raise HTTPException(status_code=500, detail="삭제에 실패했습니다.")
+
+    # DB 삭제 성공 후에만 S3 삭제 (실패해도 DB는 이미 정리됨)
+    if s3_key:
+        ok = await delete_file(s3_key)
+        if not ok:
+            logger.warning("[PillAnalysis] S3 삭제 실패 (DB는 삭제됨) key=%s", s3_key)
+
     return ResponseDTO(success=True, message="삭제되었습니다.")
