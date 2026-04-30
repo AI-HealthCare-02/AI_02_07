@@ -123,6 +123,7 @@ class TestMedCheck:
         payload = {
             "guide_medication_id": 1,
             "check_date": str(date.today()),
+            "timing_slot": "SLOT_1",  # ✅ 추가
         }
         with patch("app.apis.v1.guide.get_current_user", return_value=mock_user):
             with patch("app.services.guide_service.GuideRepository") as mock_repo_cls:
@@ -145,6 +146,7 @@ class TestMedCheck:
         payload = {
             "guide_medication_id": 1,
             "check_date": str(date.today()),
+            "timing_slot": "SLOT_1",  # ✅ 추가
         }
         with patch("app.apis.v1.guide.get_current_user", return_value=mock_user):
             with patch("app.services.guide_service.GuideRepository") as mock_repo_cls:

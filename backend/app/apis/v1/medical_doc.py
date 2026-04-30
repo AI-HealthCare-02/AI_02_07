@@ -38,14 +38,21 @@ MAX_PDF_SIZE = 20 * 1024 * 1024
 
 class MedicationUpdate(BaseModel):
     medication_index: int  # medications 배열에서 몇 번째 약인지 (0부터 시작)
-    timing: str | None = None
-    frequency: str | None = None
-    dosage: str | None = None
-    instructions: str | None = None
+    medication_name: str | None = None  # ✅ 추가: 약품명
+    dosage: str | None = None  # 투약량 (예: 1정, 500mg)
+    frequency: str | None = None  # 복용횟수 (예: 1일 2회)
+    timing: str | None = None  # 복용시점 (예: 식후, 식전, 취침 전)
+    duration_days: int | None = None  # ✅ 추가: 총투약일수
+    instructions: str | None = None  # 기타 복용 지시사항
 
 
 class DocResultPatchRequest(BaseModel):
-    medications: list[MedicationUpdate]
+    # ✅ 추가: 기본 정보 수정 필드
+    hospital_name: str | None = None  # 의료기관명
+    visit_date: str | None = None  # 진료일 (YYYY-MM-DD)
+    diagnosis_name: str | None = None  # 진단명
+    # 약물별 수정
+    medications: list[MedicationUpdate] = []
 
 
 # ============================================================
@@ -237,13 +244,16 @@ async def patch_analysis_result(
     분석 결과에서 미확인(null) 항목을 사용자가 직접 수정합니다.
     확인 완료 버튼 클릭 전 호출하여 수정 내용을 저장합니다.
 
+    - **hospital_name**: 의료기관명
+    - **visit_date**: 진료일 (YYYY-MM-DD)
+    - **diagnosis_name**: 진단명
     - **medication_index**: medications 배열 인덱스 (0부터 시작)
-    - **timing**: 복용법 (예: 식후, 식전, 취침 전)
-    - **frequency**: 복용 횟수 (예: 1일 2회)
-    - **dosage**: 용량 (예: 1정, 500mg)
-    - **instructions**: 기타 복용 지시사항
+    - **medication_name**: 약품명
+    - **dosage**: 투약량 (예: 1정, 500mg)
+    - **frequency**: 복용횟수 (예: 1일 2회)
+    - **timing**: 복용시점 (예: 식후, 식전, 취침 전)
+    - **duration_days**: 총투약일수
     """
-    # 본인 소유 결과만 조회
     result = await DocAnalysisResult.get_or_none(
         doc_result_id=doc_result_id,
         user_id=current_user.user_id,
@@ -255,10 +265,18 @@ async def patch_analysis_result(
             detail="분석 결과를 찾을 수 없습니다.",
         )
 
-    # analysis_json은 JSONField라 dict 그대로 사용 가능
     analysis = result.analysis_json or {}
     medications = analysis.get("medications", [])
 
+    # ✅ 추가: 기본 정보 수정 처리
+    if req.hospital_name is not None:
+        analysis["hospital_name"] = req.hospital_name
+    if req.visit_date is not None:
+        analysis["visit_date"] = req.visit_date
+    if req.diagnosis_name is not None:
+        analysis["diagnosis_name"] = req.diagnosis_name
+
+    # 약물별 수정 처리
     updated_count = 0
     for update in req.medications:
         idx = update.medication_index
@@ -266,12 +284,16 @@ async def patch_analysis_result(
             logger.warning(f"잘못된 medication_index: {idx} (총 {len(medications)}개)")
             continue
 
-        if update.timing is not None:
-            medications[idx]["timing"] = update.timing
-        if update.frequency is not None:
-            medications[idx]["frequency"] = update.frequency
+        if update.medication_name is not None:  # ✅ 추가
+            medications[idx]["medication_name"] = update.medication_name
         if update.dosage is not None:
             medications[idx]["dosage"] = update.dosage
+        if update.frequency is not None:
+            medications[idx]["frequency"] = update.frequency
+        if update.timing is not None:
+            medications[idx]["timing"] = update.timing
+        if update.duration_days is not None:  # ✅ 추가
+            medications[idx]["duration_days"] = update.duration_days
         if update.instructions is not None:
             medications[idx]["instructions"] = update.instructions
 
@@ -289,6 +311,9 @@ async def patch_analysis_result(
         data={
             "doc_result_id": doc_result_id,
             "updated_count": updated_count,
+            "hospital_name": analysis.get("hospital_name"),
+            "visit_date": analysis.get("visit_date"),
+            "diagnosis_name": analysis.get("diagnosis_name"),
             "medications": medications,
         },
     )
