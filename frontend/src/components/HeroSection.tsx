@@ -496,7 +496,7 @@ export default function HeroSection() {
             className="grid w-full max-w-4xl grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"
           >
             {FEATURES.map((f, i) => (
-              <Link key={i} href={f.href} className="h-full">
+              <Link key={i} href={f.href} className="h-full cursor-pointer">
                 <motion.div
                   whileHover={{ y: -6, scale: 1.02 }}
                   whileTap={{ scale: 0.97 }}
