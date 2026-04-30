@@ -1,444 +1,513 @@
-# 알약 분석 프로세스 상세 문서
+# 💊 알약 분석 시스템 — 전체 프로세스 문서
 
-## 개요
-
-사용자가 알약 이미지를 업로드하면 **Clova OCR → GPT Vision → pgvector RAG + Rerank → DB 조회** 순서로 약품을 식별하고 허가정보를 반환하는 파이프라인입니다.
-
----
-
-## 전체 흐름
-
-```
-[사용자]
-  │ 이미지 업로드 (앞면 필수, 뒷면 선택)
-  ▼
-[FastAPI: POST /api/v1/pill-analysis/analyze]
-  │ 이미지 유효성 검사 (포맷, 5MB 제한)
-  │ S3 업로드
-  │ UploadedFile DB 저장
-  │ Redis 큐에 태스크 등록 (production)
-  ▼
-[AI Worker: process_pill_analysis]
-  │
-  ├─ 이미지 전처리
-  ├─ Clova OCR (각인 추출)
-  ├─ 1단계: GPT Vision (색상/모양 추출 + OCR 교정)
-  ├─ 2단계: imprint RAG + Rerank (약품 특정)
-  └─ 3단계: DB 직접 조회 (허가정보)
-  ▼
-[pill_analysis_history 저장]
-  ▼
-[사용자에게 결과 반환]
-```
+> 담당: 안은지  
+> 최종 업데이트: v5.1
 
 ---
 
-## API 레이어 (`app/apis/v1/pill_analysis.py`)
-
-### 엔드포인트
-
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| POST | `/api/v1/pill-analysis/analyze` | 이미지 업로드 + 분석 요청 |
-| GET | `/api/v1/pill-analysis` | 분석 이력 목록 조회 (검색/페이징) |
-| GET | `/api/v1/pill-analysis/{id}` | 분석 상세 조회 (이미지 URL 포함) |
-| DELETE | `/api/v1/pill-analysis/{id}` | 분석 이력 삭제 |
-
-### 분석 요청 처리 흐름
-
-1. **이미지 유효성 검사**
-   - 허용 포맷: `JPEG`, `PNG`, `WEBP`, `HEIC`
-   - 최대 크기: 5MB
-   - `front_image` 필수, `back_image` 선택
-
-2. **S3 업로드**
-   - 앞면/뒷면 각각 `pill-images/{user_id}/...` 경로로 업로드
-   - `UploadedFile` 테이블에 메타데이터 저장
-
-3. **환경별 분기**
-   - `local`: API 서버에서 직접 처리 (개발 편의)
-   - `production`: Redis 큐(`ai_task_queue`)에 태스크 등록 → AI Worker가 처리 → 결과 대기 (최대 120초)
-
-4. **식별 불가 판단** (`is_unidentified`)
-   - `product_name`에 아래 키워드 포함 시 프론트에서 분석 불가 화면 표시
-   - 키워드: `식별 불가`, `미매칭`, `알약 이미지가 아닙니다`, `여러 알약`, `분석 실패`
-
----
-
-## AI Worker 파이프라인 (`ai_worker/tasks/pill_analysis.py`)
-
-### 이미지 전처리 (`preprocess_image`)
+## 1. 전체 흐름 요약
 
 ```
-원본 이미지 bytes
-  │
-  ├─ EXIF 회전 보정 (ImageOps.exif_transpose)
-  ├─ RGB 변환
-  ├─ 최대 1024px 리사이즈 (비율 유지, LANCZOS)
-  └─ JPEG quality=90 인코딩
-  ▼
-(base64 문자열, bytes) 반환
+사용자 이미지 업로드 (최대 2장: 앞면 / 뒷면)
+        ↓
+[전처리] 리사이즈 + EXIF 보정 (최대 1024px)
+        ↓
+[OCR] Clova OCR — 원본 + 180도 회전 병합
+        ↓
+[1단계] GPT Vision (detail:high) — 각인/색상/모양/분할선 추출
+        ↓
+[v5 보정] color 정규화 + multiple_pills 보정 + confidence 보정
+        ↓
+[2단계] imprint RAG 검색
+  ├─ 모든 query variant로 vector 검색 (item_seq 기준 merge)
+  ├─ metadata exact match (앞면/뒷면/swapped)
+  ├─ 마크 hypothesis metadata fallback (v5.1)
+  └─ rerank 점수 계산
+        ↓
+[조건부 2차 VLM] ENABLE_SECOND_PASS=true 시
+  ├─ 희미한 각인 재판독
+  ├─ 십자분할선 재확인
+  ├─ 마크 재검사
+  └─ candidate visual verification (마크 후보 발견 시)
+        ↓
+[매칭 실패 판단] 점수/색상/모양 조건 체크
+        ↓
+[3단계] 허가정보 DB 조회 + LLM 정제
+        ↓
+DB 저장 → 프론트 응답
 ```
 
 ---
 
-### Clova OCR (`extract_imprint_ocr`)
+## 2. 사용 기술 스택
 
-각인 텍스트를 이미지에서 직접 추출합니다.
-
-```
-이미지 bytes
-  │
-  ├─ 원본 OCR 요청
-  └─ 180도 회전 OCR 요청  ← 거꾸로 찍힌 이미지 대응
-  │  (두 요청 asyncio.gather로 병렬 처리)
-  ▼
-더 긴 텍스트 결과 선택 (더 많이 인식된 방향)
-  ▼
-대문자 변환 후 반환
-```
-
-**앞뒤 swap 로직**
-- 앞면 OCR이 숫자만(`500`)이고 뒷면이 영문자(`TYLENOL`)인 경우
-- 사용자가 앞뒤를 반대로 업로드한 것으로 판단하여 자동 교체
+| 구분 | 기술 | 용도 |
+|---|---|---|
+| OCR | Naver Clova OCR | 각인 텍스트 사전 추출 |
+| Vision LLM | GPT-4o (detail:high) | 각인/색상/모양/분할선 판독 |
+| Embedding | text-embedding-3-small | 검색 쿼리 벡터화 |
+| Vector DB | PostgreSQL + pgvector | 코사인 유사도 검색 |
+| Metadata | PostgreSQL JSONB | 각인/색상/모양 exact match |
+| 정제 LLM | GPT-4o-mini | 허가정보 원문 → 사용자 친화적 요약 |
 
 ---
 
-### 1단계: GPT Vision (`extract_pill_features`)
+## 3. 단계별 상세 설명
 
-OCR 결과를 힌트로 제공하고, GPT Vision은 **색상/모양 판단 + OCR 오인식 교정**을 담당합니다.
+### 3-1. 이미지 전처리
 
-**입력**
-- 이미지 (detail:low, 토큰 절약)
-- OCR 각인 텍스트 (힌트)
+- 최대 5MB 제한
+- 최대 1024px로 리사이즈 (비율 유지)
+- EXIF 회전 정보 자동 보정
+- JPEG quality=90으로 저장
 
-**프롬프트 구성**
+### 3-2. Clova OCR
+
+각인 텍스트를 사전에 추출해 GPT Vision의 참고값으로 제공.
+
+**원본 + 180도 회전 병합:**
+- 분할선 기준으로 한쪽 각인이 뒤집혀 있을 때 한쪽만 잡히는 문제 완화
+- 두 결과를 토큰 단위로 중복 제거 후 병합
+
+**OCR 힌트 약화:**
+- 1글자 이하, 기호만인 경우 GPT에 전달하지 않음
+- 전달 시 "OCR은 참고값이며 이미지가 우선" 명시
+
+**앞뒤 swap 로직:**
+- OCR 앞면이 숫자만이고 뒷면이 영문자면 자동 swap
+
+### 3-3. GPT Vision 1차 분석
+
+**모델:** GPT-4o, `detail:high`, `max_tokens=700`, `temperature=0`
+
+**추출 항목:**
+- `print_front` / `print_back`: 각인 문자 (마크/로고는 "마크")
+- `score_line_front/back_type`: 없음 / 분할선 / 십자분할선 / 판독불가
+- `front/back_left/right/top/bottom_text`: 분할선 영역별 각인
+- `color`: 알약 본체 색상
+- `shape`: 원형 / 타원형 / 장방형 / 삼각형 / 사각형 / 기타
+- `dosage_form_hint`: 정제 / 경질캡슐 / 연질캡슐
+- `imprint_confidence` / `color_confidence` / `shape_confidence`
+
+**주요 판독 규칙:**
+- 분할선 양쪽 각인을 left/right/top/bottom으로 분리 기록
+- 마크/로고는 "마크"로 기록 (5, S, JS처럼 보여도 불확실하면 "마크")
+- 반점/얼룩은 각인이 아님 → color_detail에만 기록
+- 한 이미지에 앞뒷면이 함께 있을 때 각 면의 각인이 서로 다른 각도로 회전될 수 있음
+  - 각 면을 독립적으로 0/90/180/270도 회전하며 판독
+  - 회전 혼동 문자: `4↔7`, `6↔9`, `2↔5`, `d↔0`, `n↔u`, `M↔W`
+
+### 3-4. v5 보정 (1단계 완료 직후)
+
+**색상 정규화:**
+```
+녹색 → 초록, 흰색 → 하양, 노란색 → 노랑 등
+```
+
+**multiple_pills 보정:**
+- 동일 색상/모양의 알약 앞뒷면이 한 이미지에 찍힌 경우
+- `multiple_pills=True`이지만 색상/모양/각인이 일관되면 `False`로 보정
+
+**confidence 보정 (calibrate_vlm_confidence):**
+- 반점/점박이 알약: imprint_confidence 상한 0.65, color_confidence 상한 0.75
+- 반점 색상을 기본색으로 오인 시: color_confidence 상한 0.55
+- JS/5/S/15 등 마크 오인 가능 문자: imprint_confidence 상한 0.65
+- 전체 confidence 상한: 0.95 (1.0 과신 방지)
+
+### 3-5. 2단계 imprint RAG 검색
+
+#### 검색 쿼리 생성 (build_rag_query_variants)
+
+기본 variants:
+```
+[앞면 뒷면 색상 모양]
+[뒷면 앞면 색상 모양]
+[앞면 색상 모양]
+[뒷면 색상 모양]
+[색상 모양]
+```
+
+마크 hypothesis variants (v5.1 — JS/5/S 등 감지 시):
+```
+[마크 뒷면 색상 모양]
+[뒷면 마크 색상 모양]
+[마크 색상 모양]
+```
+
+#### 검색 방식
+
+1. **모든 variant로 vector 검색** — item_seq 기준 merge/deduplicate
+2. **metadata exact match** — `front_norm AND back_norm` 조건
+3. **swapped match** — 앞뒤 바뀐 경우 대응
+4. **마크 metadata fallback** (v5.1) — 마크+stable각인+색상+모양 SQL 직접 검색
+
+#### 각인 정규화 (_normalize_imprint)
+
+- 비ASCII → ASCII 변환 (Λ→A, 그리스 문자 등)
+- 분할선/십자분할선 제거
+- 대문자화, 공백/특수문자 제거
+- "마크"/"로고"는 보존
+
+---
+
+## 4. Rerank 점수 계산
+
+### 4-1. 점수 배분표
+
+| 항목 | 조건 | 점수 |
+|---|---|---|
+| **각인 앞면** | exact match | +35 |
+| **각인 뒷면** | exact match | +35 |
+| **각인 (마크)** | query="마크" + DB=마크 | +35 |
+| **각인 (마크 오인)** | query=JS/5/S + DB=마크 | +20 |
+| **각인** | query=null → unknown | 0 (감점 없음) |
+| **십자분할선** | 양쪽 모두 십자분할선 | +12 |
+| **십자분할선** | 쿼리=십자, DB=일반분할선 | +6 |
+| **분할선** | 양쪽 모두 분할선 있음 | +8 |
+| **색상** | 토큰 세트 완전 일치 | +8 |
+| **색상** | 토큰 일부 겹침 | +4 |
+| **모양** | 정확 일치 | +8 |
+| **모양** | 타원형 ↔ 장방형 | +5 |
+| **모양** | 원형 ↔ 타원형 | +3 |
+| **vector similarity** | 보조 점수 | `similarity × 10` |
+
+**최종 점수:**
+```
+rerank_score = rerank_base + vector_similarity × 10
+```
+
+**앞뒤 swapped 비교:**
+- direct(앞=앞, 뒤=뒤)와 swapped(앞=뒤, 뒤=앞) 중 높은 값 사용
+
+---
+
+## 5. 매칭 성공/실패 기준
+
+### 5-1. 실패 조건 (하나라도 해당하면 실패)
+
+| 조건 | 실패 이유 |
+|---|---|
+| `rerank_score < 45` | 최종 매칭 점수가 낮음 |
+| `imprint_conf < 0.45` AND `color_conf < 0.6` AND `shape_conf < 0.6` | 이미지 특징이 전반적으로 불명확함 |
+| 1위-2위 점수 차 `< 5` AND `imprint_conf < 0.6` | 상위 후보 간 점수 차이가 작고 각인 불명확 |
+| 뒷면 각인 불일치 AND 색상 명확히 다른 그룹 | 각인+색상 동시 불일치 |
+| 색상 명확히 다른 그룹 AND 모양 완전 불일치 | 색상+모양 동시 불일치 |
+| RAG 후보 없음 | 임베딩 미구축 |
+
+### 5-2. 색상 유사 그룹
+
+같은 그룹 내 색상은 불일치로 보지 않음 (GPT 오인식 허용):
+
+| 그룹 | 포함 색상 |
+|---|---|
+| 흰계열 | 하양, 아이보리 |
+| 노란계열 | 노랑, 연노랑, 아이보리, 갈색, 주황 |
+| 붉은계열 | 분홍, 빨강, 주황 |
+| 초록계열 | 초록, 연두 |
+| 파란계열 | 파랑, 보라 |
+| 무채색계열 | 회색, 검정, 하양 |
+
+---
+
+## 6. 매칭 예시
+
+### ✅ 매칭 성공 케이스
+
+**케이스 1: 각인 양쪽 일치**
+```
+쿼리: 앞면=SCD, 뒷면=C6, 색상=하양, 모양=장방형
+DB:   앞면=SCD, 뒷면=C6, 색상=하양, 모양=장방형
+
+점수: 35 + 35 + 8(색상) + 8(모양) = 86점 → 성공
+```
+
+**케이스 2: 앞뒤 swap**
+```
+쿼리: 앞면=C6, 뒷면=SCD (사용자가 뒤집어 업로드)
+DB:   앞면=SCD, 뒷면=C6
+
+점수: swapped 35 + 35 = 70점 → 성공
+```
+
+**케이스 3: 마크 각인**
+```
+쿼리: 앞면=마크, 뒷면=10, 색상=초록, 모양=원형
+DB:   앞면=마크, 뒷면=10, 색상=초록, 모양=원형
+
+점수: 35(마크) + 35 + 8(색상) + 8(모양) = 86점 → 성공
+```
+
+**케이스 4: 마크 오인 (JS → 마크)**
+```
+쿼리: 앞면=JS, 뒷면=10, 색상=초록, 모양=원형
+DB:   앞면=마크, 뒷면=10, 색상=초록, 모양=원형
+
+점수: 20(JS vs 마크) + 35 + 8(색상) + 8(모양) = 71점 → 성공
+```
+
+**케이스 5: 색상 유사 그룹 허용**
+```
+쿼리: 앞면=ABC, 뒷면=123, 색상=갈색, 모양=장방형
+DB:   앞면=ABC, 뒷면=123, 색상=노랑, 모양=장방형
+
+색상: 갈색 ↔ 노랑 → 같은 그룹(노란계열) → 불일치 아님
+점수: 35 + 35 + 4(색상 일부) + 8(모양) = 82점 → 성공
+```
+
+**케이스 6: 분할선 각인**
+```
+쿼리: 앞면=1 3 (분할선), 뒷면=AUK, 색상=하양, 모양=타원형
+DB:   앞면=1분할선3, 뒷면=AUK, 색상=하양, 모양=타원형
+
+정규화: "1 3" → "13", "1분할선3" → "13" → exact match
+점수: 35 + 35 + 8(색상) + 8(모양) = 86점 → 성공
+```
+
+---
+
+### ❌ 매칭 실패 케이스
+
+**케이스 1: 점수 미달**
+```
+쿼리: 앞면=null, 뒷면=null, 색상=하양, 모양=원형
+DB:   앞면=ABC, 뒷면=123, 색상=하양, 모양=원형
+
+점수: 0(각인 없음) + 8(색상) + 8(모양) = 16점 < 45 → 실패
+```
+
+**케이스 2: 색상+모양 동시 불일치**
+```
+쿼리: 앞면=MTS, 뒷면=7, 색상=노랑, 모양=타원형
+DB:   앞면=MTS, 뒷면=7, 색상=분홍, 모양=원형
+
+색상: 노랑 vs 분홍 → 다른 그룹 + color_conf >= 0.7
+모양: 타원형 vs 원형 → shape_match_score = 3.0 > 0 → 완전 불일치 아님
+→ 색상 단독 불일치 조건 적용 → 실패
+```
+
+**케이스 3: 뒷면 각인 + 색상 동시 불일치**
+```
+쿼리: 앞면=JS, 뒷면=10, 색상=노랑, 모양=원형
+DB:   앞면=JS, 뒷면=UX, 색상=빨강, 모양=원형
+
+뒷면: 10 ≠ UX → 불일치
+색상: 노랑 vs 빨강 → 다른 그룹 + color_conf >= 0.7
+→ 뒷면 각인 + 색상 동시 불일치 → 실패
+```
+
+**케이스 4: 후보 간 점수 차이 작음**
+```
+1위: ABC/123/하양/원형 → rerank_score = 51
+2위: ABC/456/하양/원형 → rerank_score = 47
+차이: 4 < 5 AND imprint_conf = 0.5 < 0.6 → 실패
+```
+
+**케이스 5: 이미지 특징 불명확**
+```
+imprint_confidence = 0.3
+color_confidence = 0.4
+shape_confidence = 0.5
+→ 세 값 모두 임계값 미달 → 실패
+```
+
+---
+
+## 7. 조건부 2차 VLM (ENABLE_SECOND_PASS=true)
+
+기본값 `False`. 운영 환경에서 `.env`에 `ENABLE_SECOND_PASS=true` 설정 시 활성화.
+
+### 7-1. 재검사 트리거 조건
+
+| 조건 | 재검사 종류 |
+|---|---|
+| 상위 후보에 십자분할선 있는데 VLM이 못 찾음 | cross_scoreline_recheck |
+| 분할선 후보 2개 이상 + score_line_conf < 0.6 | scoreline_recheck |
+| 각인 총 길이 ≤ 2 + 후보에 각인 있음 | faint_imprint_recheck |
+| imprint_confidence < 0.65 | faint_imprint_recheck |
+| 반점/점박이 힌트 있음 | faint_imprint_recheck |
+| 후보에 마크 있고 VLM이 JS/5/S 등으로 읽음 | mark_recheck |
+| 마크 hypothesis 후보 발견 | candidate_visual_verification |
+
+### 7-2. 2차 VLM 종류
+
+- **faint_imprint**: 희미한 각인 전용 재판독
+- **scoreline**: 분할선/십자분할선 전용 재확인
+- **mark**: 마크 vs 문자 판별
+- **candidate_visual_verification**: 후보 목록 보여주고 이미지와 일치 여부 검증
+
+---
+
+## 8. 3단계: 허가정보 조회 및 LLM 정제
+
+### 8-1. DB 조회
+
+매칭된 `item_seq`로 `drug_embeddings` 테이블에서 조회:
+- `efficacy`: 효능효과 원문
+- `caution`: 주의사항 원문
+- `ingredient`: 유효성분 원문
+
+### 8-2. LLM 정제 (refine_drug_info)
+
+원본 허가정보 텍스트를 GPT로 정제해 사용자 친화적으로 변환:
+
+| DB 필드 | 내용 |
+|---|---|
+| `active_ingredients` | 유효성분명 및 함량 요약 |
+| `efficacy` | 주요 효능과 효과 |
+| `usage_method` | 복용법 및 용량 |
+| `warning` | 복용 전 경고 사항 |
+| `caution` | 일반 주의사항 |
+| `interactions` | 병용 주의 약물 |
+| `side_effects` | 발생 가능한 부작용 |
+| `storage_method` | 보관 방법 |
+
+LLM 정제 실패 시 원본 텍스트 그대로 fallback 저장.
+
+---
+
+## 9. 설정값 (환경변수)
+
+| 변수 | 기본값 | 설명 |
+|---|---|---|
+| `ENABLE_SECOND_PASS` | `false` | 2차 VLM 활성화 |
+| `SECOND_PASS_THRESHOLD` | `0.55` | 2차 VLM 결과 병합 confidence 임계값 |
+| `VLM_MAX_TOKENS` | `700` | GPT Vision 최대 토큰 |
+
+---
+
+## 10. 알려진 한계
+
+| 한계 | 설명 |
+|---|---|
+| 각인 회전 오인식 | 4↔7, 6↔9 등 회전 혼동 문자는 프롬프트로 완화하나 완전 해결 불가 |
+| 마크/로고 오인식 | JS, S, 5 등 마크 오인 가능 문자는 hypothesis 검색으로 보완 |
+| 반점 알약 | 반점을 각인으로 오인하는 경우 confidence 보정으로 완화 |
+| 희미한 각인 | 2차 VLM(ENABLE_SECOND_PASS=true)으로 보완 가능 |
+| 색상 오인식 | 유사 색상 그룹으로 허용 범위 설정, 명확히 다른 그룹은 실패 처리 |
+
+---
+
+## 11. 공공데이터 API 연동
+
+### 11-1. 사용 API
+
+| API | URL | 생성 데이터 |
+|---|---|---|
+| 의약품 제품 허가 상세정보 | `getDrugPrdtPrmsnDtlInq06` | efficacy, caution, ingredient |
+| 의약품 낙알식별 정보 | `getMdcinGrnIdntfcInfoList03` | imprint (chunk_type=imprint) |
+
+**허가정보 API 주요 필드:**
+- `EE_DOC_DATA` → XML 파싱 → `efficacy` chunk
+- `NB_DOC_DATA` → XML 파싱 → `caution` chunk  
+- `MAIN_ITEM_INGR` → `ingredient` chunk
+
+**낱알식별 API 주요 필드:**
+- `PRINT_FRONT`, `PRINT_BACK` → 각인
+- `COLOR_CLASS1` → 색상
+- `DRUG_SHAPE` → 모양
+- `LENG_LONG`, `LENG_SHORT` → 크기
+
+### 11-2. 변경일자 필터 (`change_date`)
+
+두 API 모두 `change_date=YYYYMMDD` 파라미터로 증분 동기화 지원.
 
 ```
-[업로드 패턴 고려]
-- 일반: 첫 번째=앞면, 두 번째=뒷면
-- 앞뒤 반대: 앞면이 숫자만이면 앞뒤 바뀐 것
-- 한 이미지에 앞뒤 모두: 알약 2개가 함께 찍힌 경우 직접 구분
-- 여러 알약: 서로 다른 알약 여러 개 → multiple_pills=true
-
-[OCR 오인식 교정]
-- H ↔ N (TYLEHOL → TYLENOL)
-- 0 ↔ O, 1 ↔ I ↔ L, 8 ↔ B, 5 ↔ S, 6 ↔ G
-
-[각인 유추]
-- 존재하지 않는 각인이면 발음/철자 유사한 실제 약품 각인으로 유추
+GET .../getDrugPrdtPrmsnDtlInq06?change_date=20250101&...
+→ 2025-01-01 이후 변경된 항목만 반환
 ```
 
-**출력 JSON**
+### 11-3. 관리자 수동 동기화 API
+
+**엔드포인트:** `POST /api/admin/drug-sync`
+
 ```json
+// 요청 예시 — 최근 7일 변경분 동기화
 {
-  "is_pill": true,
-  "multiple_pills": false,
-  "print_front": "TYLENOL",
-  "print_back": "500",
-  "color": "하양",
-  "shape": "장방형"
+  "since_days": 7,
+  "dry_run": false
+}
+
+// 요청 예시 — 특정 날짜 이후
+{
+  "since_date": "20250101",
+  "dry_run": false
+}
+
+// 요청 예시 — 특정 약품만
+{
+  "item_seq": "200003092",
+  "dry_run": false
+}
+
+// dry_run=true: DB 변경 없이 결과만 확인
+{
+  "since_days": 7,
+  "dry_run": true
 }
 ```
 
-**모양 분류 기준**
-
-| 모양 | 설명 |
-|------|------|
-| 원형 | 완전한 원 |
-| 타원형 | 위아래가 둥근 타원, 가로가 세로보다 조금 더 넓음 |
-| 장방형 | 직사각형에 가까운 모양, 가로가 세로보다 눈에 띄게 더 길고 끝이 둥근 직사각형 (타이레놀정500 대표 예시) |
-| 반원형 | 반으로 자른 원 |
-| 삼각형 / 사각형 / 마름모형 / 오각형 / 육각형 / 팔각형 | 해당 다각형 |
-
-> 타원형과 장방형은 혼동하기 쉬우므로 가로/세로 비율을 주의 깊게 확인
-
-**조기 종료 조건**
-- `is_pill=false` → `"알약 이미지가 아닙니다"` 저장 후 반환
-- `multiple_pills=true` → `"여러 알약 감지 - 분석 실패"` 저장 후 반환
-
----
-
-### 2단계: imprint RAG + Rerank (`find_drug_by_imprint`)
-
-각인/색상/모양으로 DB에서 약품을 찾습니다.
-
-#### 2-1. 검색 쿼리 구성
-
-```python
-query_str = "TYLENOL 500 하양 장방형"
-```
-
-#### 2-2. 이미지 분석 결과 정규화 (`normalize_vision_result`)
-
-```
-GPT Vision 결과
-  │
-  ├─ 각인 정규화: 분할선 제거, 대문자화, 공백/특수문자 제거
-  │   예) "C 분할선6" → "C6"
-  ├─ 색상 정규화: 흰색→하양, 황색→노랑, 핑크→분홍 등
-  ├─ 모양 정규화: 긴타원형→장방형, 동그라미→원형 등
-  └─ OCR 혼동 문자 variant 생성 (편집거리 1)
-      예) "TYLEHOL" → "TYLENOL" (H↔N)
-  ▼
-{
-  "front_norm": "TYLENOL",
-  "back_norm": "500",
-  "color_norm": "하양",
-  "shape_norm": "장방형",
-  "query_variants": ["TYLENOL 500 하양 장방형", "500 TYLENOL 하양 장방형", ...]
-}
-```
-
-#### 2-3. 후보 검색 (3가지 병행)
-
-```
-① metadata exact match
-   - metadata->'search_keys'->>'front_norm' = 'TYLENOL'
-   - metadata->'search_keys'->>'back_norm' = '500'
-   - LIMIT 10
-
-② metadata swapped match (앞뒤 반전 대응)
-   - front_norm = '500', back_norm = 'TYLENOL'
-   - LIMIT 5
-
-③ pgvector similarity search (fallback)
-   - text-embedding-3-small으로 query_str 임베딩
-   - cosine similarity 기준 LIMIT 20
-```
-
-모든 후보를 `item_seq` 기준으로 중복 제거 후 통합
-
-#### 2-4. Rerank 점수 계산 (`_rerank_score`)
-
-각 후보에 대해 0~100점 점수를 계산합니다.
-
-| 항목 | 배점 | 조건 |
-|------|------|------|
-| 앞면 각인 일치 | 35점 | `front_norm` 완전 일치 |
-| 뒷면 각인 일치 | 35점 | `back_norm` 완전 일치 |
-| 앞뒤 swap 일치 | 최대 70점 | 앞뒤 반전 후 일치 시 동일 점수 |
-| 앞면 분할선 일치 | 4점 | `has_score_line` 일치 |
-| 뒷면 분할선 일치 | 4점 | `has_score_line` 일치 |
-| 색상 일치 | 8점 | `color_normalized` 일치 |
-| 모양 일치 | 8점 | `shape_normalized` 일치 |
-| vector 보조 | 최대 10점 | `vector_similarity × 10` |
-
-**최종 점수** = `rerank_base + vector_similarity × 10`
-
-#### 2-5. 매칭 판정
-
-```
-rerank_base >= 10점  OR  vector_similarity >= 0.55
-  → 매칭 성공 → 3단계 진행
-
-둘 다 미달
-  → 매칭 실패 → "각인: TYLENOL, 500 (DB 미매칭)" 저장 후 반환
-```
-
----
-
-### 3단계: 허가정보 DB 직접 조회 (`fetch_drug_info_from_db`)
-
-매칭된 `item_seq`로 `drug_embeddings` 테이블에서 허가정보를 조회합니다. GPT 재호출 없음.
-
-```sql
-SELECT chunk_type, chunk_text
-FROM drug_embeddings
-WHERE item_seq = $1
-  AND chunk_type IN ('efficacy', 'caution', 'ingredient')
-```
-
-| chunk_type | 내용 |
-|------------|------|
-| `efficacy` | 효능·효과 |
-| `caution` | 주의사항 |
-| `ingredient` | 주성분 |
-
-chunk_text 형식: `[약품명] 효능효과: 실제내용` → `": "` 기준으로 분리하여 실제 내용만 추출
-
----
-
-### 결과 저장 (`save_analysis_result`)
-
-`pill_analysis_history` 테이블에 저장:
-
-| 필드 | 값 |
-|------|----|
-| `product_name` | 매칭된 약품명 |
-| `active_ingredients` | 주성분 |
-| `efficacy` | 효능·효과 |
-| `caution` | 주의사항 |
-| `gpt_model_version` | 사용된 GPT 모델 |
-
----
-
-## imprint 파서 (`ai_worker/tasks/imprint_parser.py`)
-
-### parse_imprint_chunk
-
-DB에 저장된 `chunk_text`를 파싱하여 구조화된 `metadata`를 생성합니다.
-
-**입력 예시**
-```
-[타이레놀정500밀리그람] 각인: 앞면 TYLENOL, 뒷면 500 | 색상: 하양 | 모양: 장방형 | 크기: 17.6x7.1mm
-```
-
-**출력 metadata 구조**
+**응답 예시:**
 ```json
 {
-  "imprint_schema_version": 1,
-  "source": {
-    "raw_text": "...",
-    "raw_imprint": "앞면 TYLENOL, 뒷면 500",
-    "raw_color": "하양",
-    "raw_shape": "장방형",
-    "raw_size": "17.6x7.1mm"
-  },
-  "imprint": {
-    "front": {
-      "raw": "TYLENOL",
-      "normalized": "TYLENOL",
-      "has_score_line": false,
-      "tokens": ["TYLENOL"]
-    },
-    "back": {
-      "raw": "500",
-      "normalized": "500",
-      "has_score_line": false,
-      "tokens": ["500"]
-    }
-  },
-  "appearance": {
-    "color_raw": "하양",
-    "color_normalized": "하양",
-    "shape_raw": "장방형",
-    "shape_normalized": "장방형"
-  },
-  "size": {
-    "raw": "17.6x7.1mm",
-    "long_mm": 17.6,
-    "short_mm": 7.1,
-    "unit": "mm"
-  },
-  "search_keys": {
-    "front_norm": "TYLENOL",
-    "back_norm": "500",
-    "all_imprints_norm": "TYLENOL 500",
-    "all_imprints_compact": "TYLENOL500",
-    "imprint_variants": ["TYLENOL 500", "500 TYLENOL"]
+  "success": true,
+  "message": "동기화 완료",
+  "data": {
+    "inserted": 12,
+    "updated": 45,
+    "skipped": 1203,
+    "failed": 0,
+    "dry_run": false,
+    "since_date": "20250101"
   }
 }
 ```
 
-### 분할선 처리
+**동기화 이력 조회:** `GET /api/admin/drug-sync/logs`
 
-```
-"C분할선6"
-  → has_score_line: true
-  → normalized: "C6"  (분할선 제거 후 공백/특수문자 제거)
-  → tokens: ["C", "6"]
-```
-
-### 크기 파싱
-
-- `18x8mm`, `18X8mm`, `18×8mm` 모두 처리
-- `long_mm`에 큰 값, `short_mm`에 작은 값
-- 오타 허용: `9..5mm` → `9.5mm`, `14.2.mm` → `14.2mm`
-
----
-
-## Backfill 스크립트 (`scripts/backfill_imprint_metadata.py`)
-
-기존 DB의 imprint 데이터에 구조화된 metadata를 추가합니다.
-
-### 실행 방법
+### 11-4. CLI 직접 실행 (EC2)
 
 ```bash
-# dry-run (실제 DB 변경 없음)
-DB_HOST=localhost DB_PORT=5432 uv run python scripts/backfill_imprint_metadata.py --dry-run
+# dry-run 확인
+docker compose -f docker-compose.prod.yml exec app \
+  python scripts/sync_drug_data.py --since-days 7 --dry-run
 
-# 실제 실행
-DB_HOST=localhost DB_PORT=5432 uv run python scripts/backfill_imprint_metadata.py
+# 실제 동기화
+docker compose -f docker-compose.prod.yml exec app \
+  python scripts/sync_drug_data.py --since-days 7
 
-# batch size 조정
-DB_HOST=localhost DB_PORT=5432 uv run python scripts/backfill_imprint_metadata.py --batch-size 50
+# 특정 날짜 이후
+docker compose -f docker-compose.prod.yml exec app \
+  python scripts/sync_drug_data.py --since-date 20250101
 ```
 
-### 동작 방식
-
-1. `chunk_type='imprint'` 전체 행 조회
-2. `imprint_schema_version >= 1`인 행은 건너뜀 (idempotent)
-3. `parse_imprint_chunk`로 metadata 생성
-4. `metadata || new_metadata::jsonb` 방식으로 기존 metadata에 merge (기존 데이터 보존)
-5. batch 단위로 트랜잭션 commit
-
----
-
-## DB 인덱스
-
-metadata 기반 검색 성능을 위해 아래 인덱스가 권장됩니다.
-
-```sql
--- chunk_type 인덱스
-CREATE INDEX IF NOT EXISTS idx_drug_emb_chunk_type
-ON drug_embeddings (chunk_type);
-
--- front_norm 인덱스
-CREATE INDEX IF NOT EXISTS idx_drug_emb_metadata_front_norm
-ON drug_embeddings ((metadata->'search_keys'->>'front_norm'))
-WHERE chunk_type = 'imprint';
-
--- back_norm 인덱스
-CREATE INDEX IF NOT EXISTS idx_drug_emb_metadata_back_norm
-ON drug_embeddings ((metadata->'search_keys'->>'back_norm'))
-WHERE chunk_type = 'imprint';
-
--- 색상/모양 복합 인덱스
-CREATE INDEX IF NOT EXISTS idx_drug_emb_metadata_color_shape
-ON drug_embeddings (
-  (metadata->'appearance'->>'color_normalized'),
-  (metadata->'appearance'->>'shape_normalized')
-)
-WHERE chunk_type = 'imprint';
-```
-
----
-
-## 로그 예시
-
-### 정상 매칭
+### 11-5. 동기화 흐름
 
 ```
-Clova OCR 결과: TYLENOL (normal=TYLENOL, rotated=LONELYT)
-OCR 결과: front=TYLENOL, back=500
-1단계 완료: {'is_pill': True, 'multiple_pills': False, 'print_front': 'TYLENOL', 'print_back': '500', 'color': '하양', 'shape': '장방형'}
-2단계 imprint 검색 쿼리: TYLENOL 500 하양 장방형
-imprint 상위 5개 후보 (rerank 내림차순): 타이레놀정500밀리그람(rerank=78, vec=0.821), ...
-imprint 매칭 성공: 'TYLENOL 500 하양 장방형' → '타이레놀정500밀리그람' (rerank=78.0, vec=0.821)
-  DB chunk: [타이레놀정500밀리그람] 각인: 앞면 TYLENOL, 뒷면 500 | 색상: 하양 | 모양: 장방형
-3단계 완료: item_seq=199500630, 조회 필드=['efficacy', 'caution', 'ingredient']
-분석 완료: analysis_id=42, product_name=타이레놀정500밀리그람
+관리자 → POST /api/admin/drug-sync
+         ↓
+허가정보 API (getDrugPrdtPrmsnDtlInq06)
+  change_date 필터로 변경분만 조회
+  → efficacy/caution/ingredient chunk 생성
+  → item_seq + chunk_type 기준 upsert
+  → 변경된 항목은 embedding=NULL 초기화
+         ↓
+낱알식별 API (getMdcinGrnIdntfcInfoList03)
+  change_date 필터로 변경분만 조회
+  → imprint chunk 생성 + metadata 파싱
+  → item_seq + chunk_type 기준 upsert
+         ↓
+drug_sync_log 테이블에 이력 기록
+         ↓
+(별도) re-embedding 필요:
+  embedding=NULL인 항목을 embed_drugs.py로 재처리
 ```
 
-### 매칭 실패
+> **주의:** 동기화 후 `embedding=NULL`인 항목은 vector 검색에서 제외됩니다.
+> re-embedding 스크립트를 별도로 실행해야 합니다.
 
+### 11-6. 필요 환경변수
+
+```env
+# .prod.env에 추가
+PUBLIC_DATA_API_KEY=your-decoded-service-key  # Decoding Key (URL decode된 값)
 ```
-imprint 상위 5개 후보 (rerank 내림차순): 페니목스정500mg(rerank=8, vec=0.496), ...
-imprint 매칭 실패 - rerank=8.0, vec=0.496
-  쿼리: TYLEHOL 500 하양 타원형
-  최유사 DB: [페니목스정500mg] 각인: 앞면 HTP, 뒷면 500 | 색상: 하양 | 모양: 타원형
-2단계 매칭 실패 → 각인 정보만 저장
-```
-
----
-
-## 관련 파일
-
-| 파일 | 역할 |
-|------|------|
-| `app/apis/v1/pill_analysis.py` | FastAPI 엔드포인트, S3 업로드, 큐 등록 |
-| `ai_worker/tasks/pill_analysis.py` | 분석 파이프라인 메인 로직 |
-| `ai_worker/tasks/imprint_parser.py` | imprint chunk_text 파서, 정규화 유틸 |
-| `scripts/backfill_imprint_metadata.py` | 기존 DB metadata backfill |
-| `app/models/pill_analysis.py` | Tortoise ORM 모델 (UploadedFile, PillAnalysisHistory) |
