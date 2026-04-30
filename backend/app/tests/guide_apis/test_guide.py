@@ -133,7 +133,7 @@ class TestMedCheck:
                 mock_check = MagicMock(
                     check_id=1,
                     guide_medication_id=1,
-                    timing_slot="SLOT_1",  # ✅ 추가
+                    timing_slot="SLOT_1",
                     is_taken=True,
                     taken_at=datetime.now(timezone.utc),
                 )

@@ -139,10 +139,6 @@ export default function ResultDetailPage() {
         <h2 className="mb-3 text-sm font-semibold text-teal-500">📋 문서 요약</h2>
         <div className="space-y-3">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">문서 종류</span>
-            <span className="font-medium text-foreground">{result.document_type}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">전체 신뢰도</span>
             <ConfidenceBar value={result.overall_confidence} />
           </div>
