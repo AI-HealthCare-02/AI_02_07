@@ -167,6 +167,19 @@ class GuideRepository:
     async def delete_med_check(self, med_check: GuideMedCheck) -> None:
         await med_check.delete()
 
+    # ✅ 추가: 복약 기록 페이징 조회
+    async def get_med_checks_paginated(
+        self,
+        guide_id: int,
+        page: int,
+        size: int,
+    ) -> tuple[int, list[GuideMedCheck]]:
+        """복약 완료 기록을 날짜 최신순으로 페이징 조회."""
+        qs = GuideMedCheck.filter(guide_id=guide_id, is_taken=True)
+        total = await qs.count()
+        checks = await qs.order_by("-check_date", "-taken_at").offset((page - 1) * size).limit(size)
+        return total, checks
+
     # ──────────────────────────────────────────
     # GuideReminder
     # ──────────────────────────────────────────
