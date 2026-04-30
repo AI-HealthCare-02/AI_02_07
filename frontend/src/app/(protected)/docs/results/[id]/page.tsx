@@ -5,6 +5,15 @@ import { useParams, useRouter } from "next/navigation";
 import apiClient from "@/lib/axios";
 import ReactMarkdown from "react-markdown";
 
+interface Medication {
+  medication_name: string;
+  dosage: string;
+  frequency: string;
+  timing: string;
+  duration_days: number;
+  confidence: number;
+}
+
 interface ResultDetail {
   doc_result_id: number;
   document_type: string;
@@ -12,6 +21,11 @@ interface ResultDetail {
   raw_summary: string | null;
   ocr_raw_text: string | null;
   created_at: string;
+  analysis_json?: {
+    medications?: Medication[];
+    hospital_name?: string;
+    document_type?: string;
+  };
 }
 
 function ConfidenceBar({ value }: { value: number | null }) {
@@ -86,6 +100,39 @@ export default function ResultDetailPage() {
           ← 목록
         </button>
       </div>
+
+      {/* 약품 목록 */}
+      {result.analysis_json?.medications && result.analysis_json.medications.length > 0 && (
+        <div className="mb-4 rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-3 text-sm font-semibold text-teal-500">💊 처방 약품 목록</h2>
+          <div className="space-y-3">
+            {result.analysis_json.medications.map((med, i) => {
+              const pct = Math.round(med.confidence * 100);
+              const color = med.confidence >= 0.9 ? "bg-teal-500" : med.confidence >= 0.7 ? "bg-yellow-500" : "bg-red-500";
+              const textColor = med.confidence >= 0.9 ? "text-teal-500" : med.confidence >= 0.7 ? "text-yellow-500" : "text-red-500";
+              return (
+                <div key={i} className="rounded-lg border border-border bg-muted/30 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-foreground">{med.medication_name}</span>
+                    <div className="flex items-center gap-1.5">
+                      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className={`text-xs font-medium ${textColor}`}>{pct}%</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 text-xs text-muted-foreground">
+                    <span>용량: {med.dosage}</span>
+                    <span>횟수: {med.frequency}</span>
+                    <span>복용법: {med.timing}</span>
+                    <span>기간: {med.duration_days}일</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 문서 요약 */}
       <div className="mb-4 rounded-xl border border-border bg-card p-5">
