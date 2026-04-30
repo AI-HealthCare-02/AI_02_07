@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 class SyncRequest(BaseModel):
-    since_days: int | None = None   # 최근 N일 변경분
-    since_date: str | None = None   # YYYYMMDD 이후 변경분
-    item_seq: str | None = None     # 특정 item_seq만
-    dry_run: bool = False           # True면 DB 변경 없이 시뮬레이션
+    since_days: int | None = None  # 최근 N일 변경분
+    since_date: str | None = None  # YYYYMMDD 이후 변경분
+    item_seq: str | None = None  # 특정 item_seq만
+    dry_run: bool = False  # True면 DB 변경 없이 시뮬레이션
 
 
 class SyncResult(BaseModel):
@@ -109,9 +109,7 @@ async def get_sync_logs(
     settings = get_settings()
 
     try:
-        conn = await asyncpg.connect(
-            settings.database_url.replace("asyncpg://", "postgresql://")
-        )
+        conn = await asyncpg.connect(settings.database_url.replace("asyncpg://", "postgresql://"))
         rows = await conn.fetch(
             """
             SELECT id, sync_type, since_date, inserted, updated, skipped, failed,
