@@ -7,7 +7,6 @@ import {
   useMotionValue,
   useSpring,
   useTransform,
-  animate,
   MotionValue,
 } from "framer-motion";
 import { useAuthStore } from "@/store/auth-store";
@@ -225,19 +224,6 @@ function EKGMonitor() {
   );
 }
 
-function useCounter(target: number, duration = 2) {
-  const [value, setValue] = useState(0);
-  useEffect(() => {
-    const controls = animate(0, target, {
-      duration,
-      ease: "easeOut",
-      onUpdate: (v) => setValue(Math.floor(v)),
-    });
-    return controls.stop;
-  }, [target, duration]);
-  return value;
-}
-
 // ── Orb 컴포넌트 ──────────────────────────────────────────
 function OrbItem({ orb, pX, pY }: { orb: (typeof ORBS)[number]; pX: MotionValue<number>; pY: MotionValue<number> }) {
   const tx = useTransform(pX, (v) => v * orb.dir * 1.4);
@@ -274,10 +260,6 @@ export default function HeroSection() {
     mouseX.set(e.clientX - rect.left);
     mouseY.set(e.clientY - rect.top);
   };
-
-  const users    = useCounter(12400);
-  const accuracy = useCounter(98);
-  const analyses = useCounter(34);
 
   return (
     <div
@@ -432,25 +414,54 @@ export default function HeroSection() {
             )}
           </motion.div>
 
-          {/* 통계 */}
+          {/* 데이터 출처 & 참고 안내 */}
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.9, delay: 1.0 }}
-            className="mb-16 flex flex-wrap justify-center gap-10 sm:gap-16"
+            className="mb-16 w-full max-w-2xl"
           >
-            {[
-              { value: `${users.toLocaleString()}+`, label: "활성 사용자" },
-              { value: `${accuracy}%`,               label: "AI 분석 정확도" },
-              { value: `${analyses}만+`,             label: "누적 분석 건수" },
-            ].map((stat, i) => (
-              <div key={i} className="text-center">
-                <div className="text-3xl font-black tracking-tight sm:text-4xl">
-                  <span className="text-teal-400">{stat.value}</span>
-                </div>
-                <div className="mt-1 text-xs uppercase tracking-widest text-muted-foreground">{stat.label}</div>
+            <div
+              className="relative overflow-hidden rounded-2xl border border-teal-500/20 bg-teal-500/5 px-6 py-5 backdrop-blur-sm"
+              style={{ boxShadow: "inset 0 1px 0 rgba(20,184,166,0.1)" }}
+            >
+              {/* 상단 글로우 라인 */}
+              <div className="absolute left-0 right-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(20,184,166,0.5), transparent)" }} />
+
+              {/* 출처 배지 */}
+              <div className="mb-3 flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-500/30 bg-teal-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-teal-400">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  데이터 출처
+                </span>
               </div>
-            ))}
+
+              {/* 출처 목록 */}
+              <div className="mb-4 flex flex-wrap gap-2">
+                {[
+                  { icon: "🏛️", label: "식품의약품안전처 의약품 DB" },
+                  { icon: "💊", label: "의약품 낱알 식별 정보" },
+                  { icon: "📋", label: "의약품 허가 정보" },
+                ].map((src) => (
+                  <span
+                    key={src.label}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground"
+                  >
+                    <span>{src.icon}</span>
+                    {src.label}
+                  </span>
+                ))}
+              </div>
+
+              {/* 참고 안내 */}
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                본 서비스는 공공 의약품 데이터를 기반으로 한 <span className="text-foreground font-medium">참고용 정보 제공 서비스</span>입니다.
+                AI 분석 결과는 실제 처방·진단을 대체하지 않으며,{" "}
+                <span className="text-teal-400 font-medium">정확한 진단과 복약 지도는 반드시 의사 또는 약사와 상담</span>하시기 바랍니다.
+              </p>
+            </div>
           </motion.div>
 
           {/* 기능 카드 */}
