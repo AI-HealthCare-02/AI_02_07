@@ -44,6 +44,9 @@ class MedicationUpdate(BaseModel):
     timing: str | None = None  # 복용시점 (예: 식후, 식전, 취침 전)
     duration_days: int | None = None  # ✅ 추가: 총투약일수
     instructions: str | None = None  # 기타 복용 지시사항
+    # ✅ 추가: 복약 시간대 (아침/점심/저녁/취침전 체크박스 선택값)
+    # 예: ["아침", "저녁"] — 식사 기준 복용시점(timing)과 별개
+    daily_slots: list[str] | None = None
 
 
 class DocResultPatchRequest(BaseModel):
@@ -253,6 +256,7 @@ async def patch_analysis_result(
     - **frequency**: 복용횟수 (예: 1일 2회)
     - **timing**: 복용시점 (예: 식후, 식전, 취침 전)
     - **duration_days**: 총투약일수
+    - **daily_slots**: 복약 시간대 (예: ["아침", "저녁"])
     """
     result = await DocAnalysisResult.get_or_none(
         doc_result_id=doc_result_id,
@@ -296,6 +300,8 @@ async def patch_analysis_result(
             medications[idx]["duration_days"] = update.duration_days
         if update.instructions is not None:
             medications[idx]["instructions"] = update.instructions
+        if update.daily_slots is not None:  # ✅ 추가: 복약 시간대 저장
+            medications[idx]["daily_slots"] = update.daily_slots
 
         updated_count += 1
 

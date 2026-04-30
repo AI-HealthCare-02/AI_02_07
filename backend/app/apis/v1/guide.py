@@ -19,6 +19,7 @@ from app.dtos.guide_dto import (
     GuidePatchResponse,
     MedCheckCreateRequest,
     MedCheckCreateResponse,
+    MedCheckHistoryResponse,  # ✅ 추가
     MedCheckMonthlyResponse,
     MedCheckResponse,
     MessageResponse,
@@ -202,6 +203,22 @@ async def create_med_check(
     svc: GuideService = Depends(get_service),
 ) -> MedCheckCreateResponse:
     return await svc.create_med_check(guide_id, current_user.user_id, req)
+
+
+# ✅ 추가: 복약 기록 히스토리 페이징 조회
+@router.get(
+    "/{guide_id}/med-check/history",
+    response_model=MedCheckHistoryResponse,
+    summary="복약 기록 전체 조회 (페이징)",
+)
+async def get_med_check_history(
+    guide_id: int,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    svc: GuideService = Depends(get_service),
+) -> MedCheckHistoryResponse:
+    return await svc.get_med_check_history(guide_id, current_user.user_id, page, size)
 
 
 @router.get(
