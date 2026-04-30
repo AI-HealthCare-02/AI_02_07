@@ -384,3 +384,130 @@ LLM 정제 실패 시 원본 텍스트 그대로 fallback 저장.
 | 반점 알약 | 반점을 각인으로 오인하는 경우 confidence 보정으로 완화 |
 | 희미한 각인 | 2차 VLM(ENABLE_SECOND_PASS=true)으로 보완 가능 |
 | 색상 오인식 | 유사 색상 그룹으로 허용 범위 설정, 명확히 다른 그룹은 실패 처리 |
+
+---
+
+## 11. 공공데이터 API 연동
+
+### 11-1. 사용 API
+
+| API | URL | 생성 데이터 |
+|---|---|---|
+| 의약품 제품 허가 상세정보 | `getDrugPrdtPrmsnDtlInq06` | efficacy, caution, ingredient |
+| 의약품 낙알식별 정보 | `getMdcinGrnIdntfcInfoList03` | imprint (chunk_type=imprint) |
+
+**허가정보 API 주요 필드:**
+- `EE_DOC_DATA` → XML 파싱 → `efficacy` chunk
+- `NB_DOC_DATA` → XML 파싱 → `caution` chunk  
+- `MAIN_ITEM_INGR` → `ingredient` chunk
+
+**낱알식별 API 주요 필드:**
+- `PRINT_FRONT`, `PRINT_BACK` → 각인
+- `COLOR_CLASS1` → 색상
+- `DRUG_SHAPE` → 모양
+- `LENG_LONG`, `LENG_SHORT` → 크기
+
+### 11-2. 변경일자 필터 (`change_date`)
+
+두 API 모두 `change_date=YYYYMMDD` 파라미터로 증분 동기화 지원.
+
+```
+GET .../getDrugPrdtPrmsnDtlInq06?change_date=20250101&...
+→ 2025-01-01 이후 변경된 항목만 반환
+```
+
+### 11-3. 관리자 수동 동기화 API
+
+**엔드포인트:** `POST /api/admin/drug-sync`
+
+```json
+// 요청 예시 — 최근 7일 변경분 동기화
+{
+  "since_days": 7,
+  "dry_run": false
+}
+
+// 요청 예시 — 특정 날짜 이후
+{
+  "since_date": "20250101",
+  "dry_run": false
+}
+
+// 요청 예시 — 특정 약품만
+{
+  "item_seq": "200003092",
+  "dry_run": false
+}
+
+// dry_run=true: DB 변경 없이 결과만 확인
+{
+  "since_days": 7,
+  "dry_run": true
+}
+```
+
+**응답 예시:**
+```json
+{
+  "success": true,
+  "message": "동기화 완료",
+  "data": {
+    "inserted": 12,
+    "updated": 45,
+    "skipped": 1203,
+    "failed": 0,
+    "dry_run": false,
+    "since_date": "20250101"
+  }
+}
+```
+
+**동기화 이력 조회:** `GET /api/admin/drug-sync/logs`
+
+### 11-4. CLI 직접 실행 (EC2)
+
+```bash
+# dry-run 확인
+docker compose -f docker-compose.prod.yml exec app \
+  python scripts/sync_drug_data.py --since-days 7 --dry-run
+
+# 실제 동기화
+docker compose -f docker-compose.prod.yml exec app \
+  python scripts/sync_drug_data.py --since-days 7
+
+# 특정 날짜 이후
+docker compose -f docker-compose.prod.yml exec app \
+  python scripts/sync_drug_data.py --since-date 20250101
+```
+
+### 11-5. 동기화 흐름
+
+```
+관리자 → POST /api/admin/drug-sync
+         ↓
+허가정보 API (getDrugPrdtPrmsnDtlInq06)
+  change_date 필터로 변경분만 조회
+  → efficacy/caution/ingredient chunk 생성
+  → item_seq + chunk_type 기준 upsert
+  → 변경된 항목은 embedding=NULL 초기화
+         ↓
+낱알식별 API (getMdcinGrnIdntfcInfoList03)
+  change_date 필터로 변경분만 조회
+  → imprint chunk 생성 + metadata 파싱
+  → item_seq + chunk_type 기준 upsert
+         ↓
+drug_sync_log 테이블에 이력 기록
+         ↓
+(별도) re-embedding 필요:
+  embedding=NULL인 항목을 embed_drugs.py로 재처리
+```
+
+> **주의:** 동기화 후 `embedding=NULL`인 항목은 vector 검색에서 제외됩니다.
+> re-embedding 스크립트를 별도로 실행해야 합니다.
+
+### 11-6. 필요 환경변수
+
+```env
+# .prod.env에 추가
+PUBLIC_DATA_SERVICE_KEY=your-decoded-service-key  # Decoding Key (URL decode된 값)
+```
