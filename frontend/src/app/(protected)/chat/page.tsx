@@ -86,13 +86,22 @@ function BookmarkButton({ messageId, initialBookmarked = false }: { messageId: n
     <button
       onClick={toggle}
       disabled={loading}
-      className="mt-1.5 flex items-center gap-1 text-[11px] transition disabled:opacity-40"
-      style={{ color: bookmarked ? "#14b8a6" : "hsl(var(--muted-foreground))" }}
+      title={bookmarked ? "북마크 해제" : "북마크 저장"}
+      className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium transition disabled:opacity-40 ${
+        bookmarked
+          ? "text-teal-400"
+          : "text-muted-foreground/50 hover:text-teal-400"
+      }`}
     >
-      <svg width="12" height="12" viewBox="0 0 24 24" fill={bookmarked ? "#14b8a6" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        width="11" height="11" viewBox="0 0 24 24"
+        fill={bookmarked ? "currentColor" : "none"}
+        stroke="currentColor" strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round"
+      >
         <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
       </svg>
-      {bookmarked ? "북마크됨" : "북마크"}
+      {loading ? "..." : bookmarked ? "북마크됨" : "북마크"}
     </button>
   );
 }
@@ -134,11 +143,14 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
         </svg>
       </div>
-      <div
-        className="max-w-[75%] rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-white dark:text-white"
-        style={{ background: "linear-gradient(135deg, rgb(20,184,166), rgb(6,182,212))" }}
-      >
-        {msg.content}
+      <div className="flex flex-col gap-1">
+        <div
+          className="max-w-[75%] rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-white dark:text-white"
+          style={{ background: "linear-gradient(135deg, rgb(20,184,166), rgb(6,182,212))" }}
+        >
+          {msg.content}
+        </div>
+        <BookmarkButton messageId={msg.messageId} />
       </div>
     </div>
   );
@@ -158,6 +170,14 @@ export default function ChatPage() {
   const [aiTyping, setAiTyping] = useState(false);
   const [sending, setSending] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // 실제적 메뉴 / 모달 state
+  const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+  const [renameModal, setRenameModal] = useState<{ roomId: number; title: string } | null>(null);
+  const [renameInput, setRenameInput] = useState("");
+  // 메뉴 위치 추적
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const [renaming, setRenaming] = useState(false);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -220,6 +240,42 @@ export default function ChatPage() {
     },
     [activeRoomId, loadMessages]
   );
+
+  const handleDeleteRoom = async (roomId: number) => {
+    try {
+      await apiClient.delete(`/api/v1/chat/sessions/${roomId}`);
+      setRooms((prev) => prev.filter((r) => r.roomId !== roomId));
+      if (activeRoomId === roomId) {
+        setActiveRoomId(null);
+        activeRoomIdRef.current = null;
+        setMessages([]);
+      }
+    } catch {
+      // 무시
+    } finally {
+      setMenuOpenId(null);
+    }
+  };
+
+  const openRenameModal = (room: ChatRoom) => {
+    setRenameModal({ roomId: room.roomId, title: room.title });
+    setRenameInput(room.title);
+    setMenuOpenId(null);
+  };
+
+  const handleRename = async () => {
+    if (!renameModal || !renameInput.trim()) return;
+    setRenaming(true);
+    try {
+      await apiClient.patch(`/api/v1/chat/sessions/${renameModal.roomId}/title`, { title: renameInput.trim() });
+      setRooms((prev) => prev.map((r) => r.roomId === renameModal.roomId ? { ...r, title: renameInput.trim() } : r));
+      setRenameModal(null);
+    } catch {
+      // 무시
+    } finally {
+      setRenaming(false);
+    }
+  };
 
   const createRoom = async () => {
     try {
@@ -429,6 +485,80 @@ export default function ChatPage() {
         }
       `}</style>
 
+      {/* 메뉴 외부 클릭 닫기 */}
+      {menuOpenId !== null && (
+        <div className="fixed inset-0 z-40" onClick={() => { setMenuOpenId(null); setMenuPos(null); }} />
+      )}
+
+      {/* 드롭다운 메뉴 - 사이드바 overflow 바깥쪽 portal */}
+      {menuOpenId !== null && menuPos && (() => {
+        const room = rooms.find((r) => r.roomId === menuOpenId);
+        if (!room) return null;
+        return (
+          <div
+            className="fixed z-[60] w-36 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
+            style={{ top: menuPos.top, right: menuPos.right }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => openRenameModal(room)}
+              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-xs text-foreground transition hover:bg-muted"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              이름 변경
+            </button>
+            <button
+              onClick={() => handleDeleteRoom(room.roomId)}
+              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-xs text-red-400 transition hover:bg-red-500/10"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                <path d="M10 11v6M14 11v6" />
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+              </svg>
+              삭제
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* 이름 변경 모달 */}
+      {renameModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6">
+            <h3 className="mb-4 text-base font-bold text-foreground">대화 이름 변경</h3>
+            <input
+              autoFocus
+              value={renameInput}
+              onChange={(e) => setRenameInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleRename(); }}
+              maxLength={50}
+              placeholder="새 이름 입력"
+              className="mb-5 w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setRenameModal(null)}
+                className="flex-1 rounded-xl border border-border py-2.5 text-sm text-muted-foreground transition hover:text-foreground"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleRename}
+                disabled={renaming || !renameInput.trim()}
+                className="flex-1 rounded-xl bg-teal-600 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-500 disabled:opacity-50"
+              >
+                {renaming ? "변경 중..." : "이름 변경"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex h-[calc(100vh-64px)] bg-background">
 
         {sidebarOpen && (
@@ -463,22 +593,49 @@ export default function ChatPage() {
               <p className="px-3 py-6 text-center text-xs text-muted-foreground">대화 내역이 없습니다</p>
             ) : (
               rooms.map((room) => (
-                <button
-                  key={room.roomId}
-                  onClick={() => selectRoom(room.roomId)}
-                  className={`mb-1 w-full rounded-lg px-3 py-2.5 text-left transition ${
-                    activeRoomId === room.roomId
-                      ? "bg-teal-500/15 text-teal-300"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <p className="truncate text-sm font-medium">{room.title}</p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-                    {new Date(room.updatedAt).toLocaleDateString("ko-KR", {
-                      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-                    })}
-                  </p>
-                </button>
+                <div key={room.roomId} className="relative mb-1 group">
+                  <button
+                    onClick={() => selectRoom(room.roomId)}
+                    className={`w-full rounded-lg px-3 py-2.5 pr-8 text-left transition ${
+                      activeRoomId === room.roomId
+                        ? "bg-teal-500/15 text-teal-300"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <p className="truncate text-sm font-medium">{room.title}</p>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                      {new Date(room.updatedAt).toLocaleDateString("ko-KR", {
+                        month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+                      })}
+                    </p>
+                  </button>
+
+                  {/* 점 3개 버튼 - 항상 표시, 활성 방 또는 hover 시 진하게 */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (menuOpenId === room.roomId) {
+                        setMenuOpenId(null);
+                        setMenuPos(null);
+                      } else {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                        setMenuOpenId(room.roomId);
+                      }
+                    }}
+                    className={`absolute right-1.5 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded transition hover:bg-muted ${
+                      menuOpenId === room.roomId
+                        ? "opacity-100 text-foreground bg-muted"
+                        : "opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                      <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
+                    </svg>
+                  </button>
+
+                  {/* 드롭다운은 사이드바 바깥쪽 portal로 렌더링 (아래 최상단 위치) */}
+                </div>
               ))
             )}
           </div>

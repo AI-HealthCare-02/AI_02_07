@@ -88,3 +88,12 @@ class ChatRepository:
 
     async def delete_bookmark(self, bookmark: ChatBookmark) -> None:
         await bookmark.delete()
+
+    async def list_bookmarks(self, user_id: int, page: int, size: int) -> tuple[int, list[ChatBookmark]]:
+        qs = ChatBookmark.filter(user_id=user_id)
+        total = await qs.count()
+        items = await qs.offset((page - 1) * size).limit(size)
+        return total, items
+
+    async def get_bookmark(self, bookmark_id: int, user_id: int) -> ChatBookmark | None:
+        return await ChatBookmark.get_or_none(bookmark_id=bookmark_id, user_id=user_id)
