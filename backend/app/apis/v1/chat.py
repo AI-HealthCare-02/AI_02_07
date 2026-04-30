@@ -84,6 +84,7 @@ async def rename_session(
     title = (body.get("title") or "").strip()
     if not title:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=400, detail="제목을 입력해주세요.")
     await chat_service.rename_session(user, room_id, title)
     return ResponseDTO(success=True, message="이름이 변경되었습니다.")
