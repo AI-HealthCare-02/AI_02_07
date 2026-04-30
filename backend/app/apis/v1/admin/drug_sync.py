@@ -3,7 +3,6 @@
 # 관리자 — 공공데이터 의약품 동기화 API
 # ──────────────────────────────────────────────
 
-import asyncio
 import logging
 from datetime import date, timedelta
 
