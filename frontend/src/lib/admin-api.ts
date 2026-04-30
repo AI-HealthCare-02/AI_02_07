@@ -182,4 +182,15 @@ export const adminApi = {
       params,
       responseType: "blob",
     }),
+
+  // 약품 동기화
+  triggerDrugSync: (body: {
+    since_days?: number | null;
+    since_date?: string | null;
+    item_seq?: string | null;
+    dry_run: boolean;
+  }) => adminApiClient.post("/api/admin/drug-sync", body),
+
+  getDrugSyncLogs: (limit?: number) =>
+    adminApiClient.get("/api/admin/drug-sync/logs", { params: { limit: limit ?? 20 } }),
 };
