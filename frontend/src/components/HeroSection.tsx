@@ -7,7 +7,6 @@ import {
   useMotionValue,
   useSpring,
   useTransform,
-  animate,
   MotionValue,
 } from "framer-motion";
 import { useAuthStore } from "@/store/auth-store";
@@ -88,10 +87,34 @@ const ORBS = [
 ];
 
 const FEATURES = [
-  { Icon: IconChat,  label: "AI 챗봇 상담",   desc: "3단계 필터링 기반 실시간 의료 상담",  href: "/chat",  accent: "#14b8a6" },
-  { Icon: IconDoc,   label: "의료 문서 분석", desc: "vLLM 기반 처방전·진단서 즉시 분석",  href: "/docs",  accent: "#10b981" },
-  { Icon: IconPill,  label: "알약 분석",      desc: "이미지 AI로 약품 정보 즉시 식별",     href: "/pill",  accent: "#06b6d4" },
-  { Icon: IconGuide, label: "건강 가이드",    desc: "맞춤형 복약 일정 및 생활습관 관리",  href: "/guide", accent: "#14b8a6" },
+  {
+    Icon: IconChat,
+    label: "AI 챗봇 상담",
+    desc: "실시간 스트리밍 응답 · 도매인 필터링 · 응급 상황 감지",
+    href: "/chat",
+    accent: "#14b8a6",
+  },
+  {
+    Icon: IconDoc,
+    label: "의료 문서 분석",
+    desc: "처방전 업로드 → AI OCR 분석 → 복약 가이드 생성",
+    href: "/docs",
+    accent: "#10b981",
+  },
+  {
+    Icon: IconPill,
+    label: "알약 분석",
+    desc: "이미지 업로드 → GPT Vision 식별 → 효능 · 주의사항 제공",
+    href: "/pill",
+    accent: "#06b6d4",
+  },
+  {
+    Icon: IconGuide,
+    label: "건강 가이드",
+    desc: "복약 체크 · D-day · 진행률 · AI 생활습관 가이드",
+    href: "/guide",
+    accent: "#14b8a6",
+  },
 ];
 
 // ── EKG 모니터 (Canvas 기반) ─────────────────────────────
@@ -225,19 +248,6 @@ function EKGMonitor() {
   );
 }
 
-function useCounter(target: number, duration = 2) {
-  const [value, setValue] = useState(0);
-  useEffect(() => {
-    const controls = animate(0, target, {
-      duration,
-      ease: "easeOut",
-      onUpdate: (v) => setValue(Math.floor(v)),
-    });
-    return controls.stop;
-  }, [target, duration]);
-  return value;
-}
-
 // ── Orb 컴포넌트 ──────────────────────────────────────────
 function OrbItem({ orb, pX, pY }: { orb: (typeof ORBS)[number]; pX: MotionValue<number>; pY: MotionValue<number> }) {
   const tx = useTransform(pX, (v) => v * orb.dir * 1.4);
@@ -274,10 +284,6 @@ export default function HeroSection() {
     mouseX.set(e.clientX - rect.left);
     mouseY.set(e.clientY - rect.top);
   };
-
-  const users    = useCounter(12400);
-  const accuracy = useCounter(98);
-  const analyses = useCounter(34);
 
   return (
     <div
@@ -432,25 +438,54 @@ export default function HeroSection() {
             )}
           </motion.div>
 
-          {/* 통계 */}
+          {/* 데이터 출처 & 참고 안내 */}
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.9, delay: 1.0 }}
-            className="mb-16 flex flex-wrap justify-center gap-10 sm:gap-16"
+            className="mb-16 w-full max-w-2xl"
           >
-            {[
-              { value: `${users.toLocaleString()}+`, label: "활성 사용자" },
-              { value: `${accuracy}%`,               label: "AI 분석 정확도" },
-              { value: `${analyses}만+`,             label: "누적 분석 건수" },
-            ].map((stat, i) => (
-              <div key={i} className="text-center">
-                <div className="text-3xl font-black tracking-tight sm:text-4xl">
-                  <span className="text-teal-400">{stat.value}</span>
-                </div>
-                <div className="mt-1 text-xs uppercase tracking-widest text-muted-foreground">{stat.label}</div>
+            <div
+              className="relative overflow-hidden rounded-2xl border border-teal-500/20 bg-teal-500/5 px-6 py-5 backdrop-blur-sm"
+              style={{ boxShadow: "inset 0 1px 0 rgba(20,184,166,0.1)" }}
+            >
+              {/* 상단 글로우 라인 */}
+              <div className="absolute left-0 right-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(20,184,166,0.5), transparent)" }} />
+
+              {/* 출처 배지 */}
+              <div className="mb-3 flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-500/30 bg-teal-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-teal-400">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  데이터 출처
+                </span>
               </div>
-            ))}
+
+              {/* 출처 목록 */}
+              <div className="mb-4 flex flex-wrap gap-2">
+                {[
+                  { icon: "🏛️", label: "식품의약품안전처 의약품 DB" },
+                  { icon: "💊", label: "의약품 낱알 식별 정보" },
+                  { icon: "📋", label: "의약품 허가 정보" },
+                ].map((src) => (
+                  <span
+                    key={src.label}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground"
+                  >
+                    <span>{src.icon}</span>
+                    {src.label}
+                  </span>
+                ))}
+              </div>
+
+              {/* 참고 안내 */}
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                본 서비스는 공공 의약품 데이터를 기반으로 한 <span className="text-foreground font-medium">참고용 정보 제공 서비스</span>입니다.
+                AI 분석 결과는 실제 처방·진단을 대체하지 않으며,{" "}
+                <span className="text-teal-400 font-medium">정확한 진단과 복약 지도는 반드시 의사 또는 약사와 상담</span>하시기 바랍니다.
+              </p>
+            </div>
           </motion.div>
 
           {/* 기능 카드 */}
@@ -461,12 +496,12 @@ export default function HeroSection() {
             className="grid w-full max-w-4xl grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"
           >
             {FEATURES.map((f, i) => (
-              <Link key={i} href={f.href}>
+              <Link key={i} href={f.href} className="h-full cursor-pointer">
                 <motion.div
                   whileHover={{ y: -6, scale: 1.02 }}
                   whileTap={{ scale: 0.97 }}
                   transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                  className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 text-left backdrop-blur-md"
+                  className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card p-5 text-left backdrop-blur-md"
                   style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)" }}
                 >
                   {/* 호버 글로우 */}
@@ -481,13 +516,13 @@ export default function HeroSection() {
                   />
                   {/* 아이콘 */}
                   <div
-                    className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5"
+                    className="mb-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5"
                     style={{ boxShadow: `0 0 12px ${f.accent}30` }}
                   >
                     <f.Icon size={18} color={f.accent} />
                   </div>
                   <div className="mb-1 text-sm font-semibold text-foreground">{f.label}</div>
-                  <div className="text-xs leading-relaxed text-muted-foreground">{f.desc}</div>
+                  <div className="flex-1 text-xs leading-relaxed text-muted-foreground">{f.desc}</div>
                 </motion.div>
               </Link>
             ))}

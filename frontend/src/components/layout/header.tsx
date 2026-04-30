@@ -142,7 +142,7 @@ export default function Header() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`text-sm font-medium tracking-wide transition-colors ${
+                className={`cursor-pointer text-sm font-medium tracking-wide transition-colors ${
                   pathname === item.href ? "text-teal-400" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -219,7 +219,7 @@ export default function Header() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`mb-1 flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${
+                className={`mb-1 flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-teal-500/10 text-teal-500"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -256,7 +256,7 @@ export default function Header() {
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex flex-1 flex-col items-center justify-center gap-1 py-2"
+                className="flex flex-1 cursor-pointer flex-col items-center justify-center gap-1 py-2"
               >
                 <span style={{ filter: isActive ? "drop-shadow(0 0 6px rgba(20,184,166,0.7))" : "none" }}>
                   <item.Icon size={20} color={isActive ? activeColor : inactiveColor} />
