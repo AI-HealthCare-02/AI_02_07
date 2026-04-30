@@ -8,6 +8,8 @@ interface MedCheckItem {
   guide_medication_id: number;
   medication_name: string;
   timing: string | null;
+  timing_slot: string;
+  slot_label: string;
   is_taken: boolean;
   taken_at: string | null;
 }
@@ -38,7 +40,7 @@ export default function TabToday({
       if (item.is_taken && item.check_id) {
         await apiClient.delete(`/api/v1/guides/${guideId}/med-check/${item.check_id}`);
         setItems((prev) => prev.map((c) =>
-          c.guide_medication_id === item.guide_medication_id
+          c.guide_medication_id === item.guide_medication_id && c.timing_slot === item.timing_slot
             ? { ...c, is_taken: false, check_id: null, taken_at: null }
             : c
         ));
@@ -47,10 +49,10 @@ export default function TabToday({
         const { data } = await apiClient.post(`/api/v1/guides/${guideId}/med-check`, {
           guide_medication_id: item.guide_medication_id,
           check_date: today,
-          taken_at: new Date().toISOString(),
+          timing_slot: item.timing_slot,
         });
         setItems((prev) => prev.map((c) =>
-          c.guide_medication_id === item.guide_medication_id
+          c.guide_medication_id === item.guide_medication_id && c.timing_slot === item.timing_slot
             ? { ...c, is_taken: true, check_id: data.check_id, taken_at: data.taken_at }
             : c
         ));
@@ -100,7 +102,7 @@ export default function TabToday({
         <div className="divide-y divide-border rounded-2xl border border-border bg-card overflow-hidden">
           {items.map((item) => (
             <div
-              key={item.guide_medication_id}
+              key={`${item.guide_medication_id}-${item.timing_slot}`}
               className={`flex items-center gap-3 px-4 py-3.5 transition-colors ${item.is_taken ? "bg-teal-500/5" : ""}`}
             >
               <span className={`text-lg ${item.is_taken ? "text-teal-400" : "text-muted-foreground"}`}>
@@ -112,6 +114,7 @@ export default function TabToday({
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {item.timing ?? "복용 시점 미지정"}
+                  {" · "}{item.slot_label}
                   {item.is_taken && item.taken_at && (
                     <span className="ml-2 text-teal-400">
                       {new Date(item.taken_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
@@ -120,20 +123,23 @@ export default function TabToday({
                 </p>
               </div>
               {item.is_taken ? (
-                <button
-                  onClick={() => handleCheck(item)}
-                  disabled={busy === item.guide_medication_id}
-                  className="shrink-0 rounded-lg border border-border px-3 py-1 text-xs text-muted-foreground transition hover:border-red-500/40 hover:text-red-400 disabled:opacity-40"
-                >
-                  {busy === item.guide_medication_id ? "..." : "취소"}
-                </button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-xs font-medium text-teal-400">완료 ✓</span>
+                  <button
+                    onClick={() => handleCheck(item)}
+                    disabled={busy === item.guide_medication_id}
+                    className="rounded-lg border border-border px-2 py-1 text-xs text-muted-foreground transition hover:border-red-500/40 hover:text-red-400 disabled:opacity-40"
+                  >
+                    {busy === item.guide_medication_id ? "..." : "취소"}
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={() => handleCheck(item)}
                   disabled={busy === item.guide_medication_id}
                   className="shrink-0 rounded-lg border border-teal-500/40 px-3 py-1 text-xs text-teal-400 transition hover:bg-teal-500/10 disabled:opacity-40"
                 >
-                  {busy === item.guide_medication_id ? "..." : "복약 완료"}
+                  {busy === item.guide_medication_id ? "..." : "복약하기"}
                 </button>
               )}
             </div>

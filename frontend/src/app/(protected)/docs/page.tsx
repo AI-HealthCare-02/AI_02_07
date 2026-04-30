@@ -35,8 +35,6 @@ interface AnalysisResult {
   processing_time: number;
 }
 
-const DOC_TYPES = ["자동인식", "처방전", "진료기록", "약봉투", "검진결과"] as const;
-
 const INSTRUCTIONS_OPTIONS = ["식전", "식후즉시", "식후30분", "취침전", "직접입력"];
 
 // ── 신뢰도 바 ──────────────────────────────────────────────
@@ -78,7 +76,6 @@ export default function DocsPage() {
 
   const [step, setStep] = useState<Step>("upload");
   const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [docType, setDocType] = useState<string>("자동인식");
   const [dragging, setDragging] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -142,7 +139,6 @@ export default function DocsPage() {
 
     const formData = new FormData();
     files.forEach((f, i) => formData.append(`file${i + 1}`, f.file));
-    formData.append("document_type", docType);
 
     try {
       const { data } = await apiClient.post("/api/v1/medical-doc/analyze", formData, {
@@ -166,7 +162,7 @@ export default function DocsPage() {
 
       setResult({
         doc_result_id: raw.doc_result_id,
-        document_type: raw.document_type ?? docType,
+        document_type: raw.document_type ?? "",
         overall_confidence: raw.overall_confidence ?? null,
         raw_summary: raw.raw_summary ?? null,
         medications: meds,
@@ -188,7 +184,6 @@ export default function DocsPage() {
   const resetAll = () => {
     setStep("upload");
     setFiles([]);
-    setDocType("자동인식");
     setResult(null);
     setElapsedSec(0);
   };
@@ -316,26 +311,6 @@ export default function DocsPage() {
             </div>
           )}
 
-          {/* 문서 종류 선택 */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <p className="mb-3 text-sm font-semibold text-foreground">문서 종류 선택</p>
-            <div className="space-y-2">
-              {DOC_TYPES.map((t) => (
-                <label key={t} className="flex cursor-pointer items-center gap-3">
-                  <input
-                    type="radio"
-                    name="docType"
-                    value={t}
-                    checked={docType === t}
-                    onChange={() => setDocType(t)}
-                    className="accent-teal-500"
-                  />
-                  <span className="text-sm text-foreground">{t}{t === "자동인식" ? " (기본값)" : ""}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
           {/* 분석 시작 버튼 */}
           <button
             onClick={startAnalysis}
@@ -419,7 +394,6 @@ export default function DocsPage() {
           <div className="rounded-xl border border-border bg-card p-5">
             <h2 className="mb-3 text-sm font-semibold text-teal-500">📋 문서 요약</h2>
             <div className="space-y-2 text-sm">
-              <Row label="문서 종류" value={result.document_type} />
               {result.hospital_name && <Row label="병원/약국" value={result.hospital_name} />}
               {result.prescription_date && <Row label="조제일" value={result.prescription_date} />}
             </div>
