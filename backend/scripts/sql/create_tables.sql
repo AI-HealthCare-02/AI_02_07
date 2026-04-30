@@ -592,13 +592,37 @@ CREATE TABLE IF NOT EXISTS med_check_log (
     guide_medication_id BIGINT NOT NULL
                             REFERENCES guide_medication (guide_medication_id) ON DELETE CASCADE,
     check_date          DATE   NOT NULL,
+    -- ✅ 추가: 1일 N회 복약 회차 구분 (SLOT_1 / SLOT_2 / SLOT_3)
+    timing_slot         VARCHAR(20) NOT NULL DEFAULT 'SLOT_1',
     is_taken            BOOLEAN NOT NULL DEFAULT FALSE,
     taken_at            TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    UNIQUE (guide_id, guide_medication_id, check_date),
+    -- ✅ 수정: timing_slot 포함한 복합 UNIQUE (같은 약·날짜·회차 중복 방지)
+    UNIQUE (guide_id, guide_medication_id, check_date, timing_slot),
     CHECK (is_taken = TRUE OR taken_at IS NULL)
 );
+
+-- ✅ 기존 DB에 timing_slot 컬럼 추가 (이미 있으면 스킵)
+DO $$ BEGIN
+    ALTER TABLE med_check_log ADD COLUMN timing_slot VARCHAR(20) NOT NULL DEFAULT 'SLOT_1';
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+-- ✅ 기존 UNIQUE 제약 제거 (이름이 다를 수 있으므로 여러 이름 시도)
+DO $$ BEGIN
+    ALTER TABLE med_check_log
+        DROP CONSTRAINT IF EXISTS med_check_log_guide_id_guide_medication_id_check_date_key;
+EXCEPTION WHEN others THEN NULL;
+END $$;
+
+-- ✅ timing_slot 포함한 새 UNIQUE 제약 추가
+DO $$ BEGIN
+    ALTER TABLE med_check_log
+        ADD CONSTRAINT uq_med_check_log_slot
+            UNIQUE (guide_id, guide_medication_id, check_date, timing_slot);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_med_check_log_guide_date
     ON med_check_log (guide_id, check_date);
