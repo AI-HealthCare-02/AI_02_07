@@ -87,10 +87,34 @@ const ORBS = [
 ];
 
 const FEATURES = [
-  { Icon: IconChat,  label: "AI 챗봇 상담",   desc: "3단계 필터링 기반 실시간 의료 상담",  href: "/chat",  accent: "#14b8a6" },
-  { Icon: IconDoc,   label: "의료 문서 분석", desc: "vLLM 기반 처방전·진단서 즉시 분석",  href: "/docs",  accent: "#10b981" },
-  { Icon: IconPill,  label: "알약 분석",      desc: "이미지 AI로 약품 정보 즉시 식별",     href: "/pill",  accent: "#06b6d4" },
-  { Icon: IconGuide, label: "건강 가이드",    desc: "맞춤형 복약 일정 및 생활습관 관리",  href: "/guide", accent: "#14b8a6" },
+  {
+    Icon: IconChat,
+    label: "AI 챗봇 상담",
+    desc: "실시간 스트리밍 응답 · 도매인 필터링 · 응급 상황 감지",
+    href: "/chat",
+    accent: "#14b8a6",
+  },
+  {
+    Icon: IconDoc,
+    label: "의료 문서 분석",
+    desc: "처방전 업로드 → AI OCR 분석 → 복약 가이드 생성",
+    href: "/docs",
+    accent: "#10b981",
+  },
+  {
+    Icon: IconPill,
+    label: "알약 분석",
+    desc: "이미지 업로드 → GPT Vision 식별 → 효능 · 주의사항 제공",
+    href: "/pill",
+    accent: "#06b6d4",
+  },
+  {
+    Icon: IconGuide,
+    label: "건강 가이드",
+    desc: "복약 체크 · D-day · 진행률 · AI 생활습관 가이드",
+    href: "/guide",
+    accent: "#14b8a6",
+  },
 ];
 
 // ── EKG 모니터 (Canvas 기반) ─────────────────────────────
@@ -472,12 +496,12 @@ export default function HeroSection() {
             className="grid w-full max-w-4xl grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"
           >
             {FEATURES.map((f, i) => (
-              <Link key={i} href={f.href}>
+              <Link key={i} href={f.href} className="h-full">
                 <motion.div
                   whileHover={{ y: -6, scale: 1.02 }}
                   whileTap={{ scale: 0.97 }}
                   transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                  className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 text-left backdrop-blur-md"
+                  className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card p-5 text-left backdrop-blur-md"
                   style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)" }}
                 >
                   {/* 호버 글로우 */}
@@ -492,13 +516,13 @@ export default function HeroSection() {
                   />
                   {/* 아이콘 */}
                   <div
-                    className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5"
+                    className="mb-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5"
                     style={{ boxShadow: `0 0 12px ${f.accent}30` }}
                   >
                     <f.Icon size={18} color={f.accent} />
                   </div>
                   <div className="mb-1 text-sm font-semibold text-foreground">{f.label}</div>
-                  <div className="text-xs leading-relaxed text-muted-foreground">{f.desc}</div>
+                  <div className="flex-1 text-xs leading-relaxed text-muted-foreground">{f.desc}</div>
                 </motion.div>
               </Link>
             ))}
