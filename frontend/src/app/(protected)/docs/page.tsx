@@ -3,7 +3,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/axios";
-import ReactMarkdown from "react-markdown";
 
 // ── 타입 ──────────────────────────────────────────────────
 type Step = "upload" | "analyzing" | "result";
@@ -14,28 +13,21 @@ interface UploadedFile {
 }
 
 interface MedItem {
-  name: string;
-  dosage: string | null;
-  frequency: string | null;
-  instructions: string | null;
+  medication_name: string;
+  dosage: string;
+  frequency: string;
+  timing: string;
+  duration_days: number | null;
   confidence: number | null;
-  editingInstructions: boolean;
-  editValue: string;
 }
 
 interface AnalysisResult {
   doc_result_id: number;
-  document_type: string;
   overall_confidence: number | null;
-  raw_summary: string | null;
-  medications: MedItem[];
-  cautions: string | null;
-  hospital_name: string | null;
-  prescription_date: string | null;
   processing_time: number;
 }
 
-const INSTRUCTIONS_OPTIONS = ["식전", "식후즉시", "식후30분", "취침전", "직접입력"];
+const TIMING_OPTIONS = ["식전", "식후즉시", "식후30분", "취침전"];
 
 // ── 신뢰도 바 ──────────────────────────────────────────────
 function ConfidenceBar({ value }: { value: number | null }) {
@@ -82,6 +74,14 @@ export default function DocsPage() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [confirming, setConfirming] = useState(false);
+
+  // 편집 state
+  const [hospitalName, setHospitalName] = useState("");
+  const [visitDate, setVisitDate] = useState("");
+  const [diagnosisName, setDiagnosisName] = useState("");
+  const [medications, setMedications] = useState<MedItem[]>([]);
+  const [showDirectInput, setShowDirectInput] = useState<Record<number, boolean>>({});
+  const [directInputVal, setDirectInputVal] = useState<Record<number, string>>({});
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -146,31 +146,28 @@ export default function DocsPage() {
       });
       const raw = data.data;
 
-      // medications 파싱 (raw_summary JSON 또는 medications 필드)
-      let meds: MedItem[] = [];
-      if (Array.isArray(raw.medications)) {
-        meds = raw.medications.map((m: Record<string, unknown>) => ({
-          name: String(m.medication_name ?? ""),
-          dosage: m.dosage ? String(m.dosage) : null,
-          frequency: m.frequency ? String(m.frequency) : null,
-          instructions: m.instructions ? String(m.instructions) : null,
-          confidence: m.confidence != null ? Number(m.confidence) : null,
-          editingInstructions: false,
-          editValue: "",
-        }));
-      }
+      const meds: MedItem[] = Array.isArray(raw.medications)
+        ? raw.medications.map((m: Record<string, unknown>) => ({
+            medication_name: String(m.medication_name ?? ""),
+            dosage: String(m.dosage ?? ""),
+            frequency: String(m.frequency ?? ""),
+            timing: String(m.timing ?? ""),
+            duration_days: m.duration_days != null ? Number(m.duration_days) : null,
+            confidence: m.confidence != null ? Number(m.confidence) : null,
+          }))
+        : [];
 
       setResult({
         doc_result_id: raw.doc_result_id,
-        document_type: raw.document_type ?? "",
         overall_confidence: raw.overall_confidence ?? null,
-        raw_summary: raw.raw_summary ?? null,
-        medications: meds,
-        cautions: raw.cautions ?? null,
-        hospital_name: raw.hospital_name ?? null,
-        prescription_date: raw.prescription_date ?? null,
         processing_time: raw.processing_time ?? 0,
       });
+      setHospitalName(raw.hospital_name ?? "");
+      setVisitDate(raw.visit_date ?? raw.prescription_date ?? "");
+      setDiagnosisName(raw.diagnosis_name ?? "");
+      setMedications(meds);
+      setShowDirectInput({});
+      setDirectInputVal({});
       setStep("result");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "분석 중 오류가 발생했습니다.";
@@ -186,16 +183,16 @@ export default function DocsPage() {
     setFiles([]);
     setResult(null);
     setElapsedSec(0);
+    setHospitalName("");
+    setVisitDate("");
+    setDiagnosisName("");
+    setMedications([]);
+    setShowDirectInput({});
+    setDirectInputVal({});
   };
 
-  // ── 복용법 수정 ──
-  const toggleEditInstructions = (idx: number) => {
-    setResult((prev) => {
-      if (!prev) return prev;
-      const meds = [...prev.medications];
-      meds[idx] = { ...meds[idx], editingInstructions: !meds[idx].editingInstructions, editValue: meds[idx].instructions ?? "" };
-      return { ...prev, medications: meds };
-    });
+  const updateMed = (idx: number, field: keyof MedItem, value: string | number | null) => {
+    setMedications((prev) => prev.map((m, i) => i === idx ? { ...m, [field]: value } : m));
   };
 
   // ── 확인 완료: PATCH → from-doc → ai-generate → /guide/{id} ──
@@ -203,47 +200,34 @@ export default function DocsPage() {
     if (!result) return;
     setConfirming(true);
     try {
-      // ① 수정된 항목만 PATCH (미확인이었다가 입력된 것)
-      const edited = result.medications
-        .map((m, i) => ({ medication_index: i, timing: m.instructions }))
-        .filter((m) => m.timing != null && m.timing !== "");
+      await apiClient.patch(`/api/v1/medical-doc/results/${result.doc_result_id}`, {
+        hospital_name: hospitalName || null,
+        visit_date: visitDate || null,
+        diagnosis_name: diagnosisName || null,
+        medications: medications.map((m, i) => ({
+          medication_index: i,
+          medication_name: m.medication_name,
+          dosage: m.dosage || null,
+          frequency: m.frequency || null,
+          timing: m.timing || null,
+          duration_days: m.duration_days,
+        })),
+      });
 
-      if (edited.length > 0) {
-        await apiClient.patch(`/api/v1/medical-doc/results/${result.doc_result_id}`, {
-          medications: edited,
-        });
-      }
-
-      // ② 가이드 생성
       const today = new Date().toISOString().slice(0, 10);
       const { data: guideData } = await apiClient.post("/api/v1/guides/from-doc", {
         doc_result_id: result.doc_result_id,
         med_start_date: today,
       });
-      // guide 엔드포인트는 래퍼 없이 { guide_id, title, ... } 직접 반환
       const guideId: number = (guideData.data ?? guideData).guide_id;
 
-      // ③ AI 가이드 생성
-      await apiClient.post(`/api/v1/guides/${guideId}/ai-generate`, {
-        result_types: null,
-      });
-
-      // ④ 가이드 페이지로 이동
+      await apiClient.post(`/api/v1/guides/${guideId}/ai-generate`, { result_types: null });
       router.push(`/guide/${guideId}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "가이드 생성에 실패했습니다.";
       showToast(msg);
       setConfirming(false);
     }
-  };
-
-  const saveInstructions = (idx: number, value: string) => {
-    setResult((prev) => {
-      if (!prev) return prev;
-      const meds = [...prev.medications];
-      meds[idx] = { ...meds[idx], instructions: value, editingInstructions: false, confidence: Math.max(meds[idx].confidence ?? 0, 0.9) };
-      return { ...prev, medications: meds };
-    });
   };
 
   // ── 분석 진행 단계 표시 ──
@@ -385,126 +369,138 @@ export default function DocsPage() {
               <h1 className="text-xl font-bold text-foreground">✅ 분석 완료</h1>
               <p className="mt-0.5 text-xs text-muted-foreground">처리 시간: {result.processing_time}초</p>
             </div>
-            {result.overall_confidence !== null && (
-              <ConfidenceBar value={result.overall_confidence} />
-            )}
+            {result.overall_confidence !== null && <ConfidenceBar value={result.overall_confidence} />}
           </div>
 
-          {/* 문서 요약 */}
+          {/* 기본 정보 */}
           <div className="rounded-xl border border-border bg-card p-5">
-            <h2 className="mb-3 text-sm font-semibold text-teal-500">📋 문서 요약</h2>
-            <div className="space-y-2 text-sm">
-              {result.hospital_name && <Row label="병원/약국" value={result.hospital_name} />}
-              {result.prescription_date && <Row label="조제일" value={result.prescription_date} />}
+            <h2 className="mb-4 text-sm font-semibold text-teal-500">🏥 기본 정보</h2>
+            <div className="space-y-3">
+              {([
+                { label: "의료기관명", value: hospitalName, setter: setHospitalName, placeholder: "의료기관명 입력" },
+                { label: "진료일", value: visitDate, setter: setVisitDate, placeholder: "YYYY-MM-DD", type: "date" },
+                { label: "진단명", value: diagnosisName, setter: setDiagnosisName, placeholder: "진단명 입력" },
+              ] as { label: string; value: string; setter: (v: string) => void; placeholder: string; type?: string }[]).map(({ label, value, setter, placeholder, type }) => (
+                <div key={label} className="flex items-center gap-3">
+                  <span className="w-20 shrink-0 text-xs text-muted-foreground">{label}</span>
+                  <input
+                    type={type ?? "text"}
+                    value={value}
+                    onChange={(e) => setter(e.target.value)}
+                    placeholder={placeholder}
+                    className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
+                  />
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* 약품 목록 */}
-          {result.medications.length > 0 && (
+          {/* 약물 목록 */}
+          {medications.length > 0 && (
             <div className="rounded-xl border border-border bg-card p-5">
-              <h2 className="mb-3 text-sm font-semibold text-teal-500">💊 약품 목록</h2>
-              <div className="space-y-4">
-                {result.medications.map((med, idx) => {
+              <h2 className="mb-4 text-sm font-semibold text-teal-500">💊 처방 약물</h2>
+              <div className="space-y-5">
+                {medications.map((med, idx) => {
                   const lowConf = med.confidence === null || med.confidence < 0.7;
+                  const noTiming = !med.timing;
                   return (
-                    <div key={idx} className={`rounded-lg border p-4 ${lowConf ? "border-red-500/30 bg-red-500/5" : "border-border bg-background"}`}>
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="font-medium text-foreground">{med.name}</span>
+                    <div
+                      key={idx}
+                      className={`rounded-lg border p-4 ${
+                        lowConf || noTiming ? "border-orange-500/30 bg-orange-500/5" : "border-border bg-background"
+                      }`}
+                    >
+                      {/* 약품명 + 신뢰도 */}
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <input
+                          value={med.medication_name}
+                          onChange={(e) => updateMed(idx, "medication_name", e.target.value)}
+                          className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-sm font-semibold text-foreground focus:border-teal-500/50 focus:outline-none"
+                          placeholder="약품명"
+                        />
                         <ConfidenceBar value={med.confidence} />
                       </div>
-                      {med.dosage && <p className="text-xs text-muted-foreground">{med.dosage}</p>}
-                      {med.frequency && <p className="text-xs text-muted-foreground">{med.frequency}</p>}
 
-                      {/* 복용법 */}
-                      <div className="mt-2">
-                        {med.editingInstructions ? (
-                          <div className="space-y-2">
-                            <p className="text-xs font-medium text-foreground">복용법 선택</p>
-                            <div className="flex flex-wrap gap-2">
-                              {INSTRUCTIONS_OPTIONS.map((opt) => (
-                                <button
-                                  key={opt}
-                                  onClick={() => opt === "직접입력"
-                                    ? setResult((prev) => {
-                                        if (!prev) return prev;
-                                        const meds = [...prev.medications];
-                                        meds[idx] = { ...meds[idx], editValue: "" };
-                                        return { ...prev, medications: meds };
-                                      })
-                                    : saveInstructions(idx, opt)
-                                  }
-                                  className="rounded-lg border border-border bg-muted px-3 py-1.5 text-xs text-foreground transition hover:border-teal-500/50 hover:bg-teal-500/10"
-                                >
-                                  {opt}
-                                </button>
-                              ))}
-                            </div>
-                            {med.editValue !== undefined && (
-                              <div className="flex gap-2">
-                                <input
-                                  value={med.editValue}
-                                  onChange={(e) => setResult((prev) => {
-                                    if (!prev) return prev;
-                                    const meds = [...prev.medications];
-                                    meds[idx] = { ...meds[idx], editValue: e.target.value };
-                                    return { ...prev, medications: meds };
-                                  })}
-                                  placeholder="직접 입력"
-                                  className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
-                                />
-                                <button
-                                  onClick={() => saveInstructions(idx, med.editValue)}
-                                  className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs text-white hover:bg-teal-500"
-                                >
-                                  저장
-                                </button>
-                              </div>
-                            )}
+                      {/* 용량 / 횟수 / 기간 */}
+                      <div className="mb-3 grid grid-cols-3 gap-2">
+                        {([
+                          { field: "dosage" as const, label: "투약량", placeholder: "1정" },
+                          { field: "frequency" as const, label: "복용횟수", placeholder: "1일 2회" },
+                          { field: "duration_days" as const, label: "투약일수", placeholder: "5", type: "number" },
+                        ]).map(({ field, label, placeholder, type }) => (
+                          <div key={field}>
+                            <p className="mb-1 text-[10px] text-muted-foreground">{label}</p>
+                            <input
+                              type={type ?? "text"}
+                              value={med[field] ?? ""}
+                              onChange={(e) => updateMed(idx, field, field === "duration_days" ? (e.target.value ? Number(e.target.value) : null) : e.target.value)}
+                              placeholder={placeholder}
+                              className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
+                            />
                           </div>
-                        ) : (
-                          <div className="flex items-center justify-between">
-                            {med.instructions ? (
-                              <span className="text-xs text-muted-foreground">복용법: {med.instructions}</span>
-                            ) : (
-                              <button
-                                onClick={() => toggleEditInstructions(idx)}
-                                className="text-xs text-red-500 hover:text-red-400"
-                              >
-                                ⚠️ 미확인 — 탭하여 입력
-                              </button>
-                            )}
-                            {med.instructions && lowConf && (
-                              <button
-                                onClick={() => toggleEditInstructions(idx)}
-                                className="text-xs text-teal-500 underline hover:text-teal-400"
-                              >
-                                수정
-                              </button>
-                            )}
+                        ))}
+                      </div>
+
+                      {/* 복용시점 */}
+                      <div>
+                        <p className="mb-1.5 text-[10px] text-muted-foreground">복용시점</p>
+                        {noTiming && (
+                          <p className="mb-1.5 text-xs text-orange-400">⚠️ 미확인 — 아래에서 선택하세요</p>
+                        )}
+                        <div className="flex flex-wrap gap-1.5">
+                          {TIMING_OPTIONS.map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => {
+                                updateMed(idx, "timing", opt);
+                                setShowDirectInput((p) => ({ ...p, [idx]: false }));
+                              }}
+                              className="rounded-lg border px-3 py-1 text-xs transition"
+                              style={{
+                                borderColor: med.timing === opt ? "#14b8a6" : undefined,
+                                backgroundColor: med.timing === opt ? "rgba(20,184,166,0.15)" : undefined,
+                                color: med.timing === opt ? "#14b8a6" : undefined,
+                              }}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => setShowDirectInput((p) => ({ ...p, [idx]: !p[idx] }))}
+                            className="rounded-lg border border-border px-3 py-1 text-xs text-muted-foreground transition hover:border-teal-500/40 hover:text-foreground"
+                          >
+                            직접입력
+                          </button>
+                        </div>
+                        {showDirectInput[idx] && (
+                          <div className="mt-2 flex gap-2">
+                            <input
+                              value={directInputVal[idx] ?? ""}
+                              onChange={(e) => setDirectInputVal((p) => ({ ...p, [idx]: e.target.value }))}
+                              placeholder="복용시점 직접 입력"
+                              className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateMed(idx, "timing", directInputVal[idx] ?? "");
+                                setShowDirectInput((p) => ({ ...p, [idx]: false }));
+                              }}
+                              className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs text-white hover:bg-teal-500"
+                            >
+                              확인
+                            </button>
                           </div>
+                        )}
+                        {med.timing && !showDirectInput[idx] && (
+                          <p className="mt-1.5 text-xs text-teal-400">선택됨: {med.timing}</p>
                         )}
                       </div>
                     </div>
                   );
                 })}
-              </div>
-            </div>
-          )}
-
-          {/* 주의사항 */}
-          {result.cautions && (
-            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-5">
-              <h2 className="mb-2 text-sm font-semibold text-yellow-500">⚠️ 주의사항</h2>
-              <p className="text-sm text-foreground">{result.cautions}</p>
-            </div>
-          )}
-
-          {/* AI 요약 */}
-          {result.raw_summary && (
-            <div className="rounded-xl border border-border bg-card p-5">
-              <h2 className="mb-2 text-sm font-semibold text-teal-500">📝 AI 요약</h2>
-              <div className="prose prose-sm max-w-none text-sm text-foreground">
-                <ReactMarkdown>{result.raw_summary}</ReactMarkdown>
               </div>
             </div>
           )}
@@ -535,15 +531,6 @@ export default function DocsPage() {
       )}
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-foreground">{value}</span>
     </div>
   );
 }
