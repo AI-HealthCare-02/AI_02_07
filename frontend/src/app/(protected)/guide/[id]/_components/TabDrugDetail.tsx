@@ -195,8 +195,16 @@ export default function TabDrugDetail({
             {medSummary.how_to_take && <Section label="복용법" value={String(medSummary.how_to_take)} />}
             {medSummary.caution && <Section label="주의사항" value={String(medSummary.caution)} />}
           </div>
-        ) : (
+        ) : aiResults.length === 0 ? (
           <p className="text-sm text-muted-foreground">AI 가이드가 아직 생성되지 않았습니다.</p>
+        ) : (
+          <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+            <p className="mb-1 text-sm font-medium text-yellow-500">⚠️ 약품 DB 정보를 찾을 수 없습니다.</p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              이 약품에 대한 상세 정보가 데이터베이스에 등록되어 있지 않습니다.
+              약품 정보는 담당 의사 또는 약사에게 문의하세요.
+            </p>
+          </div>
         )}
       </div>
 
