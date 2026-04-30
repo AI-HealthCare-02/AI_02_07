@@ -43,6 +43,9 @@ class GuideMedication(Model):
     timing_grp = fields.CharField(max_length=20, default="MED_TIMING")
     timing_code = fields.CharField(max_length=20, null=True)
     duration_days = fields.IntField(null=True)
+    # ✅ 추가: 사용자가 선택한 복약 시간대 (아침/점심/저녁/취침전)
+    # 예: ["아침", "저녁"] — 분석 결과 화면에서 체크박스로 선택
+    daily_slots = fields.JSONField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:

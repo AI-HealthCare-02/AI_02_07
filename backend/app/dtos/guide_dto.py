@@ -90,6 +90,8 @@ class MedicationDetailItem(BaseModel):
     frequency: str | None
     timing: str | None
     duration_days: int | None
+    # ✅ 추가: 사용자가 선택한 복약 시간대 (아침/점심/저녁/취침전)
+    daily_slots: list[str] | None = None
 
 
 class GuideDetailResponse(BaseModel):
@@ -182,7 +184,7 @@ class MedCheckItem(BaseModel):
     medication_name: str
     timing: str | None
     timing_slot: str  # ✅ 추가: SLOT_1 / SLOT_2 / SLOT_3 (몇 번째 복약인지)
-    slot_label: str  # ✅ 추가: "1회차" / "2회차" / "3회차" (화면 표시용)
+    slot_label: str  # ✅ 추가: "아침" / "저녁" 또는 "1회차" / "2회차" (화면 표시용)
     is_taken: bool
     taken_at: datetime | None
 
@@ -207,6 +209,27 @@ class MedCheckCreateResponse(BaseModel):
     timing_slot: str  # ✅ 추가
     is_taken: bool
     taken_at: datetime
+
+
+# ──────────────────────────────────────────
+# ✅ 추가: 복약 기록 히스토리 (페이징)
+# ──────────────────────────────────────────
+class MedCheckHistoryItem(BaseModel):
+    check_id: int
+    guide_medication_id: int
+    medication_name: str
+    timing_slot: str  # SLOT_1 / SLOT_2 / SLOT_3
+    slot_label: str  # "아침" / "저녁" 또는 "1회차" / "2회차"
+    check_date: date
+    is_taken: bool
+    taken_at: datetime | None
+
+
+class MedCheckHistoryResponse(BaseModel):
+    total_count: int
+    page: int
+    size: int
+    items: list[MedCheckHistoryItem]
 
 
 # ──────────────────────────────────────────
