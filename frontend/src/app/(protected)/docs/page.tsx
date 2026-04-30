@@ -311,7 +311,7 @@ export default function DocsPage() {
             </div>
           )}
 
-          {/* 분석 시작 버튼 */
+          {/* 분석 시작 버튼 */}
           <button
             onClick={startAnalysis}
             disabled={files.length === 0}
