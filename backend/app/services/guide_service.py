@@ -303,6 +303,9 @@ class GuideService:
         if not meds:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="처방 약물이 없습니다.")
 
+        # ✅ 추가: 사용자 헬스 정보 조회 후 AI에 전달
+        user_health_info = await self._get_user_health_info(user_id)
+
         med_dicts = [{"medication_name": m.medication_name} for m in meds]
         result = await self._ai.generate(
             guide_id=guide_id,
@@ -311,6 +314,7 @@ class GuideService:
             patient_gender=guide.patient_gender_code,
             diagnosis_name=guide.diagnosis_name,
             result_types=req.result_types,
+            user_health_info=user_health_info,  # ✅ 추가
         )
 
         saved_results = []
@@ -654,6 +658,29 @@ class GuideService:
             guide_status=guide.guide_status_code,
             input_method=guide.input_method_code,
         )
+
+    # ──────────────────────────────────────────
+    # ✅ 추가: 사용자 헬스 정보 조회
+    # ──────────────────────────────────────────
+    async def _get_user_health_info(self, user_id: int) -> dict:
+        """사용자 기저질환·알레르기·생활습관 조회 → AI 프롬프트용 dict 반환."""
+        try:
+            from app.models.user import UserAllergy, UserDisease, UserLifestyle
+
+            diseases = await UserDisease.filter(user_id=user_id).values_list("disease_name", flat=True)
+            allergies = await UserAllergy.filter(user_id=user_id).values_list("allergy_name", flat=True)
+            lifestyle = await UserLifestyle.filter(user_id=user_id).first()
+
+            return {
+                "diseases": list(diseases),
+                "allergies": list(allergies),
+                "smoking": lifestyle.smoking_code if lifestyle else None,
+                "drinking": lifestyle.drinking_code if lifestyle else None,
+                "exercise": lifestyle.exercise_code if lifestyle else None,
+            }
+        except Exception as e:
+            logger.warning(f"사용자 헬스 정보 조회 실패 (user_id={user_id}): {e}")
+            return {}
 
     # ──────────────────────────────────────────
     # 내부 헬퍼
