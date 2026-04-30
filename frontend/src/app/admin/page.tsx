@@ -11,6 +11,8 @@ interface Summary {
   todayActiveUsers: number;
   ocrUsageCount: number;
   todayChatCount: number;
+  todayPillAnalysisCount: number;
+  totalPillAnalysisCount: number;
 }
 
 // ── 유틸 ──────────────────────────────────────────────────
@@ -129,9 +131,10 @@ const PERIODS = [
 ];
 
 const CHART_CONFIGS = [
-  { type: "SIGNUP",      label: "신규 가입자",   color: "#14b8a6", unit: "명" },
-  { type: "CHAT_USAGE",  label: "챗봇 이용량",   color: "#818cf8", unit: "건" },
-  { type: "OCR_SUCCESS", label: "의료문서 사용", color: "#34d399", unit: "건" },
+  { type: "SIGNUP",        label: "신규 가입자",   color: "#14b8a6", unit: "명" },
+  { type: "CHAT_USAGE",    label: "챗봇 이용량",   color: "#818cf8", unit: "건" },
+  { type: "OCR_SUCCESS",   label: "의료문서 사용", color: "#34d399", unit: "건" },
+  { type: "PILL_ANALYSIS", label: "알약 분석 이용", color: "#f59e0b", unit: "건" },
 ];
 
 function ChartPanel({ type, label, color, unit }: {
@@ -269,11 +272,13 @@ export default function AdminDashboardPage() {
           ))}
         </div>
       ) : summary ? (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
           <SummaryCard label="총 가입자"         value={(summary.totalUsers        ?? 0).toLocaleString()} sub="명" color="text-teal-400"   icon="👥" />
           <SummaryCard label="오늘 활성 사용자"   value={(summary.todayActiveUsers   ?? 0).toLocaleString()} sub="명" color="text-blue-400"   icon="🟢" />
           <SummaryCard label="오늘 의료문서 사용" value={(summary.ocrUsageCount      ?? 0).toLocaleString()} sub="건" color="text-green-400"  icon="📄" />
           <SummaryCard label="오늘 챗봇 문의"     value={(summary.todayChatCount     ?? 0).toLocaleString()} sub="건" color="text-purple-400" icon="💬" />
+          <SummaryCard label="오늘 알약 분석" value={(summary.todayPillAnalysisCount ?? 0).toLocaleString()} sub="건" color="text-yellow-400" icon="💊" />
+          <SummaryCard label="알약 분석 누적" value={(summary.totalPillAnalysisCount ?? 0).toLocaleString()} sub="건" color="text-orange-400" icon="📊" />
         </div>
       ) : null}
 
