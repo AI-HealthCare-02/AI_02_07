@@ -770,6 +770,21 @@ DO $$ BEGIN
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 
+-- 공공데이터 동기화 이력 테이블
+CREATE TABLE IF NOT EXISTS drug_sync_log (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    sync_type   VARCHAR(20)  NOT NULL DEFAULT 'incremental',
+    since_date  VARCHAR(8),
+    inserted    INT          NOT NULL DEFAULT 0,
+    updated     INT          NOT NULL DEFAULT 0,
+    skipped     INT          NOT NULL DEFAULT 0,
+    failed      INT          NOT NULL DEFAULT 0,
+    dry_run     BOOLEAN      NOT NULL DEFAULT FALSE,
+    synced_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_drug_sync_log_synced_at ON drug_sync_log (synced_at DESC);
+
 DO $$ BEGIN
     RAISE NOTICE '=== AH_02_07 HealthGuide: 모든 테이블 생성/확인 완료 ===';
 END $$;
