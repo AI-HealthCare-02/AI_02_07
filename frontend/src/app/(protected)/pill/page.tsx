@@ -161,22 +161,31 @@ export default function PillPage() {
         formData,
         { headers: { "Content-Type": "multipart/form-data" } }
       );
+      if (timerRef.current) clearInterval(timerRef.current);
+
       const id = data.data?.analysis_id ?? null;
-      setAnalysisId(id);
       const name: string = data.data?.product_name ?? "";
       const unidentifiedKeywords = ["식별 불가", "미매칭", "알약 이미지가 아닙니다", "여러 알약", "분석 실패"];
-      if (unidentifiedKeywords.some((kw) => name.includes(kw))) {
+      const isUnidentified = unidentifiedKeywords.some((kw) => name.includes(kw));
+
+      // 진행 바를 100%까지 채운 뒤 이동
+      setElapsedSec(999);
+      await new Promise((r) => setTimeout(r, 800));
+
+      if (isUnidentified) {
         setUnidentifiedReason(name);
         setStep("unidentified");
+      } else if (id) {
+        router.push(`/pill/${id}`);
       } else {
+        setAnalysisId(id);
         setStep("done");
       }
     } catch (e: unknown) {
+      if (timerRef.current) clearInterval(timerRef.current);
       const msg = e instanceof Error ? e.message : "알 수 없는 오류";
       setFailReason(msg);
       setStep("failed");
-    } finally {
-      if (timerRef.current) clearInterval(timerRef.current);
     }
   };
 
@@ -233,12 +242,15 @@ export default function PillPage() {
   };
 
   // ── 분석 진행 단계 ──
+  const TOTAL_SEC = 55;
   const STEPS_LABEL = [
     { label: "이미지 전처리", doneAt: 3 },
     { label: "이미지 업로드", doneAt: 8 },
     { label: "AI 멀티모달 분석", doneAt: 45 },
     { label: "결과 저장", doneAt: 55 },
   ];
+  const isApiDone = elapsedSec >= 999;
+  const progressPct = isApiDone ? 100 : Math.min(Math.round((elapsedSec / TOTAL_SEC) * 100), 95);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 pb-24 lg:pb-8">
@@ -384,17 +396,13 @@ export default function PillPage() {
               {/* 진행 바 */}
               <div className="w-full max-w-sm">
                 <div className="mb-2 flex justify-between text-xs text-muted-foreground">
-                  <span>진행 중</span>
-                  <span>
-                    {Math.min(Math.round((elapsedSec / 55) * 100), 95)}%
-                  </span>
+                  <span>{isApiDone ? "분석 완료" : "진행 중"}</span>
+                  <span>{progressPct}%</span>
                 </div>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                   <div
-                    className="h-full rounded-full bg-teal-500 transition-all duration-1000"
-                    style={{
-                      width: `${Math.min(Math.round((elapsedSec / 55) * 100), 95)}%`,
-                    }}
+                    className="h-full rounded-full bg-teal-500 transition-all duration-700"
+                    style={{ width: `${progressPct}%` }}
                   />
                 </div>
               </div>
@@ -402,18 +410,14 @@ export default function PillPage() {
               {/* 단계 */}
               <div className="w-full max-w-sm space-y-3 text-left">
                 {STEPS_LABEL.map((s) => {
-                  const done = elapsedSec >= s.doneAt;
+                  const done = isApiDone || elapsedSec >= s.doneAt;
                   const active = !done && elapsedSec >= s.doneAt - 5;
                   return (
                     <div key={s.label} className="flex items-center gap-3 text-sm">
                       <span className="text-base">
                         {done ? "✅" : active ? "🔄" : "⏳"}
                       </span>
-                      <span
-                        className={
-                          done ? "text-foreground" : "text-muted-foreground"
-                        }
-                      >
+                      <span className={done ? "text-foreground" : "text-muted-foreground"}>
                         {s.label}
                         {active ? " 중..." : done ? " 완료" : " 대기"}
                       </span>
