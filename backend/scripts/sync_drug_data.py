@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 PRMSN_URL = "https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService07/getDrugPrdtPrmsnDtlInq06"
 IDNTFC_URL = "https://apis.data.go.kr/1471000/MdcinGrnIdntfcInfoService03/getMdcinGrnIdntfcInfoList03"
 
-SERVICE_KEY = unquote(os.getenv("PUBLIC_DATA_SERVICE_KEY", ""))
+SERVICE_KEY = unquote(os.getenv("PUBLIC_DATA_API_KEY", ""))
 
 
 def get_db_config() -> dict:

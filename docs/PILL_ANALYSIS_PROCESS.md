@@ -509,5 +509,5 @@ drug_sync_log 테이블에 이력 기록
 
 ```env
 # .prod.env에 추가
-PUBLIC_DATA_SERVICE_KEY=your-decoded-service-key  # Decoding Key (URL decode된 값)
+PUBLIC_DATA_API_KEY=your-decoded-service-key  # Decoding Key (URL decode된 값)
 ```

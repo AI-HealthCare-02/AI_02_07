@@ -50,10 +50,10 @@ async def trigger_drug_sync(
 
     settings = get_settings()
 
-    if not getattr(settings, "PUBLIC_DATA_SERVICE_KEY", None):
+    if not getattr(settings, "PUBLIC_DATA_API_KEY", None):
         raise HTTPException(
             status_code=500,
-            detail="PUBLIC_DATA_SERVICE_KEY 환경변수가 설정되지 않았습니다.",
+            detail="PUBLIC_DATA_API_KEY 환경변수가 설정되지 않았습니다.",
         )
 
     since = None
