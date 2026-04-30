@@ -24,9 +24,8 @@ class GuideRepository:
         status: str | None,
         page: int,
         size: int,
-        search: str | None = None,  # ✅ 추가: 검색 파라미터
+        search: str | None = None,
     ) -> tuple[int, list[Guide]]:
-        # ✅ 수정: is_deleted=False 필터 추가
         qs = Guide.filter(user_id=user_id, is_deleted=False)
 
         if status:
@@ -44,7 +43,6 @@ class GuideRepository:
                 cutoff = date(y, m - 3, 1)
             qs = qs.filter(created_at__date__gte=cutoff)
 
-        # ✅ 추가: 제목·병원명 검색
         if search:
             qs = qs.filter(Q(title__icontains=search) | Q(hospital_name__icontains=search))
 
@@ -53,7 +51,6 @@ class GuideRepository:
         return total, guides
 
     async def get_guide_by_id(self, guide_id: int, user_id: int) -> Guide | None:
-        # ✅ 수정: is_deleted=False 필터 추가
         return await Guide.filter(guide_id=guide_id, user_id=user_id, is_deleted=False).first()
 
     async def create_guide(self, user_id: int, data: dict) -> Guide:
@@ -66,7 +63,6 @@ class GuideRepository:
         return guide
 
     async def soft_delete_guide(self, guide: Guide) -> None:
-        # ✅ 수정: is_deleted 컬럼 추가됐으므로 실제 소프트 삭제로 변경
         guide.is_deleted = True
         guide.guide_status_code = "EXPIRED"
         await guide.save()
@@ -89,7 +85,6 @@ class GuideRepository:
         return await GuideCondition.filter(guide_id=guide_id)
 
     async def replace_conditions(self, guide_id: int, conditions: list[dict]) -> None:
-        """DELETE + INSERT (PUT 시맨틱)"""
         await GuideCondition.filter(guide_id=guide_id).delete()
         if conditions:
             objs = [GuideCondition(guide_id=guide_id, **c) for c in conditions]
@@ -99,27 +94,23 @@ class GuideRepository:
     # GuideAiResult
     # ──────────────────────────────────────────
     async def get_latest_ai_results(self, guide_id: int, result_type: str | None = None) -> list[GuideAiResult]:
-        """result_type_code별 최신 버전만 반환"""
         qs = GuideAiResult.filter(guide_id=guide_id, is_latest=True)
         if result_type:
             qs = qs.filter(result_type_code=result_type)
         return await qs.order_by("-created_at")
 
     async def create_ai_result(self, guide_id: int, result_type: str, content: dict, status: str) -> GuideAiResult:
-        # 기존 is_latest=True 결과를 False로 변경 후 새 결과 저장
         await GuideAiResult.filter(
             guide_id=guide_id,
             result_type_code=result_type,
             is_latest=True,
         ).update(is_latest=False)
 
-        # 버전 증가
         latest = (
             await GuideAiResult.filter(guide_id=guide_id, result_type_code=result_type).order_by("-version").first()
         )
         version = (latest.version + 1) if latest else 1
 
-        # ✅ 수정: content JSONB 변환 후 json.dumps() 제거 → dict 그대로 저장
         return await GuideAiResult.create(
             guide_id=guide_id,
             result_type_code=result_type,
@@ -144,16 +135,31 @@ class GuideRepository:
     async def get_med_check(self, check_id: int, guide_id: int) -> GuideMedCheck | None:
         return await GuideMedCheck.filter(check_id=check_id, guide_id=guide_id).first()
 
-    async def check_duplicate(self, guide_medication_id: int, check_date: date) -> bool:
-        return await GuideMedCheck.filter(guide_medication_id=guide_medication_id, check_date=check_date).exists()
+    async def check_duplicate(
+        self,
+        guide_medication_id: int,
+        check_date: date,
+        timing_slot: str,  # ✅ timing_slot 추가
+    ) -> bool:
+        return await GuideMedCheck.filter(
+            guide_medication_id=guide_medication_id,
+            check_date=check_date,
+            timing_slot=timing_slot,  # ✅ 슬롯 포함 중복 체크
+        ).exists()
 
     async def create_med_check(
-        self, guide_id: int, guide_medication_id: int, check_date: date, taken_at: datetime
+        self,
+        guide_id: int,
+        guide_medication_id: int,
+        check_date: date,
+        timing_slot: str,  # ✅ timing_slot 추가
+        taken_at: datetime,
     ) -> GuideMedCheck:
         return await GuideMedCheck.create(
             guide_id=guide_id,
             guide_medication_id=guide_medication_id,
             check_date=check_date,
+            timing_slot=timing_slot,  # ✅ 슬롯 저장
             taken_at=taken_at,
             is_taken=True,
         )
