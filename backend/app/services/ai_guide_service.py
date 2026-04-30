@@ -26,6 +26,25 @@ DISCLAIMER = (
 
 ALL_RESULT_TYPES = ["RT_MEDICATION", "RT_LIFESTYLE", "RT_CAUTION"]
 
+# ✅ 추가: 헬스 정보 코드 → 한글 매핑
+SMOKING_DISPLAY = {
+    "NON_SMOKER": "비흡연",
+    "SMOKER": "흡연",
+    "EX_SMOKER": "금연 중",
+}
+DRINKING_DISPLAY = {
+    "NON_DRINKER": "비음주",
+    "LIGHT": "가끔 음주",
+    "MODERATE": "주 1~2회",
+    "HEAVY": "주 3회 이상",
+}
+EXERCISE_DISPLAY = {
+    "NONE": "운동 안 함",
+    "LIGHT": "가벼운 운동 (주 1~2회)",
+    "MODERATE": "보통 운동 (주 3~4회)",
+    "HEAVY": "활발한 운동 (주 5회 이상)",
+}
+
 
 class AiGuideService:
     def __init__(self) -> None:
@@ -43,6 +62,23 @@ class AiGuideService:
                 raw = raw[:-3].strip()
         return raw
 
+    # ✅ 추가: 헬스 정보 → 프롬프트용 문자열 변환
+    def _format_health_info(self, user_health_info: dict) -> str:
+        if not user_health_info:
+            return ""
+        lines = []
+        if user_health_info.get("diseases"):
+            lines.append(f"- 기저질환: {', '.join(user_health_info['diseases'])}")
+        if user_health_info.get("allergies"):
+            lines.append(f"- 알레르기: {', '.join(user_health_info['allergies'])}")
+        if user_health_info.get("smoking"):
+            lines.append(f"- 흡연: {SMOKING_DISPLAY.get(user_health_info['smoking'], user_health_info['smoking'])}")
+        if user_health_info.get("drinking"):
+            lines.append(f"- 음주: {DRINKING_DISPLAY.get(user_health_info['drinking'], user_health_info['drinking'])}")
+        if user_health_info.get("exercise"):
+            lines.append(f"- 운동: {EXERCISE_DISPLAY.get(user_health_info['exercise'], user_health_info['exercise'])}")
+        return "\n".join(lines) if lines else ""
+
     async def generate(
         self,
         guide_id: int,
@@ -51,9 +87,11 @@ class AiGuideService:
         patient_gender: str,
         diagnosis_name: str,
         result_types: list[str] | None,
+        user_health_info: dict | None = None,  # ✅ 추가: 사용자 헬스 정보
     ) -> dict[str, Any]:
         types_to_gen = result_types or ALL_RESULT_TYPES
         med_names = [m["medication_name"] for m in medications]
+        health_info = user_health_info or {}  # ✅ 추가
 
         rag_chunks_by_name: dict[str, dict] = {}
         for name in med_names:
@@ -77,7 +115,13 @@ class AiGuideService:
         for rt in types_to_gen:
             try:
                 content = await self._generate_one(
-                    rt, rag_chunks_by_name, med_names, patient_age, patient_gender, diagnosis_name
+                    rt,
+                    rag_chunks_by_name,
+                    med_names,
+                    patient_age,
+                    patient_gender,
+                    diagnosis_name,
+                    health_info,  # ✅ 추가
                 )
                 completed.append(rt)
                 results.append({"result_type": rt, "content": content, "status": "COMPLETED"})
@@ -96,18 +140,36 @@ class AiGuideService:
         patient_age: int,
         patient_gender: str,
         diagnosis_name: str,
+        user_health_info: dict,  # ✅ 추가
     ) -> dict[str, Any]:
         if result_type == "RT_MEDICATION":
             return await self._gen_medication(
-                rag_chunks_by_name, med_names, patient_age, patient_gender, diagnosis_name
+                rag_chunks_by_name,
+                med_names,
+                patient_age,
+                patient_gender,
+                diagnosis_name,
+                user_health_info,  # ✅ 추가
             )
         if result_type == "RT_LIFESTYLE":
-            return await self._gen_lifestyle(rag_chunks_by_name, med_names, patient_age, patient_gender, diagnosis_name)
+            return await self._gen_lifestyle(
+                rag_chunks_by_name,
+                med_names,
+                patient_age,
+                patient_gender,
+                diagnosis_name,
+                user_health_info,  # ✅ 추가
+            )
         if result_type == "RT_CAUTION":
             return await self._gen_caution(rag_chunks_by_name, med_names)
         if result_type == "RT_DRUG_DETAIL":
             return await self._gen_drug_detail(
-                rag_chunks_by_name, med_names, patient_age, patient_gender, diagnosis_name
+                rag_chunks_by_name,
+                med_names,
+                patient_age,
+                patient_gender,
+                diagnosis_name,
+                user_health_info,  # ✅ 추가
             )
         raise ValueError(f"지원하지 않는 result_type: {result_type}")
 
@@ -139,6 +201,7 @@ class AiGuideService:
         patient_age: int,
         patient_gender: str,
         diagnosis_name: str,
+        user_health_info: dict,  # ✅ 추가
     ) -> dict[str, Any]:
         drug_context = self._build_drug_context(rag_chunks_by_name, med_names, ["efficacy", "caution"])
 
@@ -155,8 +218,12 @@ class AiGuideService:
         if not drug_context:
             return {"medications": [], "warnings": warnings, "disclaimer": DISCLAIMER}
 
+        # ✅ 추가: 헬스 정보 포함
+        health_str = self._format_health_info(user_health_info)
+        health_section = f"\n환자 생활습관 및 건강 정보:\n{health_str}" if health_str else ""
+
         prompt = f"""아래는 약품 DB에서 가져온 공식 약품 정보입니다.
-환자 정보: 나이 {patient_age}세, 성별 {"남성" if patient_gender == "GD_MALE" else "여성"}, 진단명 {diagnosis_name or "미상"}
+환자 정보: 나이 {patient_age}세, 성별 {"남성" if patient_gender == "GD_MALE" else "여성"}, 진단명 {diagnosis_name or "미상"}{health_section}
 
 [약품 정보]
 {drug_context}
@@ -200,6 +267,7 @@ class AiGuideService:
         patient_age: int,
         patient_gender: str,
         diagnosis_name: str,
+        user_health_info: dict,  # ✅ 추가
     ) -> dict[str, Any]:
         drug_context = self._build_drug_context(rag_chunks_by_name, med_names, ["caution"])
 
@@ -211,14 +279,19 @@ class AiGuideService:
         if not drug_context:
             return {"lifestyle": [], "warnings": warnings, "disclaimer": DISCLAIMER}
 
+        # ✅ 추가: 헬스 정보 포함
+        health_str = self._format_health_info(user_health_info)
+        health_section = f"\n환자 생활습관 및 건강 정보:\n{health_str}" if health_str else ""
+
         prompt = f"""아래는 약품 DB의 공식 약품 주의사항 정보입니다.
-환자 정보: 나이 {patient_age}세, 성별 {"남성" if patient_gender == "GD_MALE" else "여성"}, 진단명 {diagnosis_name or "미상"}
+환자 정보: 나이 {patient_age}세, 성별 {"남성" if patient_gender == "GD_MALE" else "여성"}, 진단명 {diagnosis_name or "미상"}{health_section}
 
 [약품 주의사항 정보]
 {drug_context}
 
 위 공식 데이터만 바탕으로 생활습관 주의사항을 카테고리별로 JSON 배열로 정리하세요.
 - 제공된 데이터에 없는 내용은 절대 추가하지 마세요.
+- 환자의 생활습관 정보(흡연, 음주, 운동 등)가 있다면 해당 항목을 우선적으로 강조해 주세요.
 - 카테고리: diet(식습관), exercise(운동), sleep(수면), alcohol(음주·흡연), interaction(약물-음식 상호작용)
 - 형식: [{{"category": "diet", "title": "제목", "content": "내용"}}]
 - 마크다운 코드블록(```) 없이 순수 JSON만 반환하세요."""
@@ -257,13 +330,28 @@ class AiGuideService:
         warnings: list[str] = []
         drug_context_lines = []
 
+        # ✅ 추가: item_seq 기준 중복 청크 제거 (같은 성분 다른 브랜드 중복 방지)
+        seen_item_seqs: set[str] = set()
+
         for name in med_names:
             chunks = rag_chunks_by_name.get(name, {}).get("caution", [])
             if not chunks:
                 warnings.append(f"'{name}' — 약품 DB 정보를 찾을 수 없습니다.")
                 continue
-            drug_context_lines.append(f"[{name}]")
+
+            # ✅ 중복 item_seq 건너뜀
+            unique_chunks = []
             for chunk in chunks:
+                if chunk.item_seq not in seen_item_seqs:
+                    seen_item_seqs.add(chunk.item_seq)
+                    unique_chunks.append(chunk)
+
+            if not unique_chunks:
+                logger.info(f"[{name}] 모든 caution 청크가 중복으로 제거됨")
+                continue
+
+            drug_context_lines.append(f"[{name}]")
+            for chunk in unique_chunks:
                 drug_context_lines.append(f"  - {chunk.chunk_text}")
 
         if not drug_context_lines:
@@ -331,9 +419,14 @@ class AiGuideService:
         patient_age: int,
         patient_gender: str,
         diagnosis_name: str,
+        user_health_info: dict,  # ✅ 추가
     ) -> dict[str, Any]:
         warnings: list[str] = []
         drugs: list[dict] = []
+
+        # ✅ 추가: 헬스 정보 포함
+        health_str = self._format_health_info(user_health_info)
+        health_section = f"\n환자 생활습관 및 건강 정보:\n{health_str}" if health_str else ""
 
         for name in med_names:
             chunks = rag_chunks_by_name.get(name, {})
@@ -347,7 +440,7 @@ class AiGuideService:
             drug_text = "\n".join(f"  - [{c.chunk_type}] {c.chunk_text}" for c in all_chunks)
 
             prompt = f"""아래는 약품 DB에서 가져온 [{name}]의 공식 정보입니다.
-환자 정보: 나이 {patient_age}세, 성별 {"남성" if patient_gender == "GD_MALE" else "여성"}, 진단명 {diagnosis_name or "미상"}
+환자 정보: 나이 {patient_age}세, 성별 {"남성" if patient_gender == "GD_MALE" else "여성"}, 진단명 {diagnosis_name or "미상"}{health_section}
 
 [약품 정보]
 {drug_text}
