@@ -41,41 +41,32 @@ logger = logging.getLogger(__name__)
 
 # ── timing 한글 → DB 코드 변환 매핑 ──
 TIMING_MAP = {
-    # 식후
     "식후": "AFTER_MEAL",
     "밥 먹고": "AFTER_MEAL",
-    # 식후 즉시
     "식후 즉시": "AFTER_MEAL_IMMEDIATE",
-    "식후즉시": "AFTER_MEAL_IMMEDIATE",  # 프론트 버튼
-    # 식후 30분
+    "식후즉시": "AFTER_MEAL_IMMEDIATE",
     "식후 30분": "AFTER_MEAL_30",
-    "식후30분": "AFTER_MEAL_30",  # 프론트 버튼
-    # 식전
+    "식후30분": "AFTER_MEAL_30",
     "식전": "BEFORE_MEAL",
     "밥 먹기 전": "BEFORE_MEAL",
-    # 식전 30분
     "식전 30분": "BEFORE_MEAL_30",
     "식전30분": "BEFORE_MEAL_30",
-    # 식사 중
     "식사 중": "WITH_MEAL",
     "식사중": "WITH_MEAL",
     "식사와 함께": "WITH_MEAL",
-    # 취침 전
     "취침 전": "BEFORE_SLEEP",
-    "취침전": "BEFORE_SLEEP",  # 프론트 버튼
+    "취침전": "BEFORE_SLEEP",
     "자기 전": "BEFORE_SLEEP",
     "자기전": "BEFORE_SLEEP",
-    # 아침
     "아침": "MORNING",
     "기상 후": "MORNING",
     "기상후": "MORNING",
-    # 필요 시
     "필요 시": "AS_NEEDED",
     "필요시": "AS_NEEDED",
     "필요할 때": "AS_NEEDED",
 }
 
-# ── DB 코드 → 한글 역방향 매핑 (응답 시 사용) ──
+# ── DB 코드 → 한글 역방향 매핑 ──
 TIMING_DISPLAY_MAP = {
     "BEFORE_MEAL": "식전",
     "BEFORE_MEAL_30": "식전 30분",
@@ -88,15 +79,38 @@ TIMING_DISPLAY_MAP = {
     "AS_NEEDED": "필요 시",
 }
 
-# ── ai_guide_service RT_ 코드 → DB common_code 코드 변환 매핑 ──
+# ── RT_ 코드 → DB 코드 변환 매핑 ──
 RESULT_TYPE_MAP = {
     "RT_MEDICATION": "SUMMARY",
     "RT_LIFESTYLE": "LIFESTYLE_TIP",
     "RT_CAUTION": "SIDE_EFFECT",
     "RT_DRUG_DETAIL": "EMERGENCY_SIGN",
 }
-# ── DB 코드 → RT_ 코드 역방향 매핑 (응답 시 사용) ──
 RESULT_TYPE_REVERSE_MAP = {v: k for k, v in RESULT_TYPE_MAP.items()}
+
+# ── 슬롯 레이블 매핑 ──
+SLOT_LABELS = {
+    "SLOT_1": "1회차",
+    "SLOT_2": "2회차",
+    "SLOT_3": "3회차",
+}
+
+
+def _parse_frequency(frequency: str | None) -> int:
+    """frequency 문자열에서 1일 복약 횟수 파싱. 파싱 실패 시 1 반환."""
+    if not frequency:
+        return 1
+    if "3회" in frequency:
+        return 3
+    if "2회" in frequency:
+        return 2
+    return 1
+
+
+def _get_slots(count: int) -> list[str]:
+    """복약 횟수에 따른 슬롯 목록 반환."""
+    slots = ["SLOT_1", "SLOT_2", "SLOT_3"]
+    return slots[:count]
 
 
 class GuideService:
@@ -124,7 +138,8 @@ class GuideService:
         items: list[GuideListItem] = []
         for g in guides:
             meds = await self._repo.get_medications(g.guide_id)
-            med_count_val = len(meds)
+            # ✅ 전체 슬롯 수 = 각 약물의 frequency 합산
+            total_slots = sum(_parse_frequency(m.frequency) for m in meds)
 
             d_day: int | None = None
             if g.med_end_date and g.guide_status_code == "ACTIVE":
@@ -134,11 +149,11 @@ class GuideService:
             today_done = sum(1 for c in today_checks if c.is_taken)
 
             weekly_rate: float | None = None
-            if med_count_val > 0:
+            if total_slots > 0:
                 week_checks = await self._repo.get_med_checks_by_period(g.guide_id, week_ago, today)
                 days_elapsed = (today - max(week_ago, g.med_start_date)).days + 1 if g.med_start_date else 0
                 if days_elapsed > 0:
-                    possible = days_elapsed * med_count_val
+                    possible = days_elapsed * total_slots
                     taken = sum(1 for c in week_checks if c.is_taken)
                     weekly_rate = round(taken / possible, 2)
 
@@ -150,13 +165,13 @@ class GuideService:
                     med_start_date=g.med_start_date,
                     med_end_date=g.med_end_date,
                     d_day=d_day,
-                    medication_count=med_count_val,
+                    medication_count=len(meds),
                     guide_status=g.guide_status_code,
                     input_method=g.input_method_code,
                     hospital_name=g.hospital_name,
                     weekly_compliance_rate=weekly_rate,
                     today_progress_done=today_done,
-                    today_progress_total=med_count_val,
+                    today_progress_total=total_slots,
                 )
             )
         return GuideListResponse(total_count=total, page=page, size=size, guides=items)
@@ -368,26 +383,35 @@ class GuideService:
         target_date = check_date or date.today()
         meds = await self._repo.get_medications(guide_id)
         checks = await self._repo.get_med_checks_by_date(guide_id, target_date)
-        check_map = {c.guide_medication_id: c for c in checks}
+
+        # ✅ 수정: (guide_medication_id, timing_slot) 복합 키로 체크 맵 구성
+        check_map: dict[tuple[int, str], object] = {(c.guide_medication_id, c.timing_slot): c for c in checks}
 
         day_count = (target_date - guide.med_start_date).days + 1 if guide.med_start_date else 1
         taken_count = sum(1 for c in checks if c.is_taken)
-        total = len(meds)
-        progress = int(taken_count / total * 100) if total > 0 else 0
+
+        # ✅ 수정: 전체 슬롯 수 = 각 약물의 frequency 합산
+        total_slots = sum(_parse_frequency(m.frequency) for m in meds)
+        progress = int(taken_count / total_slots * 100) if total_slots > 0 else 0
 
         items: list[MedCheckItem] = []
         for m in meds:
-            c = check_map.get(m.guide_medication_id)
-            items.append(
-                MedCheckItem(
-                    check_id=c.check_id if c else None,
-                    guide_medication_id=m.guide_medication_id,
-                    medication_name=m.medication_name,
-                    timing=TIMING_DISPLAY_MAP.get(m.timing_code, m.timing_code),
-                    is_taken=bool(c and c.is_taken),
-                    taken_at=c.taken_at if c else None,
+            freq_count = _parse_frequency(m.frequency)
+            slots = _get_slots(freq_count)
+            for slot in slots:
+                c = check_map.get((m.guide_medication_id, slot))
+                items.append(
+                    MedCheckItem(
+                        check_id=c.check_id if c else None,
+                        guide_medication_id=m.guide_medication_id,
+                        medication_name=m.medication_name,
+                        timing=TIMING_DISPLAY_MAP.get(m.timing_code, m.timing_code),
+                        timing_slot=slot,
+                        slot_label=SLOT_LABELS.get(slot, slot),
+                        is_taken=bool(c and c.is_taken),
+                        taken_at=c.taken_at if c else None,
+                    )
                 )
-            )
 
         return MedCheckResponse(
             date=target_date,
@@ -399,10 +423,11 @@ class GuideService:
     async def create_med_check(self, guide_id: int, user_id: int, req: MedCheckCreateRequest) -> MedCheckCreateResponse:
         await self._get_guide_or_404(guide_id, user_id)
 
-        if await self._repo.check_duplicate(req.guide_medication_id, req.check_date):
+        # ✅ 수정: timing_slot 포함한 중복 체크
+        if await self._repo.check_duplicate(req.guide_medication_id, req.check_date, req.timing_slot):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="이미 해당 날짜에 복약 완료가 기록되어 있습니다.",
+                detail="이미 해당 날짜·회차에 복약 완료가 기록되어 있습니다.",
             )
 
         taken_at = req.taken_at or datetime.now(timezone.utc)
@@ -410,11 +435,13 @@ class GuideService:
             guide_id=guide_id,
             guide_medication_id=req.guide_medication_id,
             check_date=req.check_date,
+            timing_slot=req.timing_slot,
             taken_at=taken_at,
         )
         return MedCheckCreateResponse(
             check_id=check.check_id,
             guide_medication_id=check.guide_medication_id,
+            timing_slot=check.timing_slot,
             is_taken=check.is_taken,
             taken_at=check.taken_at,
         )
@@ -500,7 +527,8 @@ class GuideService:
     ) -> MedCheckMonthlyResponse:
         guide = await self._get_guide_or_404(guide_id, user_id)
         meds = await self._repo.get_medications(guide_id)
-        total_meds = len(meds)
+        # ✅ 수정: 전체 슬롯 수 기준으로 달력 완료 여부 판단
+        total_slots = sum(_parse_frequency(m.frequency) for m in meds)
 
         _, last_day = calendar.monthrange(year, month)
         month_start = date(year, month, 1)
@@ -525,9 +553,9 @@ class GuideService:
                 day_status = "missed"
             else:
                 taken = sum(1 for c in checks_by_date[d] if c.is_taken)
-                if total_meds == 0 or taken == 0:
+                if total_slots == 0 or taken == 0:
                     day_status = "missed"
-                elif taken >= total_meds:
+                elif taken >= total_slots:
                     day_status = "done"
                 else:
                     day_status = "partial"
@@ -559,7 +587,7 @@ class GuideService:
         return AiGenerateStatusResponse(status=overall, completed_types=completed_types)
 
     # ──────────────────────────────────────────
-    # 문서 분석 결과로 가이드 생성 (승원 파트 연동)
+    # 문서 분석 결과로 가이드 생성
     # ──────────────────────────────────────────
     async def create_guide_from_doc(self, user_id: int, req: GuideCreateFromDocRequest) -> GuideCreateResponse:
         from app.models.medical_doc import DocAnalysisResult
@@ -571,18 +599,12 @@ class GuideService:
         )
         logger.info(f"조회 결과: doc_result_id={req.doc_result_id}, user_id={user_id}, result={result}")
         if not result:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="분석 결과를 찾을 수 없습니다.",
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="분석 결과를 찾을 수 없습니다.")
 
         analysis: dict = result.analysis_json or {}
         medications_raw: list = analysis.get("medications", [])
         if not medications_raw:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="분석 결과에 약물 정보가 없습니다.",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="분석 결과에 약물 정보가 없습니다.")
 
         diagnosis_name: str | None = analysis.get("diagnosis_name") or None
         hospital_name: str | None = analysis.get("hospital_name") or None

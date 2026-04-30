@@ -68,18 +68,17 @@ class GuideCondition(Model):
 class GuideAiResult(Model):
     """
     AI 생성 결과 저장
-    result_type_code: RT_MEDICATION | RT_LIFESTYLE | RT_CAUTION | RT_DRUG_DETAIL
+    result_type_code: SUMMARY | LIFESTYLE_TIP | SIDE_EFFECT | EMERGENCY_SIGN
     is_latest: 최신 버전 여부
     """
 
-    # ✅ 수정: DB 구조에 맞게 전면 수정
     ai_result_id = fields.BigIntField(pk=True, generated=True)
     guide = fields.ForeignKeyField("models.Guide", related_name="ai_results", on_delete=fields.CASCADE)
     result_type_grp = fields.CharField(max_length=20, default="RESULT_TYPE")
-    result_type_code = fields.CharField(max_length=20)  # result_type → result_type_code
-    content = fields.TextField(null=True)  # JSONField → TextField (DB는 text)
+    result_type_code = fields.CharField(max_length=20)
+    content = fields.TextField(null=True)
     version = fields.IntField(default=1)
-    is_latest = fields.BooleanField(default=True)  # status 제거, is_latest로 대체
+    is_latest = fields.BooleanField(default=True)
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
@@ -90,7 +89,8 @@ class GuideMedCheck(Model):
     """
     복약 체크 기록
     당일만 취소 가능 (check_date == 오늘)
-    동일 약물·날짜 중복 불가 (unique_together)
+    timing_slot: SLOT_1 / SLOT_2 / SLOT_3 (1일 N회 복약 시 회차 구분)
+    동일 약물·날짜·슬롯 중복 불가 (unique_together)
     """
 
     check_id = fields.IntField(pk=True)
@@ -99,13 +99,16 @@ class GuideMedCheck(Model):
         "models.GuideMedication", related_name="med_checks", on_delete=fields.CASCADE
     )
     check_date = fields.DateField()
+    # ✅ 추가: 1일 N회 복약 회차 구분 (SLOT_1 / SLOT_2 / SLOT_3)
+    timing_slot = fields.CharField(max_length=20, default="SLOT_1")
     is_taken = fields.BooleanField(default=True)
     taken_at = fields.DatetimeField()
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
         table = "med_check_log"
-        unique_together = (("guide_medication_id", "check_date"),)
+        # ✅ 수정: timing_slot 포함 복합 UNIQUE (같은 약·날짜·회차 중복 방지)
+        unique_together = (("guide_medication_id", "check_date", "timing_slot"),)
 
 
 class GuideReminder(Model):
