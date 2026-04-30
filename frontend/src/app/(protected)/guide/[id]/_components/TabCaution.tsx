@@ -5,8 +5,10 @@ import apiClient from "@/lib/axios";
 
 interface CautionItem {
   medication_name: string;
-  caution_text: string;
-  similarity: number;
+  emergency_signs?: string[];
+  drug_interactions?: string[];
+  age_restrictions?: string;
+  general?: string[];
 }
 
 interface CautionContent {
@@ -57,9 +59,42 @@ export default function TabCaution({ guideId }: { guideId: number }) {
         ) : data?.cautions && data.cautions.length > 0 ? (
           <div className="divide-y divide-border">
             {data.cautions.map((c, i) => (
-              <div key={i} className="px-4 py-3">
-                <p className="mb-1 text-xs font-semibold text-teal-400">{c.medication_name}</p>
-                <p className="text-xs text-muted-foreground leading-relaxed">{c.caution_text}</p>
+              <div key={i} className="px-4 py-4 space-y-3">
+                <h3 className="text-xs font-semibold text-teal-400">{c.medication_name}</h3>
+
+                {c.emergency_signs && c.emergency_signs.length > 0 && (
+                  <section>
+                    <h4 className="mb-1 text-xs font-semibold text-red-400">🚨 응급 증상</h4>
+                    <ul className="space-y-0.5 text-xs text-muted-foreground">
+                      {c.emergency_signs.map((s, j) => <li key={j}>• {s}</li>)}
+                    </ul>
+                  </section>
+                )}
+
+                {c.drug_interactions && c.drug_interactions.length > 0 && (
+                  <section>
+                    <h4 className="mb-1 text-xs font-semibold text-yellow-400">⚠️ 병용 주의</h4>
+                    <ul className="space-y-0.5 text-xs text-muted-foreground">
+                      {c.drug_interactions.map((s, j) => <li key={j}>• {s}</li>)}
+                    </ul>
+                  </section>
+                )}
+
+                {c.age_restrictions && (
+                  <section>
+                    <h4 className="mb-1 text-xs font-semibold text-blue-400">👴 연령·특수 환자 주의</h4>
+                    <p className="text-xs text-muted-foreground">{c.age_restrictions}</p>
+                  </section>
+                )}
+
+                {c.general && c.general.length > 0 && (
+                  <section>
+                    <h4 className="mb-1 text-xs font-semibold text-muted-foreground">📋 일반 주의사항</h4>
+                    <ul className="space-y-0.5 text-xs text-muted-foreground">
+                      {c.general.map((s, j) => <li key={j}>• {s}</li>)}
+                    </ul>
+                  </section>
+                )}
               </div>
             ))}
           </div>
