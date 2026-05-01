@@ -133,7 +133,7 @@ def create_app() -> FastAPI:
     # ──────────────────────────────────────────
     # Startup 이벤트
     # register_tortoise가 Tortoise를 init한 후에 실행됩니다.
-    # Redis 초기화 + 시드 데이터 생성
+    # Redis 초기화 + 시드 데이터 생성 + 스케줄러 시작
     # ──────────────────────────────────────────
     @app.on_event("startup")
     async def on_startup():
@@ -155,10 +155,6 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.warning(f"⚠️ Redis 연결 실패 (서버는 계속 동작): {e}")
 
-        # 시드 데이터 생성
-        # await _seed_default_ai_settings()
-        # logger.info("✅ AI 기본 설정 확인 완료")
-
         # DDL + 공통코드 시딩 (Raw SQL)
         db_initialized = False
         try:
@@ -172,6 +168,15 @@ def create_app() -> FastAPI:
         if db_initialized:
             await _seed_tester_account()
 
+        # ✅ 추가: 복약 알림 스케줄러 시작
+        # DB 초기화 완료 후 시작해야 med_reminder 조회가 가능
+        try:
+            from app.services.alarm_scheduler import start_scheduler
+
+            start_scheduler()
+        except Exception as e:
+            logger.warning(f"⚠️ 복약 알림 스케줄러 시작 실패 (서버는 계속 동작): {e}")
+
     # ──────────────────────────────────────────
     # Shutdown 이벤트
     # Tortoise 종료는 register_tortoise가 자동 처리합니다.
@@ -182,6 +187,14 @@ def create_app() -> FastAPI:
         try:
             await close_redis()
             logger.info("✅ Redis 연결 해제")
+        except Exception:
+            pass
+
+        # ✅ 추가: 복약 알림 스케줄러 종료
+        try:
+            from app.services.alarm_scheduler import stop_scheduler
+
+            stop_scheduler()
         except Exception:
             pass
 
