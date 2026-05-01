@@ -219,7 +219,7 @@ async def process_oauth_callback(
 
     # ── code → access_token ──
     try:
-        oauth_access_token = await provider.exchange_code_for_token(code)
+        oauth_access_token, oauth_refresh_token = await provider.exchange_code_for_token(code)
     except Exception as e:
         logger.error(f"OAuth 토큰 교환 실패 ({provider_upper}): {e}")
         raise HTTPException(
@@ -241,6 +241,19 @@ async def process_oauth_callback(
 
     # ── DB 사용자 매칭/생성 ──
     user, is_new_user = await _find_or_create_user(user_info)
+
+    # ── 카카오 토큰 DB 저장 ──
+    if provider_upper == "KAKAO":
+        update_fields = []
+        if oauth_access_token:
+            user.kakao_access_token = oauth_access_token
+            update_fields.append("kakao_access_token")
+        if oauth_refresh_token:
+            user.kakao_refresh_token = oauth_refresh_token
+            update_fields.append("kakao_refresh_token")
+        if update_fields:
+            await user.save(update_fields=update_fields)
+            logger.info("kakao 토큰 DB 저장 완료: user_id=%s", user.user_id)
 
     # ── 계정 상태 확인 ──
     _check_account_status(user)

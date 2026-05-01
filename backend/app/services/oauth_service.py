@@ -52,18 +52,12 @@ class OAuthProvider(ABC):
         ...
 
     @abstractmethod
-    async def exchange_code_for_token(self, code: str) -> str:
+    async def exchange_code_for_token(self, code: str) -> tuple[str, str | None]:
         """
-        Authorization code를 access_token으로 교환합니다.
-
-        Args:
-            code: OAuth 콜백에서 받은 authorization code
+        Authorization code를 (access_token, refresh_token)으로 교환합니다.
 
         Returns:
-            access_token 문자열
-
-        Raises:
-            httpx.HTTPStatusError: 토큰 교환 실패
+            (access_token, refresh_token) 튜플. refresh_token은 없으면 None.
         """
         ...
 
@@ -121,8 +115,8 @@ class KakaoOAuthProvider(OAuthProvider):
 
         return f"{self.AUTHORIZE_URL}?{urlencode(params)}"
 
-    async def exchange_code_for_token(self, code: str) -> str:
-        """카카오: code → access_token 교환"""
+    async def exchange_code_for_token(self, code: str) -> tuple[str, str | None]:
+        """카카오: code → (access_token, refresh_token) 교환"""
         settings = get_settings()
 
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -145,8 +139,9 @@ class KakaoOAuthProvider(OAuthProvider):
             logger.error(f"카카오 토큰 교환 실패: {data}")
             raise ValueError("카카오 access_token을 받지 못했습니다.")
 
+        refresh_token = data.get("refresh_token")
         logger.info("카카오 토큰 교환 성공")
-        return access_token
+        return access_token, refresh_token
 
     async def get_user_info(self, access_token: str) -> OAuthUserInfoDTO:
         """카카오: access_token → 사용자 정보 조회"""
@@ -247,8 +242,8 @@ class GoogleOAuthProvider(OAuthProvider):
 
         return f"{self.AUTHORIZE_URL}?{urlencode(params)}"
 
-    async def exchange_code_for_token(self, code: str) -> str:
-        """구글: code → access_token 교환"""
+    async def exchange_code_for_token(self, code: str) -> tuple[str, str | None]:
+        """구글: code → (access_token, None) 교환"""
         settings = get_settings()
 
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -272,7 +267,7 @@ class GoogleOAuthProvider(OAuthProvider):
             raise ValueError("구글 access_token을 받지 못했습니다.")
 
         logger.info("구글 토큰 교환 성공")
-        return access_token
+        return access_token, None
 
     async def get_user_info(self, access_token: str) -> OAuthUserInfoDTO:
         """구글: access_token → 사용자 정보 조회"""

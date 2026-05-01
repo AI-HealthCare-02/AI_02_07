@@ -35,6 +35,10 @@ class User(Model):
     deleted_at = fields.DatetimeField(null=True, description="탈퇴 일시")
     last_active_at = fields.DatetimeField(null=True, description="마지막 활동 일시")
 
+    # 카카오 토큰 (카카오 메시지 API 사용 용)
+    kakao_access_token = fields.CharField(max_length=512, null=True, description="카카오 액세스 토큰")
+    kakao_refresh_token = fields.CharField(max_length=512, null=True, description="카카오 리프레시 토큰")
+
     # 동의
     agreed_personal_info = fields.DatetimeField(null=True, description="개인정보 동의 일시")
     agreed_sensitive_info = fields.DatetimeField(null=True, description="민감정보 동의 일시")
