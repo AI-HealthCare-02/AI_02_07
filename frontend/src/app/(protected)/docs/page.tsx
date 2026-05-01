@@ -28,6 +28,13 @@ interface AnalysisResult {
 }
 
 const TIMING_OPTIONS = ["식전", "식후즉시", "식후30분", "취침전"];
+const DAILY_SLOTS = ["아침", "점심", "저녁", "취침전"] as const;
+type DailySlot = (typeof DAILY_SLOTS)[number];
+
+function parseFrequencyCount(frequency: string): number {
+  const m = frequency.match(/(\d+)/);
+  return m ? parseInt(m[1]) : 0;
+}
 
 // ── 신뢰도 바 ──────────────────────────────────────────────
 function ConfidenceBar({ value }: { value: number | null }) {
@@ -82,6 +89,7 @@ export default function DocsPage() {
   const [medications, setMedications] = useState<MedItem[]>([]);
   const [showDirectInput, setShowDirectInput] = useState<Record<number, boolean>>({});
   const [directInputVal, setDirectInputVal] = useState<Record<number, string>>({});
+  const [dailySlots, setDailySlots] = useState<Record<number, DailySlot[]>>({});
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -168,6 +176,7 @@ export default function DocsPage() {
       setMedications(meds);
       setShowDirectInput({});
       setDirectInputVal({});
+      setDailySlots({});
       setStep("result");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "분석 중 오류가 발생했습니다.";
@@ -189,10 +198,21 @@ export default function DocsPage() {
     setMedications([]);
     setShowDirectInput({});
     setDirectInputVal({});
+    setDailySlots({});
   };
 
   const updateMed = (idx: number, field: keyof MedItem, value: string | number | null) => {
     setMedications((prev) => prev.map((m, i) => i === idx ? { ...m, [field]: value } : m));
+  };
+
+  const toggleSlot = (idx: number, slot: DailySlot) => {
+    setDailySlots((prev) => {
+      const current = prev[idx] ?? [];
+      return {
+        ...prev,
+        [idx]: current.includes(slot) ? current.filter((s) => s !== slot) : [...current, slot],
+      };
+    });
   };
 
   // ── 확인 완료: PATCH → from-doc → ai-generate → /guide/{id} ──
@@ -204,14 +224,18 @@ export default function DocsPage() {
         hospital_name: hospitalName || null,
         visit_date: visitDate || null,
         diagnosis_name: diagnosisName || null,
-        medications: medications.map((m, i) => ({
-          medication_index: i,
-          medication_name: m.medication_name,
-          dosage: m.dosage || null,
-          frequency: m.frequency || null,
-          timing: m.timing || null,
-          duration_days: m.duration_days,
-        })),
+        medications: medications.map((m, i) => {
+          const slots = dailySlots[i];
+          return {
+            medication_index: i,
+            medication_name: m.medication_name,
+            dosage: m.dosage || null,
+            frequency: m.frequency || null,
+            timing: m.timing || null,
+            duration_days: m.duration_days,
+            ...(slots && slots.length > 0 ? { daily_slots: slots } : {}),
+          };
+        }),
       });
 
       const today = new Date().toISOString().slice(0, 10);
@@ -439,6 +463,45 @@ export default function DocsPage() {
                             />
                           </div>
                         ))}
+                      </div>
+
+                      {/* 복약 시간대 */}
+                      <div className="mb-3">
+                        <p className="mb-1.5 text-[10px] text-muted-foreground">복약 시간대</p>
+                        {(() => {
+                          const count = parseFrequencyCount(med.frequency);
+                          const selected = dailySlots[idx] ?? [];
+                          return (
+                            <>
+                              {count > 0 && (
+                                <p className="mb-1.5 text-[10px] text-muted-foreground">
+                                  {count}개 선택 권장 (현재 {selected.length}개)
+                                </p>
+                              )}
+                              <div className="flex flex-wrap gap-1.5">
+                                {DAILY_SLOTS.map((slot) => {
+                                  const active = selected.includes(slot);
+                                  return (
+                                    <button
+                                      key={slot}
+                                      type="button"
+                                      onClick={() => toggleSlot(idx, slot)}
+                                      className="flex items-center gap-1 rounded-lg border px-3 py-1 text-xs transition"
+                                      style={{
+                                        borderColor: active ? "#14b8a6" : undefined,
+                                        backgroundColor: active ? "rgba(20,184,166,0.15)" : undefined,
+                                        color: active ? "#14b8a6" : undefined,
+                                      }}
+                                    >
+                                      <span>{active ? "☑" : "□"}</span>
+                                      {slot}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
 
                       {/* 복용시점 */}

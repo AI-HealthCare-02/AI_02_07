@@ -56,3 +56,18 @@ class ChatSendRequestDTO(BaseModel):
 class BookmarkResponseDTO(BaseModel):
     bookmarkId: int
     isBookmarked: bool
+
+
+class BookmarkItemDTO(BaseModel):
+    bookmarkId: int
+    questionContent: str
+    answerContent: str
+    createdAt: str
+
+
+class BookmarkListDataDTO(BaseModel):
+    totalCount: int
+    totalPages: int
+    page: int
+    size: int
+    items: list[BookmarkItemDTO]

@@ -16,6 +16,8 @@ from app.core.config import get_settings
 from app.core.openai_utils import build_create_kwargs
 from app.core.redis import get_redis
 from app.dtos.chat_dto import (
+    BookmarkItemDTO,
+    BookmarkListDataDTO,
     BookmarkResponseDTO,
     ChatMessageItemDTO,
     ChatRoomCreateResponseDTO,
@@ -66,6 +68,13 @@ async def delete_session(user: User, room_id: int) -> None:
     if room is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화를 찾을 수 없습니다.")
     await _get_repo().soft_delete_room(room)
+
+
+async def rename_session(user: User, room_id: int, title: str) -> None:
+    room = await _get_repo().get_room(room_id, user.user_id)
+    if room is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화를 찾을 수 없습니다.")
+    await _get_repo().update_room_title(room, title)
 
 
 # ── 메시지 ────────────────────────────────────────────────────────────────────
@@ -494,3 +503,42 @@ def _build_messages(history: list[ChatMessage], max_tokens: int = 2000, keep_las
         }
         for m in [*candidates, *protected]
     ]
+
+
+async def list_bookmarks(user: User, page: int, size: int) -> BookmarkListDataDTO:
+    total, items = await _get_repo().list_bookmarks(user.user_id, page, size)
+    total_pages = max((total + size - 1) // size, 1)
+    return BookmarkListDataDTO(
+        totalCount=total,
+        totalPages=total_pages,
+        page=page,
+        size=size,
+        items=[
+            BookmarkItemDTO(
+                bookmarkId=b.bookmark_id,
+                questionContent=b.question_content,
+                answerContent=b.answer_content,
+                createdAt=b.created_at.isoformat(),
+            )
+            for b in items
+        ],
+    )
+
+
+async def get_bookmark(user: User, bookmark_id: int) -> BookmarkItemDTO:
+    b = await _get_repo().get_bookmark(bookmark_id, user.user_id)
+    if b is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다.")
+    return BookmarkItemDTO(
+        bookmarkId=b.bookmark_id,
+        questionContent=b.question_content,
+        answerContent=b.answer_content,
+        createdAt=b.created_at.isoformat(),
+    )
+
+
+async def delete_bookmark_by_id(user: User, bookmark_id: int) -> None:
+    b = await _get_repo().get_bookmark(bookmark_id, user.user_id)
+    if b is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다.")
+    await _get_repo().delete_bookmark(b)

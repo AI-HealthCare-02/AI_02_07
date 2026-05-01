@@ -37,6 +37,11 @@ export default function UserProfile() {
     router.push("/health-profile");
   };
 
+  const handleBookmarks = () => {
+    setOpen(false);
+    router.push("/bookmarks");
+  };
+
   if (!user) return null;
 
   // 닉네임 첫 글자로 아바타 생성
@@ -92,6 +97,15 @@ export default function UserProfile() {
                 <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
               </svg>
               헬스정보 수정
+            </button>
+            <button
+              onClick={handleBookmarks}
+              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-teal-500/10 hover:text-teal-500"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+              </svg>
+              북마크
             </button>
             <button
               onClick={handleProfile}

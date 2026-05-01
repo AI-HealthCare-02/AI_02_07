@@ -553,6 +553,13 @@ CREATE TABLE IF NOT EXISTS guide_medication (
         REFERENCES common_code (group_code, code)
 );
 
+-- ✅ 추가: 복약 시간대 (아침/점심/저녁/취침전) — 식사 기준 복용시점(timing)과 별개
+-- 예: ["아침", "저녁"] — 분석 결과 화면에서 체크박스로 사용자가 직접 선택
+DO $$ BEGIN
+    ALTER TABLE guide_medication ADD COLUMN daily_slots JSONB;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
 -- ============================================================
 -- 19. LLM AI 생성 가이드 결과
 -- ============================================================

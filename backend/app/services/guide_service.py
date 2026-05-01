@@ -24,6 +24,8 @@ from app.dtos.guide_dto import (
     MedCheckCreateRequest,
     MedCheckCreateResponse,
     MedCheckDayItem,
+    MedCheckHistoryItem,  # ✅ 추가
+    MedCheckHistoryResponse,  # ✅ 추가
     MedCheckItem,
     MedCheckMonthlyResponse,
     MedCheckResponse,
@@ -88,7 +90,7 @@ RESULT_TYPE_MAP = {
 }
 RESULT_TYPE_REVERSE_MAP = {v: k for k, v in RESULT_TYPE_MAP.items()}
 
-# ── 슬롯 레이블 매핑 ──
+# ── 슬롯 폴백 레이블 (daily_slots 미설정 시 사용) ──
 SLOT_LABELS = {
     "SLOT_1": "1회차",
     "SLOT_2": "2회차",
@@ -111,6 +113,19 @@ def _get_slots(count: int) -> list[str]:
     """복약 횟수에 따른 슬롯 목록 반환."""
     slots = ["SLOT_1", "SLOT_2", "SLOT_3"]
     return slots[:count]
+
+
+def _get_slot_label(slot: str, daily_slots: list[str] | None) -> str:
+    """
+    ✅ 추가: 슬롯 라벨 결정.
+    daily_slots가 설정된 경우 → 아침/점심/저녁/취침전 등 사용자 선택값 반환
+    미설정 시 → 1회차/2회차/3회차 폴백
+    """
+    if daily_slots:
+        idx = int(slot.replace("SLOT_", "")) - 1  # SLOT_1 → 0, SLOT_2 → 1
+        if idx < len(daily_slots):
+            return daily_slots[idx]
+    return SLOT_LABELS.get(slot, slot)
 
 
 class GuideService:
@@ -236,6 +251,7 @@ class GuideService:
                     frequency=m.frequency,
                     timing=TIMING_DISPLAY_MAP.get(m.timing_code, m.timing_code),
                     duration_days=m.duration_days,
+                    daily_slots=m.daily_slots,  # ✅ 추가
                 )
                 for m in meds
             ],
@@ -303,6 +319,9 @@ class GuideService:
         if not meds:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="처방 약물이 없습니다.")
 
+        # ✅ 추가: 사용자 헬스 정보 조회 후 AI에 전달
+        user_health_info = await self._get_user_health_info(user_id)
+
         med_dicts = [{"medication_name": m.medication_name} for m in meds]
         result = await self._ai.generate(
             guide_id=guide_id,
@@ -311,6 +330,7 @@ class GuideService:
             patient_gender=guide.patient_gender_code,
             diagnosis_name=guide.diagnosis_name,
             result_types=req.result_types,
+            user_health_info=user_health_info,  # ✅ 추가
         )
 
         saved_results = []
@@ -398,6 +418,7 @@ class GuideService:
         for m in meds:
             freq_count = _parse_frequency(m.frequency)
             slots = _get_slots(freq_count)
+            daily_slots = m.daily_slots or []
             for slot in slots:
                 c = check_map.get((m.guide_medication_id, slot))
                 items.append(
@@ -407,7 +428,8 @@ class GuideService:
                         medication_name=m.medication_name,
                         timing=TIMING_DISPLAY_MAP.get(m.timing_code, m.timing_code),
                         timing_slot=slot,
-                        slot_label=SLOT_LABELS.get(slot, slot),
+                        # ✅ 수정: daily_slots 있으면 아침/점심/저녁/취침전, 없으면 1회차/2회차/3회차
+                        slot_label=_get_slot_label(slot, daily_slots),
                         is_taken=bool(c and c.is_taken),
                         taken_at=c.taken_at if c else None,
                     )
@@ -460,6 +482,45 @@ class GuideService:
 
         await self._repo.delete_med_check(check)
         return MessageResponse(message="복약 기록이 취소되었습니다.")
+
+    # ──────────────────────────────────────────
+    # ✅ 추가: 복약 기록 히스토리 페이징 조회
+    # ──────────────────────────────────────────
+    async def get_med_check_history(self, guide_id: int, user_id: int, page: int, size: int) -> MedCheckHistoryResponse:
+        """복약 완료 기록을 날짜 최신순으로 페이징 조회."""
+        await self._get_guide_or_404(guide_id, user_id)
+        meds = await self._repo.get_medications(guide_id)
+        # guide_medication_id → 약물 정보 맵
+        med_map = {m.guide_medication_id: m for m in meds}
+
+        total, checks = await self._repo.get_med_checks_paginated(guide_id, page, size)
+
+        items: list[MedCheckHistoryItem] = []
+        for c in checks:
+            med = med_map.get(c.guide_medication_id)
+            medication_name = med.medication_name if med else "알 수 없음"
+            daily_slots = (med.daily_slots or []) if med else []
+            slot_label = _get_slot_label(c.timing_slot, daily_slots)
+
+            items.append(
+                MedCheckHistoryItem(
+                    check_id=c.check_id,
+                    guide_medication_id=c.guide_medication_id,
+                    medication_name=medication_name,
+                    timing_slot=c.timing_slot,
+                    slot_label=slot_label,
+                    check_date=c.check_date,
+                    is_taken=c.is_taken,
+                    taken_at=c.taken_at,
+                )
+            )
+
+        return MedCheckHistoryResponse(
+            total_count=total,
+            page=page,
+            size=size,
+            items=items,
+        )
 
     # ──────────────────────────────────────────
     # 복약 알림
@@ -641,6 +702,7 @@ class GuideService:
                 "frequency": m.get("frequency"),
                 "timing_code": TIMING_MAP.get(m.get("timing", "")),
                 "duration_days": m.get("duration_days"),
+                "daily_slots": m.get("daily_slots"),  # ✅ 추가: 체크박스 선택값 저장
             }
             for m in medications_raw
             if m.get("medication_name")
@@ -654,6 +716,29 @@ class GuideService:
             guide_status=guide.guide_status_code,
             input_method=guide.input_method_code,
         )
+
+    # ──────────────────────────────────────────
+    # ✅ 추가: 사용자 헬스 정보 조회
+    # ──────────────────────────────────────────
+    async def _get_user_health_info(self, user_id: int) -> dict:
+        """사용자 기저질환·알레르기·생활습관 조회 → AI 프롬프트용 dict 반환."""
+        try:
+            from app.models.user import UserAllergy, UserDisease, UserLifestyle
+
+            diseases = await UserDisease.filter(user_id=user_id).values_list("disease_name", flat=True)
+            allergies = await UserAllergy.filter(user_id=user_id).values_list("allergy_name", flat=True)
+            lifestyle = await UserLifestyle.filter(user_id=user_id).first()
+
+            return {
+                "diseases": list(diseases),
+                "allergies": list(allergies),
+                "smoking": lifestyle.smoking_code if lifestyle else None,
+                "drinking": lifestyle.drinking_code if lifestyle else None,
+                "exercise": lifestyle.exercise_code if lifestyle else None,
+            }
+        except Exception as e:
+            logger.warning(f"사용자 헬스 정보 조회 실패 (user_id={user_id}): {e}")
+            return {}
 
     # ──────────────────────────────────────────
     # 내부 헬퍼
