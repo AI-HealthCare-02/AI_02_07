@@ -242,6 +242,8 @@ class ReminderResponse(BaseModel):
     custom_days: list[int] | None
     is_browser_noti: bool
     is_email_noti: bool
+    # ✅ 추가: 카카오 나에게 보내기 알림 여부
+    is_kakao_noti: bool
     is_active: bool
 
 
@@ -251,6 +253,8 @@ class ReminderCreateRequest(BaseModel):
     custom_days: list[int] | None = None
     is_browser_noti: bool = False
     is_email_noti: bool = False
+    # ✅ 추가: 카카오 나에게 보내기 (카카오 로그인 사용자만 True 가능 — 서비스 레이어에서 검증)
+    is_kakao_noti: bool = False
 
 
 class ReminderPatchRequest(BaseModel):
@@ -259,6 +263,8 @@ class ReminderPatchRequest(BaseModel):
     custom_days: list[int] | None = None
     is_browser_noti: bool | None = None
     is_email_noti: bool | None = None
+    # ✅ 추가: 카카오 알림 수정 가능
+    is_kakao_noti: bool | None = None
     is_active: bool | None = None
 
 
