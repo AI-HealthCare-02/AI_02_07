@@ -359,18 +359,25 @@ class AiGuideService:
 
         drug_context = "\n".join(drug_context_lines)
 
+        # ✅ 수정: GPT가 chunk_text 내 타 약품명을 medication_name으로 쓰지 않도록
+        # 처방 약품명 목록을 명시하고 섹션 헤더 이름만 사용하도록 지시
+        prescribed_names = ", ".join(f"[{n}]" for n in med_names)
+
         prompt = f"""아래는 약품 DB에서 가져온 공식 주의사항 원문입니다.
+처방된 약물 목록 (이 목록에 있는 약물만 결과에 포함하세요): {prescribed_names}
 
 [약품 주의사항 원문]
 {drug_context}
 
 위 원문을 바탕으로 환자가 읽기 쉽게 약물별 핵심 주의사항을 JSON 배열로 요약하세요.
+- 반드시 처방된 약물 목록에 있는 약물만 결과에 포함하세요. 목록에 없는 약품은 절대 추가하지 마세요.
+- medication_name은 반드시 처방된 약물 목록의 이름을 그대로 사용하세요. 원문 텍스트에 다른 약품명이 나와도 무시하세요.
 - 원문에 없는 내용은 절대 추가하지 마세요.
 - 각 약물별로 핵심 내용만 3~5개 항목으로 요약하세요.
 - 형식:
 [
   {{
-    "medication_name": "약품명",
+    "medication_name": "처방된 약물 목록의 이름 그대로",
     "emergency_signs": ["즉시 병원을 가야 하는 증상1", "증상2"],
     "drug_interactions": ["병용 주의 약물 또는 음식1", "주의사항2"],
     "age_restrictions": "연령 제한 또는 특수 환자 주의사항 (없으면 빈 문자열)",
