@@ -118,6 +118,8 @@ class GuideReminder(Model):
     """
     복약 알림 설정
     repeat_type: RPT_DAILY | RPT_WEEKDAY | RPT_CUSTOM
+    알림 채널: is_browser_noti | is_email_noti | is_kakao_noti
+    is_kakao_noti: 카카오 나에게 보내기 (카카오 로그인 사용자만 가능)
     """
 
     reminder_id = fields.IntField(pk=True)
@@ -127,6 +129,8 @@ class GuideReminder(Model):
     custom_days = fields.JSONField(null=True)
     is_browser_noti = fields.BooleanField(default=False)
     is_email_noti = fields.BooleanField(default=False)
+    # ✅ 추가: 카카오 나에게 보내기 알림 여부 (카카오 로그인 사용자만 활성화 가능)
+    is_kakao_noti = fields.BooleanField(default=False)
     is_active = fields.BooleanField(default=True)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
