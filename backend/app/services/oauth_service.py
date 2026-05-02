@@ -106,9 +106,9 @@ class KakaoOAuthProvider(OAuthProvider):
             # 카카오에서 제공하는 동의 항목
             # profile_nickname: 닉네임
             # account_email: 이메일 (필수 동의 설정 필요)
-            "scope": "profile_nickname,account_email",
+            "scope": "profile_nickname,account_email,talk_message",
             # 비즈앱 전환 후 아래 scope 추가 가능:
-            # "scope": "profile_nickname,account_email,gender,birthday,birthyear",
+            # "scope": "profile_nickname,account_email,talk_message,gender,birthday,birthyear",
         }
         if state:
             params["state"] = state
