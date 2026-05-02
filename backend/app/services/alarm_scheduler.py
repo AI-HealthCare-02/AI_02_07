@@ -101,6 +101,7 @@ async def _run_alarm_job() -> None:
                         guide_title=guide_title,
                         medication_names=med_names,
                         reminder_time=r_time_str,
+                        user_id=guide.user_id,  # ✅ 추가: 토큰 만료 시 자동 갱신용
                     )
                     if not success:
                         logger.warning(
