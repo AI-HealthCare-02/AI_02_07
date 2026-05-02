@@ -6,6 +6,7 @@ interface User {
   email: string;
   nickname: string;
   name: string;
+  provider_code?: string;
 }
 
 interface AuthState {
