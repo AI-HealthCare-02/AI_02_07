@@ -8,6 +8,7 @@ import TabDrugDetail from "./_components/TabDrugDetail";
 import TabCaution    from "./_components/TabCaution";
 import TabHistory    from "./_components/TabHistory";
 import TabReminder   from "./_components/TabReminder";
+import { useAuthStore } from "@/store/auth-store";
 
 interface GuideDetail {
   guide_id: number;
@@ -54,6 +55,7 @@ export default function GuideDetailPage() {
   const [tab, setTab] = useState<TabKey>("today");
   const [toast, setToast] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const user = useAuthStore((s) => s.user);
 
   const showToast = (msg: string, type: "ok" | "err" = "ok") => {
     setToast({ msg, type });
@@ -177,7 +179,7 @@ export default function GuideDetailPage() {
       {tab === "drug"    && <TabDrugDetail guideId={guideId} medications={guide.medications} />}
       {tab === "caution" && <TabCaution    guideId={guideId} />}
       {tab === "history" && <TabHistory    guideId={guideId} />}
-      {tab === "remind"  && <TabReminder   guideId={guideId} showToast={showToast} medications={guide.medications} />}
+      {tab === "remind"  && <TabReminder   guideId={guideId} showToast={showToast} medications={guide.medications} isKakaoUser={user?.provider_code === "KAKAO"} />}
 
       <p className="mt-8 text-center text-[11px] text-muted-foreground">
         ⚠️ 본 서비스는 건강 정보 제공 목적이며, 진단·치료·처방 변경을 대신하지 않습니다. 의료적 판단은 반드시 담당 의사 또는 약사와 상담하세요.

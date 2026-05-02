@@ -16,6 +16,7 @@ interface Reminder {
   custom_days: number[] | null;
   is_browser_noti: boolean;
   is_email_noti: boolean;
+  is_kakao_noti: boolean;
   is_active: boolean;
 }
 
@@ -29,10 +30,12 @@ export default function TabReminder({
   guideId,
   showToast,
   medications,
+  isKakaoUser = false,
 }: {
   guideId: number;
   showToast: (msg: string, type?: "ok" | "err") => void;
   medications: Medication[];
+  isKakaoUser?: boolean;
 }) {
   const [reminder, setReminder] = useState<Reminder | null>(null);
   const [loading,  setLoading]  = useState(true);
@@ -43,6 +46,7 @@ export default function TabReminder({
     repeat_type: "RPT_DAILY",
     is_browser_noti: false,
     is_email_noti: false,
+    is_kakao_noti: false,
   });
 
   useEffect(() => {
@@ -50,7 +54,8 @@ export default function TabReminder({
       .get(`/api/v1/guides/${guideId}/reminder`)
       .then(({ data }) => setReminder({
         ...data,
-        reminder_time: String(data.reminder_time).slice(0, 5), // "HH:MM:SS" → "HH:MM"
+        reminder_time: String(data.reminder_time).slice(0, 5),
+        is_kakao_noti: data.is_kakao_noti ?? false,
       }))
       .catch(() => setReminder(null))
       .finally(() => setLoading(false));
@@ -61,7 +66,7 @@ export default function TabReminder({
     try {
       if (reminder) {
         const { data } = await apiClient.patch(`/api/v1/guides/${guideId}/reminder`, form);
-        setReminder((prev) => prev ? { ...prev, ...data } : data);
+        setReminder((prev) => prev ? { ...prev, ...data, is_kakao_noti: data.is_kakao_noti ?? form.is_kakao_noti } : data);
         showToast("알림이 수정되었습니다.");
       } else {
         const { data } = await apiClient.post(`/api/v1/guides/${guideId}/reminder`, form);
@@ -117,6 +122,7 @@ export default function TabReminder({
                 {REPEAT_LABEL[reminder.repeat_type] ?? reminder.repeat_type}
                 {reminder.is_browser_noti && " · 브라우저 알림"}
                 {reminder.is_email_noti   && " · 이메일 알림"}
+                {reminder.is_kakao_noti   && " · 카카오 알림"}
               </p>
             </div>
             <button
@@ -127,7 +133,7 @@ export default function TabReminder({
             </button>
           </div>
           <div className="flex gap-3">
-            <button onClick={() => { setForm({ reminder_time: reminder.reminder_time.slice(0, 5), repeat_type: reminder.repeat_type, is_browser_noti: reminder.is_browser_noti, is_email_noti: reminder.is_email_noti }); setShowForm(true); }} className="text-xs text-muted-foreground hover:text-teal-400">✏️ 수정</button>
+            <button onClick={() => { setForm({ reminder_time: reminder.reminder_time.slice(0, 5), repeat_type: reminder.repeat_type, is_browser_noti: reminder.is_browser_noti, is_email_noti: reminder.is_email_noti, is_kakao_noti: reminder.is_kakao_noti }); setShowForm(true); }} className="text-xs text-muted-foreground hover:text-teal-400">✏️ 수정</button>
             <button onClick={handleDelete} className="text-xs text-muted-foreground hover:text-red-400">🗑 삭제</button>
           </div>
         </div>
@@ -174,7 +180,7 @@ export default function TabReminder({
             </div>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
               <input type="checkbox" checked={form.is_browser_noti} onChange={(e) => setForm((p) => ({ ...p, is_browser_noti: e.target.checked }))} className="accent-teal-500" />
               브라우저 알림
@@ -182,6 +188,19 @@ export default function TabReminder({
             <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
               <input type="checkbox" checked={form.is_email_noti} onChange={(e) => setForm((p) => ({ ...p, is_email_noti: e.target.checked }))} className="accent-teal-500" />
               이메일 알림
+            </label>
+            <label className={`flex items-center gap-2 text-xs cursor-pointer ${isKakaoUser ? "text-muted-foreground" : "text-muted-foreground/40"}`}>
+              <input
+                type="checkbox"
+                checked={form.is_kakao_noti}
+                disabled={!isKakaoUser}
+                onChange={(e) => setForm((p) => ({ ...p, is_kakao_noti: e.target.checked }))}
+                className="accent-teal-500 disabled:cursor-not-allowed"
+              />
+              카카오 알림
+              {!isKakaoUser && (
+                <span className="text-[10px] text-muted-foreground/50">(카카오 로그인 전용)</span>
+              )}
             </label>
           </div>
 
