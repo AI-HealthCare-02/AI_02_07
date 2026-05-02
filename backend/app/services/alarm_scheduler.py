@@ -46,17 +46,15 @@ async def _run_alarm_job() -> None:
     4. is_email_noti=True인 경우 이메일 발송 (추후 구현)
     """
     try:
-        from app.models.guide import GuideReminder
+        from app.models.guide import Guide, GuideMedication, GuideReminder
         from app.models.user import User
 
         now = datetime.now(tz=timezone.utc).astimezone(__import__("zoneinfo").ZoneInfo("Asia/Seoul"))
         now_time_str = now.strftime("%H:%M")  # "08:00" 형태
         weekday = now.weekday()  # 0=월 ~ 6=일
 
-        # 현재 분(HH:MM)과 일치하는 활성 알림 전체 조회
-        # reminder_time은 TIME 타입이므로 문자열 비교는 부정확할 수 있어
-        # strftime으로 변환 후 비교
-        reminders = await GuideReminder.filter(is_active=True).prefetch_related("guide")
+        # ✅ 수정: prefetch_related 제거 → 명시적 조회 방식으로 변경
+        reminders = await GuideReminder.filter(is_active=True)
 
         kakao_svc = KakaoAlarmService()
 
@@ -65,6 +63,9 @@ async def _run_alarm_job() -> None:
             r_time_str = reminder.reminder_time.strftime("%H:%M")
             if r_time_str != now_time_str:
                 continue
+
+            # ✅ 추가: 시간 일치 디버그 로그
+            logger.info(f"[AlarmScheduler] 알림 시각 일치 — reminder_id={reminder.reminder_id}, time={r_time_str}")
 
             # ── 요일 필터 ──
             repeat = reminder.repeat_type
@@ -77,17 +78,20 @@ async def _run_alarm_job() -> None:
                 if weekday not in custom:
                     continue
 
-            # ── 가이드 소프트 삭제 여부 확인 ──
-            guide = reminder.guide
-            if guide.is_deleted:
+            # ✅ 수정: guide를 reminder.guide 대신 guide_id로 직접 조회
+            guide = await Guide.get_or_none(guide_id=reminder.guide_id, is_deleted=False)
+            if not guide:
+                logger.warning(f"[AlarmScheduler] 가이드 없음 또는 삭제됨 — guide_id={reminder.guide_id}")
                 continue
 
-            # ── 약물 목록 조회 ──
-            from app.models.guide import GuideMedication
+            # ✅ 추가: 가이드 조회 성공 디버그 로그
+            logger.info(f"[AlarmScheduler] 가이드 조회 성공 — guide_id={guide.guide_id}, user_id={guide.user_id}")
 
+            # ── 약물 목록 조회 ──
             medications = await GuideMedication.filter(guide_id=guide.guide_id)
             med_names = [m.medication_name for m in medications]
             if not med_names:
+                logger.warning(f"[AlarmScheduler] 약물 없음 — guide_id={guide.guide_id}")
                 continue
 
             guide_title = guide.title or "복약 가이드"
@@ -96,12 +100,16 @@ async def _run_alarm_job() -> None:
             if reminder.is_kakao_noti:
                 user = await User.get_or_none(user_id=guide.user_id)
                 if user and user.provider_code == "KAKAO" and getattr(user, "kakao_access_token", None):
+                    # ✅ 추가: 발송 시도 디버그 로그
+                    logger.info(
+                        f"[AlarmScheduler] 카카오 발송 시도 — guide_id={guide.guide_id}, user_id={guide.user_id}"
+                    )
                     success = await kakao_svc.send_medication_alarm(
                         kakao_access_token=user.kakao_access_token,
                         guide_title=guide_title,
                         medication_names=med_names,
                         reminder_time=r_time_str,
-                        user_id=guide.user_id,  # ✅ 추가: 토큰 만료 시 자동 갱신용
+                        user_id=guide.user_id,  # 토큰 만료 시 자동 갱신용
                     )
                     if not success:
                         logger.warning(
