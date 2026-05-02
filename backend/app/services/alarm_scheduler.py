@@ -78,10 +78,12 @@ async def _run_alarm_job() -> None:
                 if weekday not in custom:
                     continue
 
-            # ✅ 수정: guide를 reminder.guide 대신 guide_id로 직접 조회
-            guide = await Guide.get_or_none(guide_id=reminder.guide_id, is_deleted=False)
-            if not guide:
-                logger.warning(f"[AlarmScheduler] 가이드 없음 또는 삭제됨 — guide_id={reminder.guide_id}")
+            # ✅ 수정: is_deleted 조건을 필터에서 분리하여 별도 체크
+            guide = await Guide.get_or_none(guide_id=reminder.guide_id)
+            if not guide or guide.is_deleted:
+                logger.warning(
+                    f"[AlarmScheduler] 가이드 없음 또는 삭제됨 — guide_id={reminder.guide_id}, guide={guide}"
+                )
                 continue
 
             # ✅ 추가: 가이드 조회 성공 디버그 로그
