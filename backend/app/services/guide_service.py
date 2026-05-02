@@ -723,7 +723,9 @@ class GuideService:
     async def _get_user_health_info(self, user_id: int) -> dict:
         """사용자 기저질환·알레르기·생활습관 조회 → AI 프롬프트용 dict 반환."""
         try:
-            from app.models.user import UserAllergy, UserDisease, UserLifestyle
+            from app.models.user_allergy import UserAllergy
+            from app.models.user_disease import UserDisease
+            from app.models.user_lifestyle import UserLifestyle
 
             diseases = await UserDisease.filter(user_id=user_id).values_list("disease_name", flat=True)
             allergies = await UserAllergy.filter(user_id=user_id).values_list("allergy_name", flat=True)
