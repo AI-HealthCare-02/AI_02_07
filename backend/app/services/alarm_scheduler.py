@@ -53,7 +53,6 @@ async def _run_alarm_job() -> None:
         now_time_str = now.strftime("%H:%M")  # "08:00" 형태
         weekday = now.weekday()  # 0=월 ~ 6=일
 
-        # ✅ 수정: prefetch_related 제거 → 명시적 조회 방식으로 변경
         reminders = await GuideReminder.filter(is_active=True)
 
         kakao_svc = KakaoAlarmService()
@@ -64,29 +63,37 @@ async def _run_alarm_job() -> None:
             if r_time_str != now_time_str:
                 continue
 
-            # ✅ 추가: 시간 일치 디버그 로그
             logger.info(f"[AlarmScheduler] 알림 시각 일치 — reminder_id={reminder.reminder_id}, time={r_time_str}")
 
             # ── 요일 필터 ──
             repeat = reminder.repeat_type
+            logger.info(f"[AlarmScheduler] repeat_type={repeat}, weekday={weekday} (0=월~6=일)")
+
             if repeat == "RPT_WEEKDAY" and weekday >= 5:
-                # 평일만 — 주말(5,6) 스킵
+                # 평일만 — 주말(5=토, 6=일) 스킵
+                logger.info(f"[AlarmScheduler] 주말 스킵 — reminder_id={reminder.reminder_id}")
                 continue
+
             if repeat == "RPT_CUSTOM":
-                # custom_days: [0,1,2,3,4] 형태 (0=월 ~ 6=일)
                 custom = reminder.custom_days or []
-                if weekday not in custom:
+                # ✅ 수정: custom_days가 NULL이면 매일 발송으로 폴백
+                if not custom:
+                    logger.warning(
+                        f"[AlarmScheduler] RPT_CUSTOM인데 custom_days 없음 → 매일 발송으로 폴백 "
+                        f"— reminder_id={reminder.reminder_id}"
+                    )
+                elif weekday not in custom:
+                    logger.info(f"[AlarmScheduler] 요일 불일치 스킵 — weekday={weekday}, custom={custom}")
                     continue
 
-            # ✅ 수정: is_deleted 조건을 필터에서 분리하여 별도 체크
-            guide = await Guide.get_or_none(guide_id=reminder.guide_id)
+            # ✅ 수정: pk= 로 직접 조회
+            guide_pk = reminder.guide_id
+            logger.info(f"[AlarmScheduler] guide_pk 조회 시도 — guide_pk={guide_pk}")
+            guide = await Guide.get_or_none(pk=guide_pk)
             if not guide or guide.is_deleted:
-                logger.warning(
-                    f"[AlarmScheduler] 가이드 없음 또는 삭제됨 — guide_id={reminder.guide_id}, guide={guide}"
-                )
+                logger.warning(f"[AlarmScheduler] 가이드 없음 또는 삭제됨 — guide_pk={guide_pk}, guide={guide}")
                 continue
 
-            # ✅ 추가: 가이드 조회 성공 디버그 로그
             logger.info(f"[AlarmScheduler] 가이드 조회 성공 — guide_id={guide.guide_id}, user_id={guide.user_id}")
 
             # ── 약물 목록 조회 ──
@@ -102,7 +109,6 @@ async def _run_alarm_job() -> None:
             if reminder.is_kakao_noti:
                 user = await User.get_or_none(user_id=guide.user_id)
                 if user and user.provider_code == "KAKAO" and getattr(user, "kakao_access_token", None):
-                    # ✅ 추가: 발송 시도 디버그 로그
                     logger.info(
                         f"[AlarmScheduler] 카카오 발송 시도 — guide_id={guide.guide_id}, user_id={guide.user_id}"
                     )
