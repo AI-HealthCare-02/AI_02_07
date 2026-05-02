@@ -537,6 +537,8 @@ class GuideService:
             repeat_type=r.repeat_type,
             custom_days=r.custom_days,
             is_browser_noti=r.is_browser_noti,
+            # ✅ 수정: NULL 방어 처리 (컬럼 추가 전 생성된 레코드 대응)
+            is_kakao_noti=r.is_kakao_noti or False,
             is_email_noti=r.is_email_noti,
             is_active=r.is_active,
         )
