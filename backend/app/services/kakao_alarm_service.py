@@ -147,6 +147,7 @@ class KakaoAlarmService:
                     data={
                         "grant_type": "refresh_token",
                         "client_id": settings.OAUTH_KAKAO_CLIENT_ID,
+                        "client_secret": settings.OAUTH_KAKAO_CLIENT_SECRET,  # ✅ 추가
                         "refresh_token": user.kakao_refresh_token,
                     },
                 )
