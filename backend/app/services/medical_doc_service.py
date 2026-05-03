@@ -61,23 +61,24 @@ def log_confidence_warnings(analysis_result: dict, job_id: int) -> None:
     medications = analysis_result.get("medications", [])
     for i, med in enumerate(medications):
         med_confidence = med.get("confidence", 1.0)
+        # ✅ 수정: 중복 코드 제거 (동일한 줄 2번 작성된 버그 수정)
         medication_name = med.get("medication_name", "알 수 없음")
-        medication_name = med.get("medication_name", "알 수 없음")  # ← drug_name → medication_name
 
         if med_confidence < CONFIDENCE_THRESHOLD:
             logger.warning(
                 f"[confidence 경고] 약품 신뢰도 낮음: "
                 f"[{i + 1}번째] medication_name={medication_name}, "
-                f"[{i + 1}번] medication_name={medication_name}, "
                 f"confidence={med_confidence} (job_id={job_id})"
             )
 
-        # instructions → timing 으로 필드명 변경
+        # ✅ 수정: 하나의 f-string에 2개 로그가 붙어있던 버그 → 별도 logger.warning 2개로 분리
         if med.get("timing") is None:
             logger.warning(
                 f"[confidence 경고] 복약안내 누락: "
                 f"[{i + 1}번째] medication_name={medication_name}, "
                 f"timing=null (job_id={job_id})"
+            )
+            logger.warning(
                 f"[confidence 경고] 복용법 미확인: "
                 f"[{i + 1}번] medication_name={medication_name}, "
                 f"instructions=null (job_id={job_id})"
