@@ -44,10 +44,24 @@ export default function TabReminder({
   const [form, setForm] = useState({
     reminder_time: "08:00",
     repeat_type: "RPT_DAILY",
+    custom_days: [] as number[],
     is_browser_noti: false,
     is_email_noti: false,
     is_kakao_noti: false,
   });
+
+  const DAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"];
+
+  const toggleCustomDay = (day: number) =>
+    setForm((p) => ({
+      ...p,
+      custom_days: p.custom_days.includes(day)
+        ? p.custom_days.filter((d) => d !== day)
+        : [...p.custom_days, day].sort((a, b) => a - b),
+    }));
+
+  const isCustomDaysValid =
+    form.repeat_type !== "RPT_CUSTOM" || form.custom_days.length > 0;
 
   useEffect(() => {
     apiClient
@@ -129,11 +143,11 @@ export default function TabReminder({
               onClick={handleToggle}
               className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${reminder.is_active ? "bg-teal-500" : "bg-muted"}`}
             >
-              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${reminder.is_active ? "translate-x-4" : "translate-x-0.5"}`} />
+              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${reminder.is_active ? "translate-x-[18px]" : "translate-x-0.5"}`} />
             </button>
           </div>
           <div className="flex gap-3">
-            <button onClick={() => { setForm({ reminder_time: reminder.reminder_time.slice(0, 5), repeat_type: reminder.repeat_type, is_browser_noti: reminder.is_browser_noti, is_email_noti: reminder.is_email_noti, is_kakao_noti: reminder.is_kakao_noti }); setShowForm(true); }} className="text-xs text-muted-foreground hover:text-teal-400">✏️ 수정</button>
+            <button onClick={() => { setForm({ reminder_time: reminder.reminder_time.slice(0, 5), repeat_type: reminder.repeat_type, custom_days: reminder.custom_days ?? [], is_browser_noti: reminder.is_browser_noti, is_email_noti: reminder.is_email_noti, is_kakao_noti: reminder.is_kakao_noti }); setShowForm(true); }} className="text-xs text-muted-foreground hover:text-teal-400">✏️ 수정</button>
             <button onClick={handleDelete} className="text-xs text-muted-foreground hover:text-red-400">🗑 삭제</button>
           </div>
         </div>
@@ -172,7 +186,7 @@ export default function TabReminder({
               <label className="mb-1 block text-xs text-muted-foreground">반복</label>
               <select
                 value={form.repeat_type}
-                onChange={(e) => setForm((p) => ({ ...p, repeat_type: e.target.value }))}
+                onChange={(e) => setForm((p) => ({ ...p, repeat_type: e.target.value, custom_days: [] }))}
                 className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-teal-500/50 focus:outline-none"
               >
                 {Object.entries(REPEAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -204,6 +218,34 @@ export default function TabReminder({
             </label>
           </div>
 
+          {/* RPT_CUSTOM 요일 선택 */}
+          {form.repeat_type === "RPT_CUSTOM" && (
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                요일 선택 <span className="text-red-400">*</span>
+              </label>
+              <div className="flex gap-1.5">
+                {DAY_LABELS.map((label, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => toggleCustomDay(idx)}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium transition ${
+                      form.custom_days.includes(idx)
+                        ? "bg-teal-500 text-white"
+                        : "border border-border bg-card text-muted-foreground hover:border-teal-500/40"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {form.custom_days.length === 0 && (
+                <p className="mt-1.5 text-xs text-red-400">⚠️ 요일을 하나 이상 선택해주세요.</p>
+              )}
+            </div>
+          )}
+
           {/* 대상 약물 표시 (읽기 전용) */}
           {medications.length > 0 && (
             <div>
@@ -231,7 +273,7 @@ export default function TabReminder({
 
           <div className="flex gap-2 pt-1">
             <button onClick={() => setShowForm(false)} className="flex-1 rounded-xl border border-border py-2 text-xs text-muted-foreground hover:text-foreground">취소</button>
-            <button onClick={handleSave} disabled={saving} className="flex-1 rounded-xl bg-teal-600 py-2 text-xs font-semibold text-white hover:bg-teal-500 disabled:opacity-50">
+            <button onClick={handleSave} disabled={saving || !isCustomDaysValid} className="flex-1 rounded-xl bg-teal-600 py-2 text-xs font-semibold text-white hover:bg-teal-500 disabled:opacity-50">
               {saving ? "저장 중..." : "저장"}
             </button>
           </div>
