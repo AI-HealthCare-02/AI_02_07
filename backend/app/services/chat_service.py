@@ -167,16 +167,29 @@ async def stream_chat(room: ChatRoom, user: User, message: str) -> AsyncGenerato
             return
 
         # 2단계: 스트리밍 답변
+        # system_prompt = ai_cfg.system_prompt
+        # if health_ctx:
+        #     system_prompt += f"\n\n[사용자 건강 정보]\n{health_ctx}"
+        # if category == "GREETING":
+        #     system_prompt += "\n사용자가 인사를 건넸습니다. 친절하게 인사하고 HealthGuide 서비스를 간략히 소개하세요."
+        # system_prompt += (
+        #     # "\n\n답변은 반드시 500자 이내로 작성하세요."
+        #     "\n반드시 2~3줄로 나누어 작성하세요."
+        #     "\n각 줄은 한 문장씩만 작성하세요."
+        #     # "\n불필요한 서론/결론 없이 핵심만 답변하세요."
+        #     "\n한글로 답변하세요."
+        # )
         system_prompt = ai_cfg.system_prompt
         if health_ctx:
-            system_prompt += f"\n\n[사용자 건강 정보]\n{health_ctx}"
+            system_prompt += f"\n\n[User Health Information]\n{health_ctx}"
         if category == "GREETING":
-            system_prompt += "\n사용자가 인사를 건넸습니다. 친절하게 인사하고 HealthGuide 서비스를 간략히 소개하세요."
+            system_prompt += "\nThe user has greeted you. Respond warmly and briefly introduce the HealthGuide service."
         system_prompt += (
-            "\n\n답변은 반드시 300자 이내로 작성하세요."
-            "\n반드시 2~3줄로 나누어 작성하세요."
-            "\n각 줄은 한 문장씩만 작성하세요."
-            "\n불필요한 서론/결론 없이 핵심만 답변하세요."
+            # "\n\nThe answer must be written within 500 characters."
+            "\nYou must write the answer in 2–3 lines."
+            "\nEach line must contain only one sentence."
+            # "\nAnswer only the key points without unnecessary introduction or conclusion."
+            "\nAnswer in Korean."
         )
 
         async for chunk_sse in _stream_answer(
@@ -199,13 +212,21 @@ async def stream_chat(room: ChatRoom, user: User, message: str) -> AsyncGenerato
 
 # ── 1단계: 분류 ───────────────────────────────────────────────────────────────
 
+# _ROUTER_PROMPT = (
+#     "당신은 질문 분류기입니다. 아래 질문을 읽고 카테고리 하나만 출력하세요.\n"
+#     "EMERGENCY: 즉각적인 응급 처치가 필요한 상황(심정지, 뇌졸중, 심한 출혈, 자살 위기 등), 심장이 아파 라고 하면 EMERGENCY로 반환해.\n"
+#     "GREETING: 인사, 감사, 안부, 자기소개 요청 등 순수 인사성 메시지\n"
+#     "DOMAIN: 건강·의료·복약·증상·질병·영양·운동·정신건강 관련 질문\n"
+#     "OTHER: 그 외 일반 비의료 질문/잡담\n"
+#     "반드시 EMERGENCY / GREETING / DOMAIN / OTHER 중 하나만 출력하세요."
+# )
 _ROUTER_PROMPT = (
-    "당신은 질문 분류기입니다. 아래 질문을 읽고 카테고리 하나만 출력하세요.\n"
-    "EMERGENCY: 즉각적인 응급 처치가 필요한 상황(심정지, 뇌졸중, 심한 출혈, 자살 위기 등), 심장이 아파 라고 하면 EMERGENCY로 반환해.\n"
-    "GREETING: 인사, 감사, 안부, 자기소개 요청 등 순수 인사성 메시지\n"
-    "DOMAIN: 건강·의료·복약·증상·질병·영양·운동·정신건강 관련 질문\n"
-    "OTHER: 그 외 일반 비의료 질문/잡담\n"
-    "반드시 EMERGENCY / GREETING / DOMAIN / OTHER 중 하나만 출력하세요."
+    "You are a question classifier. Read the question below and output only one category.\n"
+    "EMERGENCY: Situations requiring immediate emergency care, such as cardiac arrest, stroke, severe bleeding, suicidal crisis, etc. If the user says their heart hurts, return EMERGENCY.\n"
+    "GREETING: Pure greeting-type messages, such as greetings, thanks, asking how you are, or requests for self-introduction.\n"
+    "DOMAIN: Questions related to health, medicine, medication use, symptoms, diseases, nutrition, exercise, or mental health.\n"
+    "OTHER: All other general non-medical questions or casual chat.\n"
+    "You must output only one of EMERGENCY / GREETING / DOMAIN / OTHER."
 )
 
 _VALID_CATEGORIES = {"EMERGENCY", "GREETING", "DOMAIN", "OTHER"}
