@@ -514,6 +514,7 @@ Output JSON only. No markdown, explanations, or code blocks.
 }
 """
 
+
 async def extract_pill_features(
     client: AsyncOpenAI,
     image_b64_list: list[str],
