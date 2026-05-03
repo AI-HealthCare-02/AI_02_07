@@ -424,67 +424,67 @@ def build_rag_query_variants(vlm: dict) -> list[str]:
 # }
 # """
 PILL_VISION_PROMPT = """
-You extract imprints, color, shape, and score lines from pill images.  
+You extract imprints, color, shape, and score lines from pill images.
 Output JSON only. No markdown, explanations, or code blocks.
 
-[Basic Principles]  
-- OCR is only a reference; the image takes priority.  
-- Record only what is visible and do not guess.  
-- If an imprint is uncertain, set it to null or record it with low confidence.  
-- Record manufacturer logos, symbols, and non-text designs as "마크".  
+[Basic Principles]
+- OCR is only a reference; the image takes priority.
+- Record only what is visible and do not guess.
+- If an imprint is uncertain, set it to null or record it with low confidence.
+- Record manufacturer logos, symbols, and non-text designs as "마크".
 - Dots, stains, speckles, spotted patterns, and material patterns are not imprints. Record them only in color_detail or notes.
 
-[Upload Pattern and Rotation Handling — Very Important]  
-- The first image is the front-side candidate, and the second image is the back-side candidate.  
-- If the front and back of the same pill appear together in one image, distinguish and extract the front and back separately.  
-- In this case, multiple_pills=false.  
+[Upload Pattern and Rotation Handling — Very Important]
+- The first image is the front-side candidate, and the second image is the back-side candidate.
+- If the front and back of the same pill appear together in one image, distinguish and extract the front and back separately.
+- In this case, multiple_pills=false.
 - If there are multiple different pills, multiple_pills=true.
 
-[Imprint Rotation Handling When Front and Back Appear in One Image — Pay Special Attention]  
-- If the front and back of the same pill appear in one image, the imprints on the two sides may be rotated at different angles.  
-- It is normal even if the front imprint is at 0 degrees and the back imprint is rotated 180 degrees.  
-- Read each side independently by considering 0/90/180/270-degree rotations and choosing the most natural orientation.  
-- Example: if MTS appears in the normal orientation on the front and 4 on the back is rotated 180 degrees and looks like 7, the back imprint is 4.  
-- Example: even if MTS is rotated about 200 degrees on the front, read it as MTS.  
+[Imprint Rotation Handling When Front and Back Appear in One Image — Pay Special Attention]
+- If the front and back of the same pill appear in one image, the imprints on the two sides may be rotated at different angles.
+- It is normal even if the front imprint is at 0 degrees and the back imprint is rotated 180 degrees.
+- Read each side independently by considering 0/90/180/270-degree rotations and choosing the most natural orientation.
+- Example: if MTS appears in the normal orientation on the front and 4 on the back is rotated 180 degrees and looks like 7, the back imprint is 4.
+- Example: even if MTS is rotated about 200 degrees on the front, read it as MTS.
 - Watch for rotation-based confusions: 4↔7, 6↔9, 2↔5, d↔0, n↔u, M↔W.
 
-[Imprint Reading]  
-- In print_front/print_back, record only actual letters, numbers, or "마크".  
-- Do not put the words "분할선" or "십자분할선" in print_front/print_back.  
-- If there are characters around a score line, record those characters in print_* and in the left/right/top/bottom fields.  
-- Example: if it looks like 1분할선3, set print to "1 3", left_text="1", right_text="3".  
+[Imprint Reading]
+- In print_front/print_back, record only actual letters, numbers, or "마크".
+- Do not put the words "분할선" or "십자분할선" in print_front/print_back.
+- If there are characters around a score line, record those characters in print_* and in the left/right/top/bottom fields.
+- Example: if it looks like 1분할선3, set print to "1 3", left_text="1", right_text="3".
 - Even if a mark looks like 5, S, JS, or a curved character, record it as "마크" unless it is clearly a character.
 
-[OCR Confusion Correction]  
-- Correct the following confusions only when they are clear in the image: H↔N, 0↔O, 1↔I↔L, 5↔S, 6↔G, 8↔B, 2↔Z.  
-- Rotation confusions: 4↔7, 6↔9, 2↔5, d↔0, n↔u, M↔W.  
+[OCR Confusion Correction]
+- Correct the following confusions only when they are clear in the image: H↔N, 0↔O, 1↔I↔L, 5↔S, 6↔G, 8↔B, 2↔Z.
+- Rotation confusions: 4↔7, 6↔9, 2↔5, d↔0, n↔u, M↔W.
 - Do not trust OCR if the result is a single character or only symbols.
 
-[Score Line]  
-- A single line is "분할선".  
-- For a vertical score line, check left/right; for a horizontal score line, check top/bottom.  
-- Characters may exist on both sides of a score line, so do not stop after reading only one side.  
+[Score Line]
+- A single line is "분할선".
+- For a vertical score line, check left/right; for a horizontal score line, check top/bottom.
+- Characters may exist on both sides of a score line, so do not stop after reading only one side.
 - A score line is not an imprint character, so do not put "분할선" in print_*.
 
-[Cross Score Line]  
-- If a horizontal and vertical line appear together in a + shape, it is "십자분할선".  
-- Always record a cross score line even when there is no text.  
-- If there is a cross score line, set direction to "십자".  
+[Cross Score Line]
+- If a horizontal and vertical line appear together in a + shape, it is "십자분할선".
+- Always record a cross score line even when there is no text.
+- If there is a cross score line, set direction to "십자".
 - Dots, stains, shadows, and pill edge lines are not cross score lines.
 
-[Color]  
-- color is the base color of the pill body.  
-- Record speckles, black dots, brown dots, and stains only in color_detail.  
-- For two-color hard capsules, use "/". Example: "갈색/하양".  
+[Color]
+- color is the base color of the pill body.
+- Record speckles, black dots, brown dots, and stains only in color_detail.
+- For two-color hard capsules, use "/". Example: "갈색/하양".
 - For transparent soft capsules, record "투명". Example: "갈색, 투명".
 
-[Shape]  
-- Choose exactly one of the following for shape: "원형", "타원형", "장방형", "삼각형", "사각형", "기타", "판독불가".  
-- Do not use "캡슐형" as shape. Record capsule status in dosage_form_hint.  
-- If it has long straight sides, choose "장방형"; if the whole outline is a continuous curve, choose "타원형"; if it is close to a circle, choose "원형".  
+[Shape]
+- Choose exactly one of the following for shape: "원형", "타원형", "장방형", "삼각형", "사각형", "기타", "판독불가".
+- Do not use "캡슐형" as shape. Record capsule status in dosage_form_hint.
+- If it has long straight sides, choose "장방형"; if the whole outline is a continuous curve, choose "타원형"; if it is close to a circle, choose "원형".
 - Oval and rectangular shapes are often confused, so prioritize the outer contour.
 
-[Output JSON]  
+[Output JSON]
 {
   "is_pill": true,
   "multiple_pills": false,
@@ -720,8 +720,8 @@ def _needs_recheck(vlm: dict, top_candidates: list[dict]) -> dict:
 #   "notes": null
 # }"""
 _SCORELINE_RECHECK_PROMPT = """
-Recheck only the pill’s score line. Ignore imprint, color, and shape.  
-Output JSON only.  
+Recheck only the pill’s score line. Ignore imprint, color, and shape.
+Output JSON only.
 Rules: A single straight line is "분할선"; a + shape is "십자분할선". Always record a cross score line even if there is no text.
 {
   "front_score_line_type": "없음|분할선|십자분할선|판독불가",
@@ -990,20 +990,20 @@ def _split_combined_imprint(features: dict) -> dict:
 # }
 # """
 _CANDIDATE_VISUAL_VERIFY_PROMPT = """
-You verify whether the pill image visually matches the given candidate drug metadata.  
+You verify whether the pill image visually matches the given candidate drug metadata.
 Output JSON only.
 
-[Additional Mark Verification Rules]  
-- If the candidate metadata contains "마크" and the image marking looks like JS, 5, S, or 15, determine whether it is a rotated logo/mark rather than actual text.  
-- A logo/mark on a round pill may look like JS, 5, or S depending on rotation.  
-- If the candidate is "마크 + 10", and one side of the image shows 10 while the other side shows a curved logo, you may support the "마크 + 10" candidate.  
-- If the independent strokes of J and S are not clearly visible, it is safer to treat it as "마크".  
+[Additional Mark Verification Rules]
+- If the candidate metadata contains "마크" and the image marking looks like JS, 5, S, or 15, determine whether it is a rotated logo/mark rather than actual text.
+- A logo/mark on a round pill may look like JS, 5, or S depending on rotation.
+- If the candidate is "마크 + 10", and one side of the image shows 10 while the other side shows a curved logo, you may support the "마크 + 10" candidate.
+- If the independent strokes of J and S are not clearly visible, it is safer to treat it as "마크".
 - However, if the candidate list contains an actual "JS" imprint candidate and J and S are clear in the image, support the JS candidate.
 
-Based on the candidate metadata, determine the following:  
-1. Does the candidate color match the image’s base color?  
-2. Does the candidate shape match the image shape?  
-3. Are the candidate imprint/mark/score line visually supported by the image?  
+Based on the candidate metadata, determine the following:
+1. Does the candidate color match the image’s base color?
+2. Does the candidate shape match the image shape?
+3. Are the candidate imprint/mark/score line visually supported by the image?
 4. Is the candidate’s "마크" interpretation more natural than the text read by the VLM?
 
 Output:
