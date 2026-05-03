@@ -553,6 +553,7 @@ class GuideService:
                 "custom_days": req.custom_days,
                 "is_browser_noti": req.is_browser_noti,
                 "is_email_noti": req.is_email_noti,
+                "is_kakao_noti": req.is_kakao_noti,  # ✅ 추가
                 "is_active": True,
             },
         )
