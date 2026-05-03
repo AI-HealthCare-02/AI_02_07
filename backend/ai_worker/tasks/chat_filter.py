@@ -71,11 +71,18 @@ async def _check_domain(client: AsyncOpenAI, message: str) -> bool:
     resp = await client.chat.completions.create(
         **_build_kwargs("gpt-4o-mini", max_tokens=5, temperature=0),
         messages=[
+            # {
+            #     "role": "system",
+            #     "content": (
+            #         "다음 질문이 건강, 의료, 복약, 증상, 질병, 영양, 운동, 정신건강 관련인지 판단하세요. "
+            #         "관련 있으면 'YES', 없으면 'NO'만 답하세요."
+            #     ),
+            # },
             {
                 "role": "system",
                 "content": (
-                    "다음 질문이 건강, 의료, 복약, 증상, 질병, 영양, 운동, 정신건강 관련인지 판단하세요. "
-                    "관련 있으면 'YES', 없으면 'NO'만 답하세요."
+                    "Determine whether the following question is related to health, medicine, medication use, symptoms, diseases, nutrition, exercise, or mental health. "
+                    "If it is related, answer only 'YES'; if not, answer only 'NO'."
                 ),
             },
             {"role": "user", "content": message},
@@ -88,11 +95,18 @@ async def _check_emergency(client: AsyncOpenAI, message: str) -> bool:
     resp = await client.chat.completions.create(
         **_build_kwargs("gpt-4o-mini", max_tokens=5, temperature=0),
         messages=[
+            # {
+            #     "role": "system",
+            #     "content": (
+            #         "다음 질문에서 즉각적인 응급 처치가 필요한 상황(심정지, 뇌졸중, 심한 출혈, 자살 위기 등)이 "
+            #         "감지되면 'YES', 아니면 'NO'만 답하세요."
+            #     ),
+            # },
             {
                 "role": "system",
                 "content": (
-                    "다음 질문에서 즉각적인 응급 처치가 필요한 상황(심정지, 뇌졸중, 심한 출혈, 자살 위기 등)이 "
-                    "감지되면 'YES', 아니면 'NO'만 답하세요."
+                    "If the following question indicates a situation requiring immediate emergency care, such as cardiac arrest, stroke, severe bleeding, suicidal crisis, etc., "
+                    "answer only 'YES'; otherwise, answer only 'NO'."
                 ),
             },
             {"role": "user", "content": message},

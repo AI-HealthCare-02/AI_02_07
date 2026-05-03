@@ -76,7 +76,7 @@ services:
         max-size: "5m"
         max-file: "2"
 
-  # ── FastAPI 서버 (uvicorn worker 2개, ~600MB) ──
+  # ── FastAPI 서버 (uvicorn worker 1개 — APScheduler 중복 실행 방지) ──
   app:
     build:
       context: .
@@ -84,7 +84,7 @@ services:
     container_name: healthguide-app
     restart: unless-stopped
     env_file: envs/.prod.env
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
     networks:
       - ws
     deploy:
