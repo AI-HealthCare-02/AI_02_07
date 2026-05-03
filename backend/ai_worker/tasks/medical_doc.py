@@ -248,6 +248,9 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str, rag_context:
     if rag_context:
         rag_prefix = f"{rag_context}\n\n위 약품 정보를 참고하여 아래 문서를 분석해줘.\n\n"
 
+    # ✅ 공통 OCR 오타 교정 규칙
+    ocr_correction_rule = "- 약품명의 OCR 오인식으로 인한 오타(받침 누락, 자모 오인식 등)를 올바른 한글 맞춤법으로 교정해. 단, 고유 브랜드명은 변경하지 마. (예: '캡슬' → '캡슐', '졍' → '정', '씨럽' → '시럽', '앰플' → '앰플')"
+
     prompts = {
         "처방전": f"""{rag_prefix}아래는 처방전에서 OCR로 추출한 텍스트야.
 이 텍스트를 분석해서 JSON 형식으로 구조화해줘.
@@ -259,6 +262,7 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str, rag_context:
 - timing 필드: 점안액·연고·외용제·주사는 반드시 null. 먹는 약만 식전/식후 등을 기재해.
 - cautions 필드: 이 약의 주의사항을 배열로 기재해. 없으면 빈 배열 [].
 - medication_schedule.note: 여러 약의 복약안내를 한 문장으로 통합 정리해.
+- {ocr_correction_rule}
 반드시 JSON만 출력하고 다른 말은 하지 마.
 
 {{
@@ -284,6 +288,7 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str, rag_context:
 - timing 필드: 점안액·연고·외용제·주사는 반드시 null. 먹는 약만 식전/식후 등을 기재해.
 - cautions 필드: 이 약의 주의사항을 배열로 기재해. 없으면 빈 배열 [].
 - medication_schedule.note: 여러 약의 복약안내를 한 문장으로 통합 정리해.
+- {ocr_correction_rule}
 반드시 JSON만 출력하고 다른 말은 하지 마.
 
 {{
@@ -314,6 +319,7 @@ def get_prompt_by_document_type(doc_type: str, extracted_text: str, rag_context:
 - cautions 필드: 이 약봉투에 적힌 해당 약의 개별 주의사항을 배열로 기재해. 없으면 빈 배열 [].
 - medication_schedule.note: 여러 약의 복약안내를 한 문장으로 통합 정리해.
 - 확실하지 않은 필드는 null로 설정하고 confidence를 낮게 설정해.
+- {ocr_correction_rule}
 반드시 JSON만 출력하고 다른 말은 하지 마.
 
 {{
