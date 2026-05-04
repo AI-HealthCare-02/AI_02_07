@@ -25,6 +25,7 @@ async def _check_queue_capacity() -> None:
     """AI Worker 큐 적체 시 503 반환 — 과부하 방지"""
     from app.core.config import get_settings
     from app.core.redis import get_redis
+
     settings = get_settings()
     try:
         redis = get_redis()
