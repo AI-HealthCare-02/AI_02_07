@@ -21,6 +21,25 @@ ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
 UNIDENTIFIED_KEYWORDS = ("식별 불가", "미매칭", "알약 이미지가 아닙니다", "여러 알약", "분석 실패")
 
 
+async def _check_queue_capacity() -> None:
+    """AI Worker 큐 적체 시 503 반환 — 과부하 방지"""
+    from app.core.redis import get_redis
+    from app.core.config import get_settings
+    settings = get_settings()
+    try:
+        redis = get_redis()
+        queue_len = await redis.llen(settings.WORKER_QUEUE_NAME)
+        if queue_len >= settings.WORKER_MAX_QUEUE_SIZE:
+            raise HTTPException(
+                status_code=503,
+                detail=f"현재 분석 요청이 많습니다. 잠시 후 다시 시도해주세요. (대기 중: {queue_len}건)",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Redis 조회 실패 시 통과 (서비스 중단 방지)
+
+
 class PillAnalysisResult(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -68,6 +87,7 @@ async def analyze_pill(
     from app.core.config import get_settings
 
     settings = get_settings()
+    await _check_queue_capacity()
 
     validate_image(front_image)
     front_bytes = await read_and_validate_size(front_image)

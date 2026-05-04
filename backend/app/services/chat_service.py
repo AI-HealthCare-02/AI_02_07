@@ -9,7 +9,8 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
 from fastapi import HTTPException, status
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tortoise import Tortoise
 
 from app.core.config import get_settings
@@ -232,6 +233,12 @@ _ROUTER_PROMPT = (
 _VALID_CATEGORIES = {"EMERGENCY", "GREETING", "DOMAIN", "OTHER"}
 
 
+@retry(
+    retry=retry_if_exception_type(RateLimitError),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
 async def _classify(client: AsyncOpenAI, ai_cfg: "AiConfig", message: str) -> str:
     messages = [
         {"role": "system", "content": _ROUTER_PROMPT},
@@ -397,10 +404,15 @@ class AiConfig:
 
 _DEFAULT_AI_CONFIG = AiConfig(
     model="gpt-4o-mini",
+    # system_prompt=(
+    #     "당신은 HealthGuide AI 건강 상담 도우미입니다. "
+    #     "사용자의 건강·의료·복약·증상·질병·영양·운동·정신건강 관련 질문에 친절하고 정확하게 답변하세요. "
+    #     "전문 의료 행위를 대체하지 않으며, 심각한 증상은 의사 상담을 권유하세요."
+    # ),
     system_prompt=(
-        "당신은 HealthGuide AI 건강 상담 도우미입니다. "
-        "사용자의 건강·의료·복약·증상·질병·영양·운동·정신건강 관련 질문에 친절하고 정확하게 답변하세요. "
-        "전문 의료 행위를 대체하지 않으며, 심각한 증상은 의사 상담을 권유하세요."
+        "You are HealthGuide, an AI health consultation assistant. "
+        "Respond kindly and accurately to the user's questions related to health, medicine, medication use, symptoms, diseases, nutrition, exercise, and mental health. "
+        "You do not replace professional medical care, and you should recommend consulting a doctor for serious symptoms."
     ),
     temperature=0.7,
     max_tokens=1000,
@@ -505,7 +517,7 @@ def _build_messages(history: list[ChatMessage], max_tokens: int = 2000, keep_las
         result = [
             {
                 "role": "system",
-                "content": "[이전 대화 요약: 건강 관련 상담이 있었습니다.]",
+                "content": "[Previous conversation summary: There was a health-related consultation.]",
             }
         ]
         for m in [*candidates, *protected]:
