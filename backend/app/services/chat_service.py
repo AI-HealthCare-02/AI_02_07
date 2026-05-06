@@ -311,32 +311,30 @@ async def _stream_answer(
             logger.error("[_stream_answer] OpenAI 오류: %s", e)
         finally:
             # 취소된 경우 DB 저장 안 함 (cancel_stream에서 이미 삭제함)
-            if cancelled:
-                await queue.put(None)
-                return
-            msg = await ChatMessage.get_or_none(message_id=message_id)
-            if msg:
-                # [BRAND_DISCLAIMER] 태그 제거 후 저장
-                clean_content = full_content.strip().replace("[BRAND_DISCLAIMER]", "").strip()
-                msg.content = clean_content
-                msg.filter_result = filter_result
-                msg.prompt_tokens = prompt_tokens
-                msg.completion_tokens = comp_tokens
-                msg.latency_ms = latency_ms
-                msg.model_name = ai_cfg.model
-                await msg.save(
-                    update_fields=[
-                        "content",
-                        "filter_result",
-                        "prompt_tokens",
-                        "completion_tokens",
-                        "latency_ms",
-                        "model_name",
-                    ]
-                )
-            # 브랜드 추천이 포함된 경우 클라이언트에 알림 (종료 신호 전에 전송)
-            if "[BRAND_DISCLAIMER]" in full_content:
-                await queue.put(_sse("brand_disclaimer", {"messageId": message_id}))
+            if not cancelled:
+                msg = await ChatMessage.get_or_none(message_id=message_id)
+                if msg:
+                    # [BRAND_DISCLAIMER] 태그 제거 후 저장
+                    clean_content = full_content.strip().replace("[BRAND_DISCLAIMER]", "").strip()
+                    msg.content = clean_content
+                    msg.filter_result = filter_result
+                    msg.prompt_tokens = prompt_tokens
+                    msg.completion_tokens = comp_tokens
+                    msg.latency_ms = latency_ms
+                    msg.model_name = ai_cfg.model
+                    await msg.save(
+                        update_fields=[
+                            "content",
+                            "filter_result",
+                            "prompt_tokens",
+                            "completion_tokens",
+                            "latency_ms",
+                            "model_name",
+                        ]
+                    )
+                # 브랜드 추천이 포함된 경우 클라이언트에 알림 (종료 신호 전에 전송)
+                if "[BRAND_DISCLAIMER]" in full_content:
+                    await queue.put(_sse("brand_disclaimer", {"messageId": message_id}))
             await queue.put(None)
             logger.info(
                 "[2단계 완료] model=%s | 응답=%.80s | prompt=%s | completion=%s | latency=%sms",
