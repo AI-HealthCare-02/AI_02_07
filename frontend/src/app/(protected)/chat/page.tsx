@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
 import { useAuthStore } from "@/store/auth-store";
 import apiClient from "@/lib/axios";
 
@@ -148,7 +149,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           className="max-w-[75%] rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-white dark:text-white"
           style={{ background: "linear-gradient(135deg, rgb(20,184,166), rgb(6,182,212))" }}
         >
-          {msg.content}
+          <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
         </div>
         <BookmarkButton messageId={msg.messageId} />
       </div>

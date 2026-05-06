@@ -143,6 +143,12 @@ async def get_dashboard_summary() -> DashboardSummaryDTO:
     domain_blocked = await ChatMessage.filter(created_at__gte=today_start, filter_result="DOMAIN").count()
     emergency_blocked = await ChatMessage.filter(created_at__gte=today_start, filter_result="EMERGENCY").count()
 
+    # 알약 분석
+    from app.models.pill_analysis import PillAnalysisHistory
+
+    today_pill = await PillAnalysisHistory.filter(created_at__gte=today_start).count()
+    total_pill = await PillAnalysisHistory.all().count()
+
     return DashboardSummaryDTO(
         totalUsers=total_users,
         todayActiveUsers=today_active_users,
@@ -153,6 +159,8 @@ async def get_dashboard_summary() -> DashboardSummaryDTO:
             emergencyBlocked=emergency_blocked,
             total=domain_blocked + emergency_blocked,
         ),
+        todayPillAnalysisCount=today_pill,
+        totalPillAnalysisCount=total_pill,
     )
 
 
@@ -183,6 +191,8 @@ async def get_dashboard_chart(
         datasets = await _chart_chat(period, start_date, end_date, labels)
     elif chart_type == "FILTER_BLOCKED":
         datasets = await _chart_filter(period, start_date, end_date, labels)
+    elif chart_type == "PILL_ANALYSIS":
+        datasets = await _chart_pill(period, start_date, end_date, labels)
     else:
         raise HTTPException(status_code=400, detail="유효하지 않은 type 파라미터입니다.")
 
@@ -280,6 +290,25 @@ async def _chart_chat(period, start, end, labels) -> list[ChartDatasetDTO]:
     data_map = {_fmt_key(r["label"], period): int(r["cnt"]) for r in rows}
     data = [data_map.get(lbl, 0) for lbl in labels]
     return [ChartDatasetDTO(label="챗봇 이용량", data=data)]
+
+
+async def _chart_pill(period, start, end, labels) -> list[ChartDatasetDTO]:
+    from tortoise.expressions import RawSQL
+    from tortoise.functions import Count
+
+    from app.models.pill_analysis import PillAnalysisHistory
+
+    trunc = _trunc_expr(period)
+    rows = (
+        await PillAnalysisHistory.filter(created_at__gte=start, created_at__lt=end + timedelta(days=1))
+        .annotate(label=RawSQL(f"DATE_TRUNC('{trunc}', created_at)::date"), cnt=Count("analysis_id"))
+        .group_by("label")
+        .order_by("label")
+        .values("label", "cnt")
+    )
+    data_map = {_fmt_key(r["label"], period): int(r["cnt"]) for r in rows}
+    data = [data_map.get(lbl, 0) for lbl in labels]
+    return [ChartDatasetDTO(label="알약 분석 이용", data=data)]
 
 
 async def _chart_filter(period, start, end, labels) -> list[ChartDatasetDTO]:

@@ -616,19 +616,24 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN NULL;
 END $$;
 
--- ✅ 기존 UNIQUE 제약 제거 (이름이 다를 수 있으므로 여러 이름 시도)
+-- ✅ 기존 UNIQUE 제약 제거 후 timing_slot 포함한 새 UNIQUE 제약 추가
 DO $$ BEGIN
     ALTER TABLE med_check_log
         DROP CONSTRAINT IF EXISTS med_check_log_guide_id_guide_medication_id_check_date_key;
 EXCEPTION WHEN others THEN NULL;
 END $$;
 
--- ✅ timing_slot 포함한 새 UNIQUE 제약 추가
 DO $$ BEGIN
-    ALTER TABLE med_check_log
-        ADD CONSTRAINT uq_med_check_log_slot
-            UNIQUE (guide_id, guide_medication_id, check_date, timing_slot);
-EXCEPTION WHEN duplicate_object THEN NULL;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'uq_med_check_log_slot'
+          AND conrelid = 'med_check_log'::regclass
+    ) THEN
+        ALTER TABLE med_check_log
+            ADD CONSTRAINT uq_med_check_log_slot
+                UNIQUE (guide_id, guide_medication_id, check_date, timing_slot);
+    END IF;
+EXCEPTION WHEN others THEN NULL;
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_med_check_log_guide_date

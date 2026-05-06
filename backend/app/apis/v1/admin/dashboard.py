@@ -25,7 +25,7 @@ async def dashboard_chart(
     endDate: str | None = Query(None),
     admin: AdminUser = Depends(get_current_admin),
 ):
-    if type not in ("SIGNUP", "OCR_SUCCESS", "CHAT_USAGE", "FILTER_BLOCKED"):
+    if type not in ("SIGNUP", "OCR_SUCCESS", "CHAT_USAGE", "FILTER_BLOCKED", "PILL_ANALYSIS"):
         return {"status": 400, "message": "유효하지 않은 조회 조건입니다.", "error": "INVALID_PARAMETER"}
     if period not in ("DAILY", "MONTHLY", "YEARLY"):
         return {"status": 400, "message": "유효하지 않은 조회 조건입니다.", "error": "INVALID_PARAMETER"}
