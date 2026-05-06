@@ -186,6 +186,12 @@ async def stream_chat(room: ChatRoom, user: User, message: str) -> AsyncGenerato
         if category == "GREETING":
             system_prompt += "\nThe user has greeted you. Respond warmly and briefly introduce the HealthGuide service."
         system_prompt += "\nAnswer in Korean."
+        system_prompt += (
+            "\n\nIMPORTANT: If your response includes any specific brand names, product names, or commercial product recommendations "
+            "(e.g. specific drug brand names, supplement brands, food product brands), "
+            "you MUST append the exact tag [BRAND_DISCLAIMER] at the very end of your response, after all content. "
+            "Do not add this tag if you only mention generic ingredient names or general health advice without specific brand names."
+        )
 
         async for chunk_sse in _stream_answer(
             client,
@@ -266,6 +272,7 @@ async def _stream_answer(
         prompt_tokens = comp_tokens = 0
         latency_ms: int | None = None
         start_at = time.monotonic()
+        cancelled = False
         input_messages = [
             {"role": "system", "content": system_prompt},
             *history_ctx,
@@ -286,6 +293,7 @@ async def _stream_answer(
             async for chunk in stream:
                 if await redis.exists(f"chat:cancel:{message_id}"):
                     await redis.delete(f"chat:cancel:{message_id}")
+                    cancelled = True
                     break
                 if chunk.usage:
                     prompt_tokens += chunk.usage.prompt_tokens or 0
@@ -302,25 +310,32 @@ async def _stream_answer(
         except Exception as e:
             logger.error("[_stream_answer] OpenAI 오류: %s", e)
         finally:
+            # 취소된 경우 DB 저장 안 함 (cancel_stream에서 이미 삭제함)
+            if not cancelled:
+                msg = await ChatMessage.get_or_none(message_id=message_id)
+                if msg:
+                    # [BRAND_DISCLAIMER] 태그 제거 후 저장
+                    clean_content = full_content.strip().replace("[BRAND_DISCLAIMER]", "").strip()
+                    msg.content = clean_content
+                    msg.filter_result = filter_result
+                    msg.prompt_tokens = prompt_tokens
+                    msg.completion_tokens = comp_tokens
+                    msg.latency_ms = latency_ms
+                    msg.model_name = ai_cfg.model
+                    await msg.save(
+                        update_fields=[
+                            "content",
+                            "filter_result",
+                            "prompt_tokens",
+                            "completion_tokens",
+                            "latency_ms",
+                            "model_name",
+                        ]
+                    )
+                # 브랜드 추천이 포함된 경우 클라이언트에 알림 (종료 신호 전에 전송)
+                if "[BRAND_DISCLAIMER]" in full_content:
+                    await queue.put(_sse("brand_disclaimer", {"messageId": message_id}))
             await queue.put(None)
-            msg = await ChatMessage.get_or_none(message_id=message_id)
-            if msg:
-                msg.content = full_content.strip()
-                msg.filter_result = filter_result
-                msg.prompt_tokens = prompt_tokens
-                msg.completion_tokens = comp_tokens
-                msg.latency_ms = latency_ms
-                msg.model_name = ai_cfg.model
-                await msg.save(
-                    update_fields=[
-                        "content",
-                        "filter_result",
-                        "prompt_tokens",
-                        "completion_tokens",
-                        "latency_ms",
-                        "model_name",
-                    ]
-                )
             logger.info(
                 "[2단계 완료] model=%s | 응답=%.80s | prompt=%s | completion=%s | latency=%sms",
                 ai_cfg.model,
@@ -343,12 +358,29 @@ async def _stream_answer(
 
 
 async def cancel_stream(user: User, message_id: int) -> None:
-    msg = await _get_repo().get_message(message_id)
-    if msg is None:
+    repo = _get_repo()
+    assistant_msg = await repo.get_message(message_id)
+    if assistant_msg is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="해당 메시지를 찾을 수 없습니다.")
-    if msg.content:
+    if assistant_msg.content:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 완료된 응답입니다.")
+
+    # Redis 취소 플래그 세팅 (스트림 루프에서 감지)
     await get_redis().set(f"chat:cancel:{message_id}", "1", ex=30)
+
+    # 직전 USER 메시지 조회 후 함께 삭제
+    user_msg = (
+        await ChatMessage.filter(
+            room_id=assistant_msg.room_id,
+            message_id__lt=message_id,
+            sender_type_code="USER",
+        )
+        .order_by("-message_id")
+        .first()
+    )
+    await assistant_msg.delete()
+    if user_msg:
+        await user_msg.delete()
 
 
 # ── 북마크 ────────────────────────────────────────────────────────────────────

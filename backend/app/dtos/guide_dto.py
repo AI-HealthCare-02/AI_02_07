@@ -113,10 +113,11 @@ class GuideDetailResponse(BaseModel):
 class GuidePatchRequest(BaseModel):
     title: str | None = None
     hospital_name: str | None = None
+    diagnosis_name: str | None = None
     visit_date: date | None = None
     med_start_date: date | None = None
     med_end_date: date | None = None
-    guide_status: str | None = Field(None, pattern="^(GS_ACTIVE|GS_COMPLETED)$")
+    guide_status: str | None = Field(None, pattern="^(GS_ACTIVE|GS_COMPLETED|ACTIVE|COMPLETED)$")
 
 
 class GuidePatchResponse(BaseModel):

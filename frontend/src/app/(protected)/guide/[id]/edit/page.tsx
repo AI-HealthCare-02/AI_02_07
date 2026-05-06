@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-// import apiClient from "@/lib/axios";
+import apiClient from "@/lib/axios";
 
-// ── 타입 ──────────────────────────────────────────────────
 interface MedInput {
   id: string;
   name: string;
@@ -14,37 +13,6 @@ interface MedInput {
   time_slots: string[];
 }
 
-const TIME_SLOTS = [
-  { value: "morning_before", label: "아침 식전" },
-  { value: "morning_after",  label: "아침 식후" },
-  { value: "lunch_before",   label: "점심 식전" },
-  { value: "lunch_after",    label: "점심 식후" },
-  { value: "evening_before", label: "저녁 식전" },
-  { value: "evening_after",  label: "저녁 식후" },
-  { value: "bedtime",        label: "취침 전"   },
-];
-
-// ── Mock 초기값 ────────────────────────────────────────────
-const MOCK_INIT = {
-  title:          "고혈압·고지혈증 관리 가이드",
-  visit_date:     "2026-03-20",
-  hospital_name:  "서울대학교병원",
-  department:     "내과",
-  diagnoses:      ["고혈압", "고지혈증"],
-  memo:           "",
-  med_start_date: "2026-03-20",
-  duration_days:  "30",
-  guide_status:   "GS_ACTIVE",
-  diseases:       ["고혈압"],
-  allergies:      [] as string[],
-  meds: [
-    { id: "1", name: "오메프라졸캡슐 20mg",  dosage: "1캡슐", frequency: "1회", duration_days: "30", time_slots: ["morning_before"] },
-    { id: "2", name: "아모디핀정 5mg",       dosage: "1정",   frequency: "1회", duration_days: "30", time_slots: ["morning_after"]  },
-    { id: "3", name: "로수바스타틴정 10mg",  dosage: "1정",   frequency: "1회", duration_days: "30", time_slots: ["evening_after"]  },
-  ] as MedInput[],
-};
-
-// ── 공통 컴포넌트 ──────────────────────────────────────────
 function Toast({ msg, type, onClose }: { msg: string; type: "ok" | "err"; onClose: () => void }) {
   return (
     <div className={`fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-xl border px-5 py-3 text-sm shadow-lg lg:bottom-6 ${
@@ -90,26 +58,71 @@ function TagInput({
   );
 }
 
-// ── 메인 ──────────────────────────────────────────────────
+interface FormState {
+  title: string;
+  visit_date: string;
+  hospital_name: string;
+  diagnosis_name: string;
+  memo: string;
+  med_start_date: string;
+  guide_status: string;
+  meds: MedInput[];
+}
+
 export default function GuideEditPage() {
   const router  = useRouter();
   const params  = useParams();
   const guideId = Number(params.id);
 
-  const [form, setForm] = useState({ ...MOCK_INIT, meds: MOCK_INIT.meds.map((m) => ({ ...m })) });
+  const [form, setForm] = useState<FormState>({
+    title: "",
+    visit_date: "",
+    hospital_name: "",
+    diagnosis_name: "",
+    memo: "",
+    med_start_date: "",
+    guide_status: "GS_ACTIVE",
+    meds: [],
+  });
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast]   = useState<{ msg: string; type: "ok" | "err" } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
 
   const showToast = (msg: string, type: "ok" | "err" = "ok") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2400);
   };
 
-  // ── 약물 ──
+  useEffect(() => {
+    apiClient
+      .get(`/api/v1/guides/${guideId}`)
+      .then(({ data }) => {
+        setForm({
+          title: data.title ?? "",
+          visit_date: data.visit_date ?? "",
+          hospital_name: data.hospital_name ?? "",
+          diagnosis_name: data.diagnosis_name ?? "",
+          memo: "",
+          med_start_date: data.med_start_date ?? "",
+          guide_status: data.guide_status === "ACTIVE" ? "GS_ACTIVE" : data.guide_status === "COMPLETED" ? "GS_COMPLETED" : (data.guide_status ?? "GS_ACTIVE"),
+          meds: (data.medications ?? []).map((m: { guide_medication_id: number; medication_name: string; dosage: string | null; frequency: string | null; timing: string | null; duration_days: number | null }) => ({
+            id: String(m.guide_medication_id),
+            name: m.medication_name ?? "",
+            dosage: m.dosage ?? "",
+            frequency: m.frequency ?? "",
+            duration_days: String(m.duration_days ?? ""),
+            time_slots: m.timing ? [m.timing] : [],
+          })),
+        });
+      })
+      .catch(() => showToast("가이드 정보를 불러오지 못했습니다.", "err"))
+      .finally(() => setLoading(false));
+  }, [guideId]);
+
   const addMed = () =>
     setForm((p) => ({
       ...p,
-      meds: [...p.meds, { id: crypto.randomUUID(), name: "", dosage: "1정", frequency: "1회", duration_days: "30", time_slots: ["morning_after"] }],
+      meds: [...p.meds, { id: crypto.randomUUID(), name: "", dosage: "1정", frequency: "1회", duration_days: "30", time_slots: [] }],
     }));
 
   const removeMed = (id: string) => {
@@ -120,13 +133,18 @@ export default function GuideEditPage() {
   const updateMed = (id: string, field: keyof MedInput, value: string | string[]) =>
     setForm((p) => ({ ...p, meds: p.meds.map((m) => m.id === id ? { ...m, [field]: value } : m) }));
 
-  // ── 저장 ──
   const handleSave = async () => {
     if (!form.title.trim()) { showToast("가이드 제목을 입력해주세요.", "err"); return; }
     setSaving(true);
     try {
-      // await apiClient.patch(`/api/v1/guides/${guideId}`, { ... });
-      await new Promise((r) => setTimeout(r, 500));
+      await apiClient.patch(`/api/v1/guides/${guideId}`, {
+        title: form.title || undefined,
+        hospital_name: form.hospital_name || undefined,
+        diagnosis_name: form.diagnosis_name || undefined,
+        visit_date: form.visit_date || undefined,
+        med_start_date: form.med_start_date || undefined,
+        guide_status: form.guide_status || undefined,
+      });
       showToast("가이드가 수정되었습니다 ✅");
       setTimeout(() => router.push(`/guide/${guideId}`), 800);
     } catch {
@@ -135,6 +153,16 @@ export default function GuideEditPage() {
       setSaving(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-xl px-4 pb-24 lg:pb-8">
+        <div className="flex h-64 items-center justify-center">
+          <p className="text-sm text-muted-foreground">불러오는 중...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-xl px-4 pb-24 lg:pb-8">
@@ -190,11 +218,11 @@ export default function GuideEditPage() {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">진료과</label>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">진단명</label>
               <input
-                value={form.department}
-                onChange={(e) => setForm((p) => ({ ...p, department: e.target.value }))}
-                placeholder="내과"
+                value={form.diagnosis_name}
+                onChange={(e) => setForm((p) => ({ ...p, diagnosis_name: e.target.value }))}
+                placeholder="고혈압"
                 className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
               />
             </div>
@@ -206,146 +234,39 @@ export default function GuideEditPage() {
                 className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground focus:border-teal-500/50 focus:outline-none"
               >
                 <option value="GS_ACTIVE">복약 중</option>
-                <option value="GS_DONE">완료</option>
+                <option value="GS_COMPLETED">완료</option>
               </select>
             </div>
           </div>
 
-          <TagInput
-            label="진단명"
-            tags={form.diagnoses}
-            onAdd={(v) => setForm((p) => ({ ...p, diagnoses: [...p.diagnoses, v] }))}
-            onRemove={(v) => setForm((p) => ({ ...p, diagnoses: p.diagnoses.filter((x) => x !== v) }))}
-          />
-
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">메모</label>
-            <textarea
-              value={form.memo}
-              onChange={(e) => setForm((p) => ({ ...p, memo: e.target.value }))}
-              rows={3}
-              placeholder="추가 메모를 입력하세요"
-              className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
+            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">복약 시작일</label>
+            <input
+              type="date"
+              value={form.med_start_date}
+              onChange={(e) => setForm((p) => ({ ...p, med_start_date: e.target.value }))}
+              className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground focus:border-teal-500/50 focus:outline-none"
             />
           </div>
         </div>
 
-        {/* 복약 정보 */}
-        <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
-          <p className="text-sm font-semibold text-foreground">복약 정보</p>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">복약 시작일</label>
-              <input
-                type="date"
-                value={form.med_start_date}
-                onChange={(e) => setForm((p) => ({ ...p, med_start_date: e.target.value }))}
-                className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground focus:border-teal-500/50 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">복약 기간 (일)</label>
-              <input
-                type="number"
-                value={form.duration_days}
-                onChange={(e) => setForm((p) => ({ ...p, duration_days: e.target.value }))}
-                placeholder="30"
-                className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* 처방 약물 */}
-        <div className="space-y-3">
-          <p className="text-sm font-semibold text-foreground">처방 약물</p>
-          {form.meds.map((med, idx) => (
-            <div key={med.id} className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <span className="text-xs font-semibold text-teal-400">약물 {idx + 1}</span>
-                <button onClick={() => removeMed(med.id)} className="text-xs text-muted-foreground hover:text-red-400">✕ 삭제</button>
-              </div>
-
-              <div className="mb-3">
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">약물명 <span className="text-red-400">*</span></label>
-                <input
-                  value={med.name}
-                  onChange={(e) => updateMed(med.id, "name", e.target.value)}
-                  placeholder="아모디핀정 5mg"
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
-                />
-              </div>
-
-              <div className="mb-3 grid grid-cols-3 gap-3">
-                {(["dosage", "frequency", "duration_days"] as const).map((field) => (
-                  <div key={field}>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      {field === "dosage" ? "용량" : field === "frequency" ? "횟수" : "기간(일)"}
-                    </label>
-                    <input
-                      type={field === "duration_days" ? "number" : "text"}
-                      value={med[field]}
-                      onChange={(e) => updateMed(med.id, field, e.target.value)}
-                      className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-teal-500/50 focus:outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div>
-                <label className="mb-2 block text-xs font-medium text-muted-foreground">복용 시점 (중복 선택 가능)</label>
-                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                  {TIME_SLOTS.map((ts) => {
-                    const checked = med.time_slots.includes(ts.value);
-                    return (
-                      <label key={ts.value} className="flex cursor-pointer items-center gap-1.5 text-xs">
-                        <input
-                          type="checkbox"
-                          value={ts.value}
-                          checked={checked}
-                          onChange={() => {
-                            const next = checked
-                              ? med.time_slots.filter((v) => v !== ts.value)
-                              : [...med.time_slots, ts.value];
-                            updateMed(med.id, "time_slots", next);
-                          }}
-                          className="accent-teal-500"
-                        />
-                        <span className={checked ? "font-medium text-teal-400" : "text-muted-foreground"}>
-                          {ts.label}
-                        </span>
-                      </label>
-                    );
-                  })}
+        {/* 처방 약물 (읽기 전용 표시) */}
+        {form.meds.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-foreground">처방 약물 <span className="text-xs font-normal text-muted-foreground">(참고용)</span></p>
+            {form.meds.map((med, idx) => (
+              <div key={med.id} className="rounded-2xl border border-border bg-card p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-teal-400">약물 {idx + 1}</span>
                 </div>
+                <p className="text-sm font-medium text-foreground">{med.name}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {[med.dosage, med.frequency, med.duration_days ? `${med.duration_days}일` : null].filter(Boolean).join(" · ")}
+                </p>
               </div>
-            </div>
-          ))}
-
-          <button
-            onClick={addMed}
-            className="w-full rounded-2xl border border-dashed border-teal-500/30 py-3.5 text-sm text-teal-400 transition hover:border-teal-500/60 hover:bg-teal-500/5"
-          >
-            + 약물 추가
-          </button>
-        </div>
-
-        {/* 기저질환·알레르기 */}
-        <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
-          <p className="text-sm font-semibold text-foreground">기저질환 · 알레르기</p>
-          <TagInput
-            label="기저질환"
-            tags={form.diseases}
-            onAdd={(v) => setForm((p) => ({ ...p, diseases: [...p.diseases, v] }))}
-            onRemove={(v) => setForm((p) => ({ ...p, diseases: p.diseases.filter((x) => x !== v) }))}
-          />
-          <TagInput
-            label="알레르기"
-            tags={form.allergies}
-            onAdd={(v) => setForm((p) => ({ ...p, allergies: [...p.allergies, v] }))}
-            onRemove={(v) => setForm((p) => ({ ...p, allergies: p.allergies.filter((x) => x !== v) }))}
-          />
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* 버튼 */}
         <div className="flex gap-3 pt-2">
@@ -365,7 +286,6 @@ export default function GuideEditPage() {
         </div>
       </div>
 
-      {/* 면책 고지 */}
       <p className="mt-8 text-center text-[11px] text-muted-foreground">
         ⚠️ 본 서비스는 건강 정보 제공 목적이며, 진단·치료·처방 변경을 대신하지 않습니다.
       </p>
