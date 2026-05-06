@@ -137,13 +137,21 @@ export default function GuideEditPage() {
   };
 
   return (
-    <div className="mx-auto max-w-xl px-4 py-8 pb-24 lg:pb-8">
-      {/* 헤더 */}
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-foreground">✏️ 가이드 수정</h1>
-        <button onClick={() => router.push(`/guide/${guideId}`)} className="text-xs text-muted-foreground hover:text-foreground">
-          ← 취소하고 돌아가기
-        </button>
+    <div className="mx-auto max-w-xl px-4 pb-24 lg:pb-8">
+      {/* ── Sticky 헤더 ── */}
+      <div className="sticky top-16 z-30 -mx-4 mb-6 border-b border-border bg-background/95 px-4 pb-3 pt-4 backdrop-blur-sm">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            onClick={() => router.push(`/guide/${guideId}`)}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            뒤로
+          </button>
+        </div>
+        <h1 className="mt-2 text-lg font-bold text-foreground">가이드 수정</h1>
       </div>
 
       <div className="space-y-5">

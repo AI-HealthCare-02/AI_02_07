@@ -42,6 +42,7 @@ app = [
     "email-validator>=2.0",
     "Pillow>=11.1",            # 이미지 전처리 (비의료 문서 감지)
     "apscheduler>=3.11",       # 복약 알림 스케줄러
+    "tenacity>=9.0",           # OpenAI RateLimitError 재시도
 ]
 ai = [
     # AI Worker 관련

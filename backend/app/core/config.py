@@ -27,9 +27,13 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = "healthguide_local_pw"
     DB_NAME: str = "healthguide_db"
 
+    DB_POOL_MIN_SIZE: int = 2
+    DB_POOL_MAX_SIZE: int = 10
+
     @property
     def database_url(self) -> str:
-        return f"asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        base = f"asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        return f"{base}?minsize={self.DB_POOL_MIN_SIZE}&maxsize={self.DB_POOL_MAX_SIZE}"
 
     # ── Redis ──
     REDIS_HOST: str = "localhost"
@@ -94,6 +98,9 @@ class Settings(BaseSettings):
     # ── vLLM ──
     VLLM_HOST: str = "localhost"
     VLLM_PORT: int = 8001
+
+    # ── AI Worker 큐 과부하 제어 ──
+    WORKER_MAX_QUEUE_SIZE: int = 10
 
     # ── Worker Queue ──
     WORKER_QUEUE_NAME: str = "ai_task_queue"

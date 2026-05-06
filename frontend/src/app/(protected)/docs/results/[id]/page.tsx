@@ -172,28 +172,31 @@ export default function ResultDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8 pb-24 lg:pb-8">
-      {/* 면책 고지 */}
-      <div className="mb-6 rounded-xl border border-orange-500/20 bg-orange-500/5 px-4 py-2.5 text-xs text-orange-500">
-        ⚠️ 본 서비스는 참고용이며, 정확한 복약은 의사/약사와 상담하세요.
-      </div>
-
-      {/* 헤더 */}
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">📋 분석 결과 확인</h1>
-          <p className="mt-1 text-xs text-muted-foreground">
+    <div className="mx-auto max-w-2xl px-4 pb-24 lg:pb-8">
+      {/* ── Sticky 헤더 ── */}
+      <div className="sticky top-16 z-30 -mx-4 mb-6 border-b border-border bg-background/95 px-4 pb-3 pt-4 backdrop-blur-sm">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            뒤로
+          </button>
+          <p className="text-xs text-muted-foreground">
             {new Date(result.created_at).toLocaleDateString("ko-KR", {
-              year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit",
+              year: "numeric", month: "long", day: "numeric",
             })}
           </p>
         </div>
-        <button
-          onClick={() => router.back()}
-          className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground transition hover:text-foreground"
-        >
-          ← 목록
-        </button>
+        <h1 className="mt-2 text-lg font-bold text-foreground">분석 결과 확인</h1>
+      </div>
+
+      {/* 면체 고지 */}
+      <div className="mb-6 rounded-xl border border-orange-500/20 bg-orange-500/5 px-4 py-2.5 text-xs text-orange-500">
+        본 서비스는 참고용이며, 정확한 복약은 의사/약사와 상담하세요.
       </div>
 
       {/* 섹션 1: 기본 정보 */}

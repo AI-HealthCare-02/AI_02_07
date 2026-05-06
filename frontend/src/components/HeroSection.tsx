@@ -438,61 +438,11 @@ export default function HeroSection() {
             )}
           </motion.div>
 
-          {/* 데이터 출처 & 참고 안내 */}
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.9, delay: 1.0 }}
-            className="mb-16 w-full max-w-2xl"
-          >
-            <div
-              className="relative overflow-hidden rounded-2xl border border-teal-500/20 bg-teal-500/5 px-6 py-5 backdrop-blur-sm"
-              style={{ boxShadow: "inset 0 1px 0 rgba(20,184,166,0.1)" }}
-            >
-              {/* 상단 글로우 라인 */}
-              <div className="absolute left-0 right-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(20,184,166,0.5), transparent)" }} />
-
-              {/* 출처 배지 */}
-              <div className="mb-3 flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-500/30 bg-teal-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-teal-400">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                  데이터 출처
-                </span>
-              </div>
-
-              {/* 출처 목록 */}
-              <div className="mb-4 flex flex-wrap gap-2">
-                {[
-                  { icon: "🏛️", label: "식품의약품안전처 의약품 DB" },
-                  { icon: "💊", label: "의약품 낱알 식별 정보" },
-                  { icon: "📋", label: "의약품 허가 정보" },
-                ].map((src) => (
-                  <span
-                    key={src.label}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground"
-                  >
-                    <span>{src.icon}</span>
-                    {src.label}
-                  </span>
-                ))}
-              </div>
-
-              {/* 참고 안내 */}
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                본 서비스는 공공 의약품 데이터를 기반으로 한 <span className="text-foreground font-medium">참고용 정보 제공 서비스</span>입니다.
-                AI 분석 결과는 실제 처방·진단을 대체하지 않으며,{" "}
-                <span className="text-teal-400 font-medium">정확한 진단과 복약 지도는 반드시 의사 또는 약사와 상담</span>하시기 바랍니다.
-              </p>
-            </div>
-          </motion.div>
-
           {/* 기능 카드 */}
           <motion.div
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 1, delay: 1.15 }}
+            transition={{ duration: 1, delay: 1.0 }}
             className="grid w-full max-w-4xl grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"
           >
             {FEATURES.map((f, i) => (
@@ -526,6 +476,51 @@ export default function HeroSection() {
                 </motion.div>
               </Link>
             ))}
+          </motion.div>
+
+          {/* 데이터 출처 & 참고 안내 */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.9, delay: 1.2 }}
+            className="mt-8 w-full max-w-2xl"
+          >
+            <div
+              className="relative overflow-hidden rounded-2xl border border-teal-500/20 bg-teal-500/5 px-6 py-5 backdrop-blur-sm"
+              style={{ boxShadow: "inset 0 1px 0 rgba(20,184,166,0.1)" }}
+            >
+              <div className="absolute left-0 right-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, rgba(20,184,166,0.5), transparent)" }} />
+              <div className="mb-3 flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-500/30 bg-teal-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-teal-400">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  데이터 출처
+                </span>
+              </div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                {[
+                  { label: "식품의약품안전처 의약품 DB" },
+                  { label: "의약품 낱알 식별 정보" },
+                  { label: "의약품 허가 정보" },
+                ].map((src) => (
+                  <span
+                    key={src.label}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    {src.label}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                본 서비스는 공공 의약품 데이터를 기반으로 한 <span className="text-foreground font-medium">참고용 정보 제공 서비스</span>입니다.
+                AI 분석 결과는 실제 처방·진단을 대체하지 않으며,{" "}
+                <span className="text-teal-400 font-medium">정확한 진단과 복약 지도는 반드시 의사 또는 약사와 상담</span>하시기 바랍니다.
+              </p>
+            </div>
           </motion.div>
         </main>
 
