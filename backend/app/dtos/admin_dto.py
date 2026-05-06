@@ -42,6 +42,8 @@ class DashboardSummaryDTO(BaseModel):
     ocrUsageCount: int
     todayChatCount: int
     todayFilterBlockedCount: FilterBlockedCountDTO
+    todayPillAnalysisCount: int = 0
+    totalPillAnalysisCount: int = 0
 
 
 # ── Dashboard Chart ──

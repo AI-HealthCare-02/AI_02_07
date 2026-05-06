@@ -185,13 +185,7 @@ async def stream_chat(room: ChatRoom, user: User, message: str) -> AsyncGenerato
             system_prompt += f"\n\n[User Health Information]\n{health_ctx}"
         if category == "GREETING":
             system_prompt += "\nThe user has greeted you. Respond warmly and briefly introduce the HealthGuide service."
-        system_prompt += (
-            # "\n\nThe answer must be written within 500 characters."
-            "\nYou must write the answer in 2–3 lines."
-            "\nEach line must contain only one sentence."
-            # "\nAnswer only the key points without unnecessary introduction or conclusion."
-            "\nAnswer in Korean."
-        )
+        system_prompt += "\nAnswer in Korean."
 
         async for chunk_sse in _stream_answer(
             client,
