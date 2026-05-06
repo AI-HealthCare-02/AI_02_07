@@ -264,6 +264,11 @@ class GuideService:
     async def patch_guide(self, guide_id: int, user_id: int, req: GuidePatchRequest) -> GuidePatchResponse:
         guide = await self._get_guide_or_404(guide_id, user_id)
         update_data = req.model_dump(exclude_none=True)
+        # guide_status → guide_status_code 변환
+        if "guide_status" in update_data:
+            status_val = update_data.pop("guide_status")
+            # GS_ACTIVE → ACTIVE, GS_COMPLETED → COMPLETED
+            update_data["guide_status_code"] = status_val.replace("GS_", "")
         guide = await self._repo.update_guide(guide, update_data)
         return GuidePatchResponse(
             guide_id=guide.guide_id,

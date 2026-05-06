@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import apiClient from "@/lib/axios";
 
 // ── 타입 ──────────────────────────────────────────────────
-type Screen = "modal" | "step1" | "step2" | "generating";
+type Screen = "modal" | "step1" | "step2" | "step3" | "generating";
 
 interface MedInput {
   id: string;
@@ -43,6 +43,10 @@ const AI_STEPS = [
   { key: "life",      label: "RT_LIFESTYLE 생활습관 가이드", doneAt: 16 },
   { key: "caution",   label: "RT_CAUTION 주의사항 정리",    doneAt: 20 },
 ];
+
+const TIMING_OPTIONS = ["식전", "식후즉시", "식후30분", "취침전"];
+const DAILY_SLOTS = ["아침", "점심", "저녁", "취침전"] as const;
+type DailySlot = (typeof DAILY_SLOTS)[number];
 
 // ── 공통 컴포넌트 ──────────────────────────────────────────
 function Toast({ msg, type, onClose }: { msg: string; type: "ok" | "err"; onClose: () => void }) {
@@ -114,6 +118,17 @@ export default function NewGuidePage() {
   // STEP2 상태
   const [meds, setMeds] = useState<MedInput[]>([newMed()]);
 
+  // STEP3 상태 (확인 화면)
+  const [createdGuideId, setCreatedGuideId] = useState<number | null>(null);
+  const [s3Title, setS3Title] = useState("");
+  const [s3HospitalName, setS3HospitalName] = useState("");
+  const [s3VisitDate, setS3VisitDate] = useState("");
+  const [s3DiagnosisName, setS3DiagnosisName] = useState("");
+  const [s3Meds, setS3Meds] = useState<MedInput[]>([]);
+  const [s3DailySlots, setS3DailySlots] = useState<Record<number, DailySlot[]>>({});
+  const [s3ShowDirectInput, setS3ShowDirectInput] = useState<Record<number, boolean>>({});
+  const [s3DirectInputVal, setS3DirectInputVal] = useState<Record<number, string>>({});
+
   function newMed(): MedInput {
     return { id: crypto.randomUUID(), name: "", dosage: "1정", frequency: "1회", duration_days: "30", time_slots: ["morning_after"] };
   }
@@ -151,10 +166,49 @@ export default function NewGuidePage() {
   const updateMed = (id: string, field: keyof MedInput, value: string | string[]) =>
     setMeds((p) => p.map((m) => m.id === id ? { ...m, [field]: value } : m));
 
-  // ── AI 가이드 생성 ──
-  const generate = async () => {
+  // ── STEP2 → STEP3: 가이드 생성 후 확인 화면으로 ──
+  const goStep3 = async () => {
     const validMeds = meds.filter((m) => m.name.trim());
     if (validMeds.length === 0) { showToast("약물명을 최소 1개 입력해주세요."); return; }
+
+    try {
+      const payload = {
+        title: title.trim() || null,
+        diagnosis_name: step1.diagnoses.join(", ") || null,
+        hospital_name: step1.hospital_name || null,
+        visit_date: step1.visit_date || null,
+        med_start_date: step1.visit_date,
+        medications: validMeds.map((m) => ({
+          medication_name: m.name.trim(),
+          dosage: m.dosage || null,
+          frequency: m.frequency || null,
+          duration_days: m.duration_days ? parseInt(m.duration_days) : null,
+          timing: m.time_slots[0] ?? null,
+        })),
+      };
+
+      const { data: guideData } = await apiClient.post("/api/v1/guides", payload);
+      const guideId: number = (guideData.data ?? guideData).guide_id;
+
+      setCreatedGuideId(guideId);
+      setS3Title(title.trim());
+      setS3HospitalName(step1.hospital_name);
+      setS3VisitDate(step1.visit_date);
+      setS3DiagnosisName(step1.diagnoses.join(", "));
+      setS3Meds(validMeds.map((m) => ({ ...m })));
+      setS3DailySlots({});
+      setS3ShowDirectInput({});
+      setS3DirectInputVal({});
+      setScreen("step3");
+      window.scrollTo(0, 0);
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : "가이드 저장에 실패했습니다.", "err");
+    }
+  };
+
+  // ── STEP3 → generating: AI 생성 ──
+  const generateAI = async () => {
+    if (!createdGuideId) return;
 
     setScreen("generating");
     setElapsed(0);
@@ -163,33 +217,21 @@ export default function NewGuidePage() {
     window.scrollTo(0, 0);
 
     try {
-      // 백엔드 GuideCreateRequest 필드명에 맞춰 전송
-      const payload = {
-        title: title.trim() || null,
-        diagnosis_name: step1.diagnoses.join(", ") || null,
-        hospital_name: step1.hospital_name || null,
-        visit_date: step1.visit_date || null,
-        med_start_date: step1.visit_date, // 진료일을 복약 시작일로 사용
-        medications: validMeds.map((m) => ({
-          medication_name: m.name.trim(),
-          dosage: m.dosage || null,
-          frequency: m.frequency || null,
-          duration_days: m.duration_days ? parseInt(m.duration_days) : null,
-          timing: m.time_slots[0] ?? null, // 첫 번째 시점을 timing으로
-        })),
-      };
+      // step3에서 수정한 기본정보 PATCH
+      await apiClient.patch(`/api/v1/guides/${createdGuideId}`, {
+        title: s3Title || undefined,
+        hospital_name: s3HospitalName || undefined,
+        diagnosis_name: s3DiagnosisName || undefined,
+        visit_date: s3VisitDate || undefined,
+      });
 
-      const { data: guideData } = await apiClient.post("/api/v1/guides", payload);
-      const guideId: number = (guideData.data ?? guideData).guide_id;
-
-      await apiClient.post(`/api/v1/guides/${guideId}/ai-generate`, { result_types: null });
-
+      await apiClient.post(`/api/v1/guides/${createdGuideId}/ai-generate`, { result_types: null });
       clearInterval(t);
-      router.replace(`/guide/${guideId}`);
+      router.replace(`/guide/${createdGuideId}`);
     } catch (e: unknown) {
       clearInterval(t);
-      showToast(e instanceof Error ? e.message : "가이드 생성에 실패했습니다.", "err");
-      setScreen("step2");
+      showToast(e instanceof Error ? e.message : "AI 가이드 생성에 실패했습니다.", "err");
+      setScreen("step3");
     }
   };
 
@@ -483,7 +525,189 @@ export default function NewGuidePage() {
               ← 이전
             </button>
             <button
-              onClick={generate}
+              onClick={goStep3}
+              className="flex-1 rounded-xl py-3 text-sm font-semibold text-white transition"
+              style={{ background: "linear-gradient(135deg, #14b8a6, #06b6d4)", boxShadow: "0 0 20px rgba(20,184,166,0.3)" }}
+            >
+              다음 →
+            </button>
+          </div>
+        </div>
+        {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+      </div>
+    );
+  }
+
+  // ── SCREEN: STEP3 확인 화면 ───────────────────────────────
+  if (screen === "step3") {
+    return (
+      <div className="mx-auto max-w-xl px-4 py-8 pb-24 lg:pb-8">
+        <StepBar current={3} />
+        <h1 className="mb-1 text-xl font-bold text-foreground">정보 확인</h1>
+        <p className="mb-6 text-sm text-muted-foreground">입력한 정보를 확인하고 AI 가이드를 생성하세요</p>
+
+        <div className="space-y-5">
+          {/* 기본 정보 */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h2 className="mb-4 text-sm font-semibold text-teal-500">🏥 기본 정보</h2>
+            <div className="space-y-3">
+              {([
+                { label: "가이드 제목", value: s3Title, setter: setS3Title, placeholder: "가이드 제목" },
+                { label: "병원명", value: s3HospitalName, setter: setS3HospitalName, placeholder: "병원명 입력" },
+                { label: "진료일", value: s3VisitDate, setter: setS3VisitDate, placeholder: "YYYY-MM-DD", type: "date" },
+                { label: "진단명", value: s3DiagnosisName, setter: setS3DiagnosisName, placeholder: "진단명 입력" },
+              ] as { label: string; value: string; setter: (v: string) => void; placeholder: string; type?: string }[]).map(({ label, value, setter, placeholder, type }) => (
+                <div key={label} className="flex items-center gap-3">
+                  <span className="w-20 shrink-0 text-xs text-muted-foreground">{label}</span>
+                  <input
+                    type={type ?? "text"}
+                    value={value}
+                    onChange={(e) => setter(e.target.value)}
+                    placeholder={placeholder}
+                    className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 약물 목록 */}
+          {s3Meds.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h2 className="mb-4 text-sm font-semibold text-teal-500">💊 처방 약물</h2>
+              <div className="space-y-5">
+                {s3Meds.map((med, idx) => (
+                  <div key={med.id} className="rounded-lg border border-border bg-background p-4">
+                    {/* 약품명 */}
+                    <div className="mb-3">
+                      <p className="mb-1 text-[10px] text-muted-foreground">약품명</p>
+                      <input
+                        value={med.name}
+                        onChange={(e) => setS3Meds((p) => p.map((m, i) => i === idx ? { ...m, name: e.target.value } : m))}
+                        className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm font-semibold text-foreground focus:border-teal-500/50 focus:outline-none"
+                        placeholder="약품명"
+                      />
+                    </div>
+
+                    {/* 용량 / 횟수 / 기간 */}
+                    <div className="mb-3 grid grid-cols-3 gap-2">
+                      {(["dosage", "frequency", "duration_days"] as const).map((field) => {
+                        const labels: Record<string, string> = { dosage: "투약량", frequency: "복용횟수", duration_days: "투약일수" };
+                        return (
+                          <div key={field}>
+                            <p className="mb-1 text-[10px] text-muted-foreground">{labels[field]}</p>
+                            <input
+                              type={field === "duration_days" ? "number" : "text"}
+                              value={med[field]}
+                              onChange={(e) => setS3Meds((p) => p.map((m, i) => i === idx ? { ...m, [field]: e.target.value } : m))}
+                              className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs text-foreground focus:border-teal-500/50 focus:outline-none"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* 복약 시간대 */}
+                    <div className="mb-3">
+                      <p className="mb-1.5 text-[10px] text-muted-foreground">복약 시간대</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {DAILY_SLOTS.map((slot) => {
+                          const active = (s3DailySlots[idx] ?? []).includes(slot);
+                          return (
+                            <button
+                              key={slot}
+                              type="button"
+                              onClick={() => setS3DailySlots((p) => {
+                                const cur = p[idx] ?? [];
+                                return { ...p, [idx]: active ? cur.filter((s) => s !== slot) : [...cur, slot] };
+                              })}
+                              className="flex items-center gap-1 rounded-lg border px-3 py-1 text-xs transition"
+                              style={{
+                                borderColor: active ? "#14b8a6" : undefined,
+                                backgroundColor: active ? "rgba(20,184,166,0.15)" : undefined,
+                                color: active ? "#14b8a6" : undefined,
+                              }}
+                            >
+                              <span>{active ? "☑" : "□"}</span>{slot}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 복용시점 */}
+                    <div>
+                      <p className="mb-1.5 text-[10px] text-muted-foreground">복용시점</p>
+                      {!med.time_slots[0] && (
+                        <p className="mb-1.5 text-xs text-orange-400">⚠️ 미확인 — 아래에서 선택하세요</p>
+                      )}
+                      <div className="flex flex-wrap gap-1.5">
+                        {TIMING_OPTIONS.map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => {
+                              setS3Meds((p) => p.map((m, i) => i === idx ? { ...m, time_slots: [opt] } : m));
+                              setS3ShowDirectInput((p) => ({ ...p, [idx]: false }));
+                            }}
+                            className="rounded-lg border px-3 py-1 text-xs transition"
+                            style={{
+                              borderColor: med.time_slots[0] === opt ? "#14b8a6" : undefined,
+                              backgroundColor: med.time_slots[0] === opt ? "rgba(20,184,166,0.15)" : undefined,
+                              color: med.time_slots[0] === opt ? "#14b8a6" : undefined,
+                            }}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setS3ShowDirectInput((p) => ({ ...p, [idx]: !p[idx] }))}
+                          className="rounded-lg border border-border px-3 py-1 text-xs text-muted-foreground transition hover:border-teal-500/40 hover:text-foreground"
+                        >
+                          직접입력
+                        </button>
+                      </div>
+                      {s3ShowDirectInput[idx] && (
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            value={s3DirectInputVal[idx] ?? ""}
+                            onChange={(e) => setS3DirectInputVal((p) => ({ ...p, [idx]: e.target.value }))}
+                            placeholder="복용시점 직접 입력"
+                            className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-teal-500/50 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setS3Meds((p) => p.map((m, i) => i === idx ? { ...m, time_slots: [s3DirectInputVal[idx] ?? ""] } : m));
+                              setS3ShowDirectInput((p) => ({ ...p, [idx]: false }));
+                            }}
+                            className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs text-white hover:bg-teal-500"
+                          >
+                            확인
+                          </button>
+                        </div>
+                      )}
+                      {med.time_slots[0] && !s3ShowDirectInput[idx] && (
+                        <p className="mt-1.5 text-xs text-teal-400">선택됨: {med.time_slots[0]}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 버튼 */}
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={() => { setScreen("step2"); window.scrollTo(0, 0); }}
+              className="flex-1 rounded-xl border border-border py-3 text-sm text-muted-foreground transition hover:border-teal-500/30 hover:text-foreground"
+            >
+              ← 이전
+            </button>
+            <button
+              onClick={generateAI}
               className="flex-1 rounded-xl py-3 text-sm font-semibold text-white transition"
               style={{ background: "linear-gradient(135deg, #14b8a6, #06b6d4)", boxShadow: "0 0 20px rgba(20,184,166,0.3)" }}
             >

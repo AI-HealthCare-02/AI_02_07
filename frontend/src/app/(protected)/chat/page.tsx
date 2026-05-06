@@ -18,6 +18,7 @@ interface ChatMessage {
   content: string;
   filterResult: "PASS" | "DOMAIN" | "EMERGENCY" | null;
   createdAt: string;
+  hasBrandDisclaimer?: boolean;
 }
 
 function Spinner({ size = 20 }: { size?: number }) {
@@ -151,6 +152,15 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         >
           <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
         </div>
+        {msg.hasBrandDisclaimer && (
+          <div className="flex items-center gap-1.5 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-[11px] text-yellow-400">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            브랜드·제품 정보는 100% 정확하지 않을 수 있습니다. 구매 전 반드시 확인하세요.
+          </div>
+        )}
         <BookmarkButton messageId={msg.messageId} />
       </div>
     </div>
@@ -184,6 +194,10 @@ export default function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // 현재 화면에 표시 중인 방 ID (ref — 스트림 클로저에서 참조)
   const activeRoomIdRef = useRef<number | null>(null);
+  // 진행 중인 스트림 제어
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const streamMessageIdRef = useRef<number | null>(null);
+  const streamUserMsgIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (_hasHydrated && !isAuthenticated) router.replace("/login");
@@ -338,8 +352,11 @@ export default function ChatPage() {
 
     const accessToken = localStorage.getItem("access_token");
     const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-    // 이 스트림이 시작된 방 ID — 클로저로 캡처
     const streamRoomId = roomId;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    streamUserMsgIdRef.current = tempUserMsg.messageId;
+    streamMessageIdRef.current = null;
 
     try {
       const res = await fetch(`${BASE_URL}/api/v1/chat/send`, {
@@ -349,6 +366,7 @@ export default function ChatPage() {
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({ sessionId: roomId, message: text }),
+        signal: controller.signal,
       });
 
       if (!res.ok || !res.body) throw new Error("SSE 연결 실패");
@@ -358,7 +376,7 @@ export default function ChatPage() {
       let aiContent = "";
       let aiMsgAdded = false;
 
-      const processLine = (line: string) => {
+      const processLine = (line: string, eventType = "") => {
         // 방이 바뀌었어도 processLine은 계속 실행 — UI 반영만 건너뜀
         const isCurrentRoom = activeRoomIdRef.current === streamRoomId;
         if (!line.startsWith("data:")) return;
@@ -368,9 +386,21 @@ export default function ChatPage() {
         try {
           const parsed = JSON.parse(raw);
 
+          // 브랜드 면책 이벤트: 해당 메시지에 hasBrandDisclaimer 플래그 설정
+          if (eventType === "brand_disclaimer") {
+            if (isCurrentRoom && parsed.messageId !== undefined) {
+              setMessages((prev) => prev.map((m) =>
+                m.messageId === parsed.messageId ? { ...m, hasBrandDisclaimer: true } : m
+              ));
+            }
+            return;
+          }
+
           if (parsed.token !== undefined) {
             aiContent += parsed.token;
-            if (!isCurrentRoom) return; // 다른 방이면 UI 반영 안 함
+            // 스트리밍 중 [BRAND_DISCLAIMER] 태그가 흘러오면 content에서 제거
+            const displayContent = aiContent.replace("[BRAND_DISCLAIMER]", "").trimEnd();
+            if (!isCurrentRoom) return;
             setAiTyping(false);
             if (!aiMsgAdded) {
               aiMsgAdded = true;
@@ -379,7 +409,7 @@ export default function ChatPage() {
                 {
                   messageId: Date.now() + 1,
                   senderTypeCode: "ASSISTANT",
-                  content: aiContent,
+                  content: displayContent,
                   filterResult: "PASS",
                   createdAt: new Date().toISOString(),
                 },
@@ -387,13 +417,14 @@ export default function ChatPage() {
             } else {
               setMessages((prev) => {
                 const next = [...prev];
-                next[next.length - 1] = { ...next[next.length - 1], content: aiContent };
+                next[next.length - 1] = { ...next[next.length - 1], content: displayContent };
                 return next;
               });
             }
           }
 
           if (parsed.messageId !== undefined && isCurrentRoom) {
+            streamMessageIdRef.current = parsed.messageId;
             setMessages((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
@@ -424,6 +455,7 @@ export default function ChatPage() {
 
       let buffer = "";
       let streamDone = false;
+      let currentEvent = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -432,18 +464,26 @@ export default function ChatPage() {
         buffer = lines.pop() ?? "";
         for (const line of lines) {
           const trimmed = line.trim();
-          // [DONE] 수신 → 스트림 정상 완료, reader 종료
+          if (trimmed.startsWith("event:")) {
+            currentEvent = trimmed.slice(6).trim();
+            continue;
+          }
           if (trimmed === "data: [DONE]") {
             streamDone = true;
             reader.cancel();
             break;
           }
-          processLine(trimmed);
+          processLine(trimmed, currentEvent);
+          if (!trimmed) currentEvent = "";
         }
         if (streamDone) break;
       }
 
-    } catch {
+    } catch (err) {
+      // abort(중지)된 경우 — stopStream에서 이미 UI 정리함, 여기서는 아무것도 안 함
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
       // 현재 방일 때만 에러 메시지 표시
       if (activeRoomIdRef.current === streamRoomId) {
         setAiTyping(false);
@@ -466,6 +506,9 @@ export default function ChatPage() {
         setAiTyping(false);
         inputRef.current?.focus();
       }
+      abortControllerRef.current = null;
+      streamMessageIdRef.current = null;
+      streamUserMsgIdRef.current = null;
       loadRooms();
     }
   };
@@ -475,6 +518,30 @@ export default function ChatPage() {
       e.preventDefault();
       sendMessage();
     }
+  };
+
+  const stopStream = async () => {
+    // 1. fetch SSE 연결 중단
+    abortControllerRef.current?.abort();
+    // 2. 백엔드 cancel API 호출 (스트림 루프 중단 + DB 저장 방지)
+    const msgId = streamMessageIdRef.current;
+    if (msgId) {
+      try { await apiClient.post(`/api/v1/chat/send/${msgId}/cancel`); } catch { /* 무시 */ }
+    }
+    // 3. UI 정리: USER + 부분 ASSISTANT 메시지 제거
+    const userMsgId = streamUserMsgIdRef.current;
+    setMessages((prev) => {
+      let result = userMsgId ? prev.filter((m) => m.messageId !== userMsgId) : [...prev];
+      const last = result[result.length - 1];
+      if (last?.senderTypeCode === "ASSISTANT") result = result.slice(0, -1);
+      return result;
+    });
+    setAiTyping(false);
+    setSending(false);
+    abortControllerRef.current = null;
+    streamMessageIdRef.current = null;
+    streamUserMsgIdRef.current = null;
+    inputRef.current?.focus();
   };
 
   return (
@@ -710,12 +777,19 @@ export default function ChatPage() {
                 }}
               />
               <button
-                onClick={sendMessage}
-                disabled={!input.trim() || sending || aiTyping}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal-600 text-white transition hover:bg-teal-500 disabled:opacity-40"
+                onClick={sending || aiTyping ? stopStream : sendMessage}
+                disabled={sending || aiTyping ? false : !input.trim()}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white transition ${
+                  sending || aiTyping
+                    ? "bg-red-500 hover:bg-red-400"
+                    : "bg-teal-600 hover:bg-teal-500 disabled:opacity-40"
+                }`}
+                title={sending || aiTyping ? "응답 중지" : "전송"}
               >
                 {sending || aiTyping ? (
-                  <Spinner size={16} />
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                  </svg>
                 ) : (
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
