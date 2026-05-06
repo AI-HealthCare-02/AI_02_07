@@ -229,23 +229,36 @@ export default function PillDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8 pb-24 lg:pb-8">
-      {/* 헤더 */}
-      <div className="mb-6 flex items-center gap-3">
-        <button onClick={() => router.back()} className="text-muted-foreground transition hover:text-foreground">
-          ←
-        </button>
-        <div className="min-w-0">
-          <h1 className="truncate text-xl font-bold text-foreground">
-            {detail.product_name ?? "알 수 없는 약품"}
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            분석일: {detail.created_at.slice(0, 10)}
-            {detail.gpt_model_version && (
-              <span className="ml-2 opacity-60">· {detail.gpt_model_version}</span>
-            )}
-          </p>
+    <div className="mx-auto max-w-2xl px-4 pb-24 lg:pb-8">
+      {/* ── Sticky 헤더 ── */}
+      <div className="sticky top-16 z-30 -mx-4 mb-6 border-b border-border bg-background/95 px-4 pb-3 pt-4 backdrop-blur-sm">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            뒤로
+          </button>
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="inline-flex items-center gap-1 rounded-xl border border-red-500/30 px-2.5 py-1.5 text-xs text-red-400 transition hover:bg-red-500/10"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            삭제
+          </button>
         </div>
+        <h1 className="mt-2 truncate text-lg font-bold text-foreground">
+          {detail.product_name ?? "알 수 없는 약품"}
+        </h1>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          분석일: {detail.created_at.slice(0, 10)}
+          {detail.gpt_model_version && (
+            <span className="ml-2 opacity-60">· {detail.gpt_model_version}</span>
+          )}
+        </p>
       </div>
 
       <div className="space-y-4">

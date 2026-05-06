@@ -49,7 +49,7 @@ function ImageSlotCard({
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs font-semibold text-muted-foreground">
-        💊 알약 {label}
+        알약 {label}
       </p>
       {slot ? (
         <div className="relative overflow-hidden rounded-xl border border-teal-500/40 bg-card">
@@ -74,7 +74,10 @@ function ImageSlotCard({
           onClick={onSelect}
           className="flex h-44 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-card text-muted-foreground transition hover:border-teal-500/50 hover:bg-teal-500/5"
         >
-          <span className="text-3xl">📷</span>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+            <circle cx="12" cy="13" r="4" />
+          </svg>
           <span className="text-xs">클릭하여 선택</span>
           <span className="text-xs opacity-60">JPG · PNG · WEBP</span>
         </button>
@@ -271,7 +274,7 @@ export default function PillPage() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            {t === "analyze" ? "💊 알약 분석" : "📋 분석 기록"}
+            {t === "analyze" ? "알약 분석" : "분석 기록"}
           </button>
         ))}
       </div>
@@ -320,48 +323,54 @@ export default function PillPage() {
               />
 
               <p className="text-xs text-muted-foreground">
-                💡 알약의 각인 문자, 색상, 모양이 잘 보이도록 촬영해주세요.
+                알약의 각인 문자, 색상, 모양이 잘 보이도록 촬영해주세요.
               </p>
 
               {/* 촬영 가이드 */}
               <div className="rounded-xl border border-teal-500/20 bg-teal-500/5 p-4">
-                <p className="mb-3 text-xs font-semibold text-teal-400">📸 정확한 분석을 위한 촬영 가이드</p>
+                <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-teal-400">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" />
+                  </svg>
+                  정확한 분석을 위한 촬영 가이드
+                </div>
                 <div className="space-y-3">
-                  <div className="flex gap-3">
-                    <span className="mt-0.5 shrink-0 text-base">✅</span>
-                    <div>
-                      <p className="text-xs font-medium text-foreground">각인이 선명하게 보이도록</p>
-                      <p className="text-xs text-muted-foreground">알약 표면의 글자·숫자가 또렷하게 찍히도록 가까이서 촬영하세요.</p>
+                  {[
+                    { ok: true,  title: "각인이 선명하게 보이도록",   desc: "알약 표면의 글자·숫자가 또렷하게 찍히도록 가까이서 촬영하세요." },
+                    { ok: true,  title: "밝은 곳에서 촬영",           desc: "자연광이나 밝은 조명 아래에서 그림자 없이 촬영하면 인식률이 높아집니다." },
+                    { ok: true,  title: "한 장에 알약 하나만",         desc: "여러 알약이 함께 찍히면 분석이 실패합니다. 분석할 알약 하나만 촬영하세요." },
+                    { ok: true,  title: "업로드 방법 3가지",           desc: "① 앞면만 업로드  ② 앞면 + 뒷면 각각 업로드 (권장)  ③ 앞뒤가 모두 보이는 사진 1장 업로드" },
+                    { ok: false, title: "이런 이미지는 인식이 어려워요", desc: "흔들린 사진 · 각인이 가려진 사진 · 너무 어두운 사진 · 알약이 아닌 이미지" },
+                  ].map(({ ok, title, desc }) => (
+                    <div key={title} className="flex gap-3">
+                      <span className="mt-0.5 shrink-0">
+                        {ok ? (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                        )}
+                      </span>
+                      <div>
+                        <p className="text-xs font-medium text-foreground">{title}</p>
+                        <p className="text-xs text-muted-foreground">{desc}</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="mt-0.5 shrink-0 text-base">✅</span>
-                    <div>
-                      <p className="text-xs font-medium text-foreground">밝은 곳에서 촬영</p>
-                      <p className="text-xs text-muted-foreground">자연광이나 밝은 조명 아래에서 그림자 없이 촬영하면 인식률이 높아집니다.</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="mt-0.5 shrink-0 text-base">✅</span>
-                    <div>
-                      <p className="text-xs font-medium text-foreground">한 장에 알약 하나만</p>
-                      <p className="text-xs text-muted-foreground">여러 알약이 함께 찍히면 분석이 실패합니다. 분석할 알약 하나만 촬영하세요.</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="mt-0.5 shrink-0 text-base">✅</span>
-                    <div>
-                      <p className="text-xs font-medium text-foreground">업로드 방법 3가지</p>
-                      <p className="text-xs text-muted-foreground">① 앞면만 업로드 &nbsp;② 앞면 + 뒷면 각각 업로드 (권장) &nbsp;③ 앞뒤가 모두 보이는 사진 1장 업로드</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="mt-0.5 shrink-0 text-base">❌</span>
-                    <div>
-                      <p className="text-xs font-medium text-foreground">이런 이미지는 인식이 어려워요</p>
-                      <p className="text-xs text-muted-foreground">흔들린 사진 · 각인이 가려진 사진 · 너무 어두운 사진 · 알약이 아닌 이미지</p>
-                    </div>
-                  </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 데이터 출처 */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <p className="text-xs font-semibold text-muted-foreground">데이터 출처 및 분석 방식</p>
+                </div>
+                <div className="space-y-1.5 text-xs text-muted-foreground">
+                  <p>· 식품의약품안전처 의약품 낱알 식별 정보 DB (~32,000개 약품)</p>
+                  <p>· GPT Vision으로 각인·색상·모양을 분석 후 pgvector 유사도 검색으로 매칭</p>
+                  <p>· AI 분석 결과는 참고용이며, 정확한 약품 확인은 약사에게 문의하세요.</p>
                 </div>
               </div>
 
@@ -379,7 +388,11 @@ export default function PillPage() {
           {step === "analyzing" && (
             <div className="flex min-h-[60vh] flex-col items-center justify-center gap-8 text-center">
               <div>
-                <div className="mb-4 animate-pulse text-5xl">🔄</div>
+                <div className="mb-4 flex justify-center animate-spin text-teal-400">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                </div>
                 <h2 className="text-xl font-bold text-foreground">
                   AI 분석 중...
                 </h2>
@@ -414,8 +427,14 @@ export default function PillPage() {
                   const active = !done && elapsedSec >= s.doneAt - 5;
                   return (
                     <div key={s.label} className="flex items-center gap-3 text-sm">
-                      <span className="text-base">
-                        {done ? "✅" : active ? "🔄" : "⏳"}
+                      <span className="shrink-0">
+                        {done ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                        ) : active ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground"><circle cx="12" cy="12" r="10" /></svg>
+                        )}
                       </span>
                       <span className={done ? "text-foreground" : "text-muted-foreground"}>
                         {s.label}
@@ -432,14 +451,18 @@ export default function PillPage() {
           {step === "unidentified" && (
             <div className="space-y-5">
               <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-6 text-center">
-                <div className="mb-3 text-5xl">🔍</div>
+                <div className="mb-3 flex justify-center text-yellow-500">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                </div>
                 <h2 className="text-xl font-bold text-foreground">알약을 식별할 수 없습니다</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {unidentifiedReason ?? "DB에서 일치하는 약품을 찾지 못했습니다."}
                 </p>
               </div>
               <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-                <p className="mb-2 font-medium text-foreground">💡 식별 실패 시 확인사항</p>
+                <p className="mb-2 font-medium text-foreground">식별 실패 시 확인사항</p>
                 <ul className="list-inside list-disc space-y-1 text-xs">
                   <li>각인 문자가 선명하게 보이도록 촬영해주세요.</li>
                   <li>한 이미지에 하나의 알약만 촬영해주세요.</li>
@@ -459,7 +482,11 @@ export default function PillPage() {
           {step === "done" && (
             <div className="space-y-5">
               <div className="rounded-xl border border-teal-500/30 bg-teal-500/5 p-6 text-center">
-                <div className="mb-3 text-5xl">✅</div>
+                <div className="mb-3 flex justify-center text-teal-400">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
                 <h2 className="text-xl font-bold text-foreground">
                   분석이 완료되었습니다!
                 </h2>
@@ -470,9 +497,7 @@ export default function PillPage() {
 
               {/* 업로드한 이미지 미리보기 */}
               <div className="rounded-xl border border-border bg-card p-5">
-                <p className="mb-3 text-sm font-semibold text-teal-500">
-                  📷 업로드한 이미지
-                </p>
+                <p className="mb-3 text-sm font-semibold text-teal-500">업로드한 이미지</p>
                 <div className="grid grid-cols-2 gap-3">
                   {[front, back].map((slot) =>
                     slot ? (
@@ -515,7 +540,11 @@ export default function PillPage() {
           {step === "failed" && (
             <div className="space-y-5">
               <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 text-center">
-                <div className="mb-3 text-5xl">❌</div>
+                <div className="mb-3 flex justify-center text-red-400">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
+                  </svg>
+                </div>
                 <h2 className="text-xl font-bold text-foreground">
                   분석에 실패했습니다
                 </h2>
@@ -533,9 +562,7 @@ export default function PillPage() {
 
               {/* 업로드한 이미지 미리보기 */}
               <div className="rounded-xl border border-border bg-card p-5">
-                <p className="mb-3 text-sm font-semibold text-muted-foreground">
-                  📷 업로드한 이미지
-                </p>
+                <p className="mb-3 text-sm font-semibold text-muted-foreground">업로드한 이미지</p>
                 <div className="grid grid-cols-2 gap-3">
                   {[front, back].map((slot) =>
                     slot ? (
@@ -556,9 +583,7 @@ export default function PillPage() {
               </div>
 
               <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-                <p className="mb-2 font-medium text-foreground">
-                  💡 분석 실패 시 확인사항
-                </p>
+                <p className="mb-2 font-medium text-foreground">분석 실패 시 확인사항</p>
                 <ul className="list-inside list-disc space-y-1 text-xs">
                   <li>알약이 화면 중앙에 선명하게 찍혔는지 확인하세요.</li>
                   <li>각인 문자가 보이도록 밝은 곳에서 촬영하세요.</li>

@@ -131,7 +131,7 @@ export default function TabReminder({
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold text-foreground">⏰ {reminder.reminder_time}</p>
+              <p className="text-sm font-semibold text-foreground">{reminder.reminder_time}</p>
               <p className="text-xs text-muted-foreground">
                 {REPEAT_LABEL[reminder.repeat_type] ?? reminder.repeat_type}
                 {reminder.is_browser_noti && " · 브라우저 알림"}
@@ -141,14 +141,20 @@ export default function TabReminder({
             </div>
             <button
               onClick={handleToggle}
-              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${reminder.is_active ? "bg-teal-500" : "bg-muted"}`}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${reminder.is_active ? "bg-teal-500" : "bg-muted"}`}
             >
-              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${reminder.is_active ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${reminder.is_active ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>
           <div className="flex gap-3">
-            <button onClick={() => { setForm({ reminder_time: reminder.reminder_time.slice(0, 5), repeat_type: reminder.repeat_type, custom_days: reminder.custom_days ?? [], is_browser_noti: reminder.is_browser_noti, is_email_noti: reminder.is_email_noti, is_kakao_noti: reminder.is_kakao_noti }); setShowForm(true); }} className="text-xs text-muted-foreground hover:text-teal-400">✏️ 수정</button>
-            <button onClick={handleDelete} className="text-xs text-muted-foreground hover:text-red-400">🗑 삭제</button>
+            <button onClick={() => { setForm({ reminder_time: reminder.reminder_time.slice(0, 5), repeat_type: reminder.repeat_type, custom_days: reminder.custom_days ?? [], is_browser_noti: reminder.is_browser_noti, is_email_noti: reminder.is_email_noti, is_kakao_noti: reminder.is_kakao_noti }); setShowForm(true); }} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-teal-400">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              수정
+            </button>
+            <button onClick={handleDelete} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-red-400">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+              삭제
+            </button>
           </div>
         </div>
       ) : (
@@ -163,7 +169,7 @@ export default function TabReminder({
           onClick={() => setShowForm(true)}
           className="w-full rounded-xl border border-teal-500/40 py-2.5 text-xs text-teal-400 transition hover:bg-teal-500/10"
         >
-          {reminder ? "✏️ 알림 수정" : "+ 알림 등록"}
+          {reminder ? "알림 수정" : "+ 알림 등록"}
         </button>
       )}
 

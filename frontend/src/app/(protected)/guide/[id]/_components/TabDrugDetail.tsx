@@ -139,7 +139,7 @@ export default function TabDrugDetail({
 
       {/* AI 생성 약물 상세 */}
       <div className="rounded-2xl border border-border bg-card p-5">
-        <p className="mb-3 text-xs font-semibold text-teal-400">💬 AI 생성 약물 가이드</p>
+        <p className="mb-3 text-xs font-semibold text-teal-400">AI 생성 약물 가이드</p>
         {loading ? (
           <div className="flex justify-center py-6">
             <span className="h-5 w-5 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-400" />
@@ -177,7 +177,7 @@ export default function TabDrugDetail({
             )}
             {Array.isArray(drugDetail.faq) && drugDetail.faq.length > 0 && (
               <div>
-                <p className="mb-2 text-xs font-semibold text-foreground">💬 자주 묻는 질문</p>
+                <p className="mb-2 text-xs font-semibold text-foreground">자주 묻는 질문</p>
                 <div className="space-y-2">
                   {(drugDetail.faq as {q: string; a: string}[]).map((f, i) => (
                     <div key={i} className="rounded-xl border border-border p-3">
@@ -211,7 +211,7 @@ export default function TabDrugDetail({
       {/* RT_LIFESTYLE 생활습관 가이드 */}
       {lifestyleItems.length > 0 && (
         <div className="rounded-2xl border border-border bg-card p-5">
-          <p className="mb-3 text-xs font-semibold text-teal-400">🌿 생활습관 가이드</p>
+          <p className="mb-3 text-xs font-semibold text-teal-400">생활습관 가이드</p>
           <div className="space-y-3">
             {lifestyleItems.map((item, i) => (
               <div key={i} className="rounded-xl border border-border p-3">

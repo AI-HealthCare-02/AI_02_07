@@ -118,6 +118,9 @@ export default function Header() {
   const activeColor = "#14b8a6";
   const inactiveColor = theme === "dark" ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.45)";
 
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
+
   return (
     <>
       {/* ── 상단 헤더 (fixed) ── */}
@@ -143,7 +146,7 @@ export default function Header() {
                 key={item.href}
                 href={item.href}
                 className={`cursor-pointer text-sm font-medium tracking-wide transition-colors ${
-                  pathname === item.href ? "text-teal-400" : "text-muted-foreground hover:text-foreground"
+                  isActive(item.href) ? "text-teal-400" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {item.label}
@@ -214,18 +217,18 @@ export default function Header() {
         {/* 드로어 nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           {DRAWER_ITEMS.map((item) => {
-            const isActive = pathname === item.href;
+            const active = isActive(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={`mb-1 flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${
-                  isActive
+                  active
                     ? "bg-teal-500/10 text-teal-500"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                <item.Icon size={18} color={isActive ? activeColor : inactiveColor} />
+                <item.Icon size={18} color={active ? activeColor : inactiveColor} />
                 {item.label}
               </Link>
             );
@@ -251,19 +254,19 @@ export default function Header() {
       <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur-xl lg:hidden">
         <div className="flex h-16 items-center justify-around">
           {NAV_ITEMS.map((item) => {
-            const isActive = pathname === item.href;
+            const active = isActive(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className="flex flex-1 cursor-pointer flex-col items-center justify-center gap-1 py-2"
               >
-                <span style={{ filter: isActive ? "drop-shadow(0 0 6px rgba(20,184,166,0.7))" : "none" }}>
-                  <item.Icon size={20} color={isActive ? activeColor : inactiveColor} />
+                <span style={{ filter: active ? "drop-shadow(0 0 6px rgba(20,184,166,0.7))" : "none" }}>
+                  <item.Icon size={20} color={active ? activeColor : inactiveColor} />
                 </span>
                 <span
                   className="text-[10px] font-medium transition-colors"
-                  style={{ color: isActive ? activeColor : inactiveColor }}
+                  style={{ color: active ? activeColor : inactiveColor }}
                 >
                   {item.label}
                 </span>

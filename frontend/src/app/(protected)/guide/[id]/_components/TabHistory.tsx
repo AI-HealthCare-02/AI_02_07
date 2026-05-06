@@ -105,7 +105,7 @@ export default function TabHistory({ guideId }: { guideId: number }) {
       <div className="rounded-2xl border border-border bg-card p-4">
         <div className="mb-4 flex items-center justify-between">
           <button onClick={prevMonth} className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40">◀</button>
-          <p className="text-sm font-semibold text-foreground">📅 {year}년 {month + 1}월</p>
+          <p className="text-sm font-semibold text-foreground">{year}년 {month + 1}월</p>
           <button onClick={nextMonth} className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40">▶</button>
         </div>
 
@@ -151,7 +151,7 @@ export default function TabHistory({ guideId }: { guideId: number }) {
 
       {/* 복약 기록 히스토리 */}
       <div className="rounded-2xl border border-border bg-card p-4">
-        <p className="mb-3 text-sm font-semibold text-foreground">📋 복약 기록</p>
+        <p className="mb-3 text-sm font-semibold text-foreground">복약 기록</p>
         {histLoading ? (
           <div className="flex justify-center py-6">
             <span className="h-5 w-5 animate-spin rounded-full border-2 border-teal-500/30 border-t-teal-400" />
@@ -163,8 +163,12 @@ export default function TabHistory({ guideId }: { guideId: number }) {
             <div className="divide-y divide-border">
               {histData.items.map((item) => (
                 <div key={item.check_id} className="flex items-center gap-3 py-2.5">
-                  <span className={`text-base ${item.is_taken ? "text-teal-400" : "text-muted-foreground"}`}>
-                    {item.is_taken ? "✅" : "⬜"}
+                  <span className={`flex items-center ${item.is_taken ? "text-teal-400" : "text-muted-foreground"}`}>
+                    {item.is_taken ? (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                    )}
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-sm text-foreground">{item.medication_name}</p>
